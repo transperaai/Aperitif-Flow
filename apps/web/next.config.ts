@@ -1,0 +1,86 @@
+import path from "node:path";
+import { withSentryConfig } from "@sentry/nextjs/config";
+import type { NextConfig } from "next";
+
+// Next loads this file as CommonJS (so `__dirname` is the project directory);
+// under Node's native TypeScript loader it is ESM, and the build runs from here.
+const projectDir = typeof __dirname === "string" ? __dirname : process.cwd();
+const monorepoRoot = path.join(projectDir, "../..");
+
+/** Sent with every response (security review). Exported for the test that checks them. */
+export const SECURITY_HEADERS = [
+  { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+];
+
+const nextConfig: NextConfig = {
+  transpilePackages: ["@transpera-flow/engine", "@transpera-flow/db", "@transpera-flow/mcp"],
+  // Trace from the monorepo root: the pnpm store (node_modules/.pnpm) lives there.
+  outputFileTracingRoot: monorepoRoot,
+  // Every response: no page may be framed by another site (clickjacking; nothing in the app is meant to be embedded), no content-type
+  // sniffing, and a cross-site Referer carries only the origin. The CSP is frame-ancestors alone, so Next's inline scripts are unaffected.
+  // A later entry overrides an earlier one for the same key (Next's rule), so /s/* keeps its stricter Referrer-Policy.
+  headers: async () => [
+    {
+      source: "/:path*",
+      headers: SECURITY_HEADERS,
+    },
+    // A share link's page (B3): the token is in the address, so nothing may leak it (no Referer to other sites), nothing may keep a copy
+    // (no caching), and search engines stay away.
+    {
+      source: "/s/:path*",
+      headers: [
+        { key: "Referrer-Policy", value: "no-referrer" },
+        { key: "Cache-Control", value: "private, no-store" },
+        { key: "X-Robots-Tag", value: "noindex, nofollow" },
+      ],
+    },
+  ],
+  // The Block library's address before it was built (a bookmark of the placeholder still works).
+  redirects: async () => [
+    { source: "/w/:slug/library", destination: "/w/:slug/blocks", permanent: false },
+    // The Forecast became the Sandbox (one scenario model); the query string (?plan=, ?compare=, ?horizon=) carries over.
+    { source: "/w/:slug/forecast", destination: "/w/:slug/sandbox", permanent: false },
+    // Settings is one scrolling page: Set up's two pages, Settings' old sub-pages and Purposes are sections of it, each with an anchor.
+    // A redirect's Location keeps its #fragment and the browser scrolls to it; the query string (Access's ?error=, ?notice=) carries over.
+    { source: "/w/:slug/setup/clients", destination: "/w/:slug/settings#tiers-clients", permanent: false },
+    { source: "/w/:slug/setup/people", destination: "/w/:slug/settings#people-roles", permanent: false },
+    { source: "/w/:slug/settings/clients", destination: "/w/:slug/settings#tiers-clients", permanent: false },
+    { source: "/w/:slug/settings/people", destination: "/w/:slug/settings#people-roles", permanent: false },
+    { source: "/w/:slug/settings/access", destination: "/w/:slug/settings#access", permanent: false },
+    { source: "/w/:slug/settings/purposes", destination: "/w/:slug/settings#purposes", permanent: false },
+  ],
+};
+
+// Source maps are made and uploaded only with all three build variables. Without a token the upload can't happen, and the SDK would
+// otherwise leave the maps it turned on (productionBrowserSourceMaps) in the public build.
+const sourceMaps = Boolean(process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT);
+
+/** Sentry (issue #44, ADR 0017): only with a DSN; source maps only with the three build variables, deleted after upload. */
+function withSentry(config: NextConfig): NextConfig {
+  // The browser's Sentry setup is injected here rather than imported by `instrumentation-client.ts` (which every build would include),
+  // so it still runs before hydration with a DSN, and without one the browser gets none of the SDK.
+  const injected = { ...config, instrumentationClientInject: [...(config.instrumentationClientInject ?? []), "./sentry.client.config.ts"] };
+  const wrapped = withSentryConfig(injected, {
+    org: process.env.SENTRY_ORG,
+    project: process.env.SENTRY_PROJECT,
+    authToken: process.env.SENTRY_AUTH_TOKEN,
+    silent: !process.env.CI,
+    telemetry: false,
+    sourcemaps: { disable: !sourceMaps, deleteSourcemapsAfterUpload: true },
+    widenClientFileUpload: false,
+    // The list of the app's routes is for naming navigation spans; tracing is off, so the browser doesn't need it.
+    routeManifestInjection: false,
+    errorHandler: (err) => console.warn(`[sentry] source map upload failed; the build carries on: ${err.message}`),
+  });
+  // The wrapper also has Next write trace ids into every page (`clientTraceMetadata`) for continuing a trace in the browser.
+  // Tracing is off, so they would only be noise in the HTML.
+  const { clientTraceMetadata: _traceMeta, ...experimental } = wrapped.experimental ?? {};
+  void _traceMeta;
+  return { ...wrapped, experimental };
+}
+
+// `next.config.ts` can't use the `@/` alias, so it reads the variables directly (lib/monitoring/env.ts reads the same ones).
+export default process.env.NEXT_PUBLIC_SENTRY_DSN?.trim() ? withSentry(nextConfig) : nextConfig;

@@ -1,0 +1,193 @@
+{
+  "format": "transpera-process/2",
+  "name": "Enquiry to signed client",
+  "kind": "pipeline",
+  "description": "From a new enquiry to a signed engagement letter.",
+  "sources": [
+    {
+      "id": "interview-maya",
+      "title": "Interview with Maya Chen, managing director",
+      "kind": "transcript",
+      "date": "2026-09-30",
+      "speakers": [
+        "Maya Chen",
+        "Interviewer"
+      ],
+      "body": "Interviewer: How long does the first review take?\nMaya Chen: About fifteen minutes an enquiry, and I do it the same day.\nInterviewer: And proposals?\nMaya Chen: Three hours to write, but they sit for a day before I review them. Most of the website enquiries go nowhere, maybe two in three are a fit."
+    },
+    {
+      "id": "sales-sop",
+      "title": "Sales process SOP, version 3",
+      "kind": "notes",
+      "date": "2026-06-01",
+      "speakers": []
+    },
+    {
+      "id": "lead-export",
+      "title": "Lead export, Q3 2026",
+      "kind": "data",
+      "date": "2026-09-30",
+      "speakers": []
+    }
+  ],
+  "steps": [
+    {
+      "id": "enquiry",
+      "name": "Enquiry arrives",
+      "type": "start"
+    },
+    {
+      "id": "review",
+      "name": "Review enquiry",
+      "type": "step",
+      "role": "Managing director",
+      "hands_on_hours": 0.25,
+      "wait_hours": 4,
+      "tool": "HubSpot",
+      "notes": "Checked the same day if it comes in before noon.",
+      "evidence": {
+        "hands_on_hours": [
+          {
+            "source": "interview-maya",
+            "speaker": "Maya Chen",
+            "time": "00:02:10",
+            "quote": "About fifteen minutes an enquiry, and I do it the same day.",
+            "value": 0.25
+          }
+        ]
+      },
+      "assumed": {
+        "wait_hours": "Nobody gave a wait; four hours is the half-day the SOP allows."
+      }
+    },
+    {
+      "id": "call",
+      "name": "Discovery call",
+      "type": "step",
+      "role": "Managing director",
+      "hands_on_hours": 1,
+      "hands_on_range": {
+        "min": 0.5,
+        "max": 1.5
+      },
+      "wait_hours": 24,
+      "rework_rate": 0.1,
+      "assumed": {
+        "hands_on_hours": "The SOP says calls last up to an hour.",
+        "wait_hours": "A day to book, from the SOP's 'next working day'.",
+        "rework_rate": "A rough one in ten; nobody measured it."
+      }
+    },
+    {
+      "id": "proposal",
+      "name": "Write proposal",
+      "type": "step",
+      "role": "Account manager",
+      "hands_on_hours": 3,
+      "wait_hours": 24,
+      "waiting_now": 2,
+      "split": {
+        "automatable": 0.2,
+        "augmentable": 0.5,
+        "manual": 0.3
+      },
+      "split_notes": {
+        "automatable": "Pull the scope and prices from the template",
+        "augmentable": "Draft the approach",
+        "manual": "Check it fits what the client asked for"
+      },
+      "sources": {
+        "work": "interview",
+        "split": "estimate"
+      },
+      "evidence": {
+        "hands_on_hours": [
+          {
+            "source": "interview-maya",
+            "speaker": "Maya Chen",
+            "time": "00:06:40",
+            "quote": "Three hours to write, but they sit for a day before I review them.",
+            "value": 3
+          }
+        ],
+        "wait_hours": [
+          {
+            "source": "interview-maya",
+            "speaker": "Maya Chen",
+            "time": "00:06:40",
+            "quote": "they sit for a day before I review them",
+            "value": 24
+          }
+        ]
+      }
+    },
+    {
+      "id": "decides",
+      "name": "Client decides",
+      "type": "decision"
+    },
+    {
+      "id": "signed",
+      "name": "Client signs",
+      "type": "end"
+    },
+    {
+      "id": "declined",
+      "name": "Client declines",
+      "type": "end"
+    },
+    {
+      "id": "unqualified",
+      "name": "Not a fit",
+      "type": "end"
+    }
+  ],
+  "links": [
+    {
+      "from": "enquiry",
+      "to": "review"
+    },
+    {
+      "from": "review",
+      "to": "call",
+      "probability": 0.67,
+      "label": "Qualified",
+      "evidence": [
+        {
+          "source": "interview-maya",
+          "speaker": "Maya Chen",
+          "time": "00:08:15",
+          "quote": "maybe two in three are a fit",
+          "value": 0.67
+        }
+      ]
+    },
+    {
+      "from": "review",
+      "to": "unqualified",
+      "probability": 0.33,
+      "label": "Not a fit"
+    },
+    {
+      "from": "call",
+      "to": "proposal"
+    },
+    {
+      "from": "proposal",
+      "to": "decides"
+    },
+    {
+      "from": "decides",
+      "to": "signed",
+      "probability": 0.6,
+      "label": "Signs",
+      "assumed": "No data on win rate yet; 60% is the figure the SOP plans around."
+    },
+    {
+      "from": "decides",
+      "to": "declined",
+      "probability": 0.4,
+      "label": "Declines"
+    }
+  ]
+}

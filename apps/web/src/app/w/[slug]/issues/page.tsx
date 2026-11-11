@@ -1,0 +1,62 @@
+import { notFound } from "next/navigation";
+import { createProcess } from "@/app/w/[slug]/process-actions";
+import { NotPublished } from "@/components/shell/not-published";
+import { Page } from "@/components/shell/page";
+import { IssuesPage } from "@/components/issues-page";
+import { canEditWorkspace } from "@/lib/access-data";
+import { loadLiveProcess, loadProcessNames, loadPublishState, loadWorkspaceIssues, loadWorkspaceLiveRevisionIds, loadWorkspaceScenarios, loadWorkspaceSolutions, loadWorkspaceSources } from "@/lib/data";
+
+const DESCRIPTION = (
+  <>
+    Problems you&apos;ve confirmed, linked to a whole process or to specific steps. Resolved issues stay here with their full history. Each one keeps the rating agreed when it was confirmed.
+  </>
+);
+
+/** The Issues list (A48): the problems people have confirmed, filtered by Open / Resolved / All and rating (both in the URL). The list draws its own header, with + New issue at its right. */
+export default async function WorkspaceIssuesPage(props: PageProps<"/w/[slug]/issues">) {
+  const { slug } = await props.params;
+  const bundle = await loadLiveProcess(slug);
+  if (!bundle) {
+    // Nothing is published (a new client: only the company map, or drafts): there is nothing to rate issues against yet, which is not a missing page.
+    const state = await loadPublishState(slug);
+    if (!state) notFound();
+    const canEdit = await canEditWorkspace(state.workspace.id);
+    return (
+      <Page title="Issues" eyebrow="Improve" description={DESCRIPTION}>
+        <NotPublished
+          what="Issues are problems you log on a published process."
+          canEdit={canEdit}
+          base={`/w/${slug}`}
+          firstDraft={state.firstDraft}
+          create={canEdit ? createProcess.bind(null, state.workspace.id, slug) : undefined}
+        />
+      </Page>
+    );
+  }
+  const ws = bundle.workspace.id;
+  const [canEdit, issues, scenarios, processes, sources, liveRevisions, solutions] = await Promise.all([
+    canEditWorkspace(ws),
+    loadWorkspaceIssues(ws),
+    loadWorkspaceScenarios(ws),
+    loadProcessNames(ws),
+    loadWorkspaceSources(ws),
+    loadWorkspaceLiveRevisionIds(ws),
+    loadWorkspaceSolutions(ws),
+  ]);
+  return (
+    <Page title="Issues" hideHeader>
+      <IssuesPage
+        description={DESCRIPTION}
+        bundle={bundle}
+        issues={issues}
+        scenarios={scenarios}
+        processes={processes}
+        sources={sources}
+        liveRevisions={liveRevisions}
+        solutions={solutions}
+        base={`/w/${slug}`}
+        mode={canEdit ? "live" : "readonly"}
+      />
+    </Page>
+  );
+}

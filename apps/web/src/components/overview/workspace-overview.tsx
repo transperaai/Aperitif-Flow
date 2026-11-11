@@ -1,0 +1,86 @@
+import { notFound } from "next/navigation";
+import { createProcess } from "@/app/w/[slug]/process-actions";
+import { createUpload, previewUpload } from "@/app/w/[slug]/processes/upload-actions";
+import { Overview } from "@/components/overview/overview";
+import { StartOverview } from "@/components/overview/start-overview";
+import { setupChecklist } from "@/lib/overview/setup";
+import { SourceLinkingScope } from "@/components/sources/linking-scope";
+import { loadLiveProcess, loadWorkspaceHead, loadWorkspaceIssues, loadWorkspaceOverview, loadWorkspaceSetup, loadWorkspaceSolutions, loadWorkspaceSources } from "@/lib/data";
+import { canEditWorkspace } from "@/lib/access-data";
+import { companyMapView } from "@/lib/overview/company-version";
+import { loadCompanyVersion, loadLiveCompany, loadLiveParts } from "@/lib/overview/data";
+import { loadDepartmentLaneInput } from "@/lib/overview/lanes-data";
+import { workspaceIsEmpty } from "@/lib/restore/empty";
+import { getDb } from "@/lib/auth/session";
+import { loadCapacitySetup } from "@transpera-flow/db";
+
+/** The Overview of a workspace (issue #100): the landing page, at `/w/[slug]` and `/w/[slug]/overview`. */
+export async function WorkspaceOverview({ slug, mapVersion = null }: { slug: string; /** `?version=N`: show an earlier version of the company map, read only. */ mapVersion?: number | null }) {
+  const liveBare = await loadLiveProcess(slug);
+  const live = liveBare;
+  if (!live) {
+    // Nothing is published (a new client): the start page. Members and viewers get a plain sentence; counts only go to editors.
+    const head = await loadWorkspaceHead(slug);
+    if (!head) notFound();
+    const [overview, canEdit] = await Promise.all([loadWorkspaceOverview(slug), canEditWorkspace(head.id)]);
+    // The card to restore a backup: only for someone who can, and only while the workspace is empty (drafts count as not empty).
+    const canRestore = canEdit && (await workspaceIsEmpty(await getDb(), head.id));
+    const setup = canEdit ? await loadWorkspaceSetup(head.id) : null;
+    const base = `/w/${slug}`;
+    const unpublished = (overview?.processes ?? []).filter((p) => !p.live);
+    const firstDraft = unpublished.find((p) => p.draft) ?? null;
+    return (
+      <StartOverview
+        slug={slug}
+        name={head.name}
+        canEdit={canEdit}
+        checklist={setup ? setupChecklist(setup, base, firstDraft) : null}
+        drafts={canEdit ? unpublished.map((p) => ({ id: p.id, name: p.name })) : []}
+        companyEditHref={setup?.companyId ? `${base}/p/${setup.companyId}/edit?from=${encodeURIComponent(base)}` : null}
+        create={canEdit ? createProcess.bind(null, head.id, slug) : undefined}
+        upload={canEdit ? { preview: previewUpload.bind(null, head.id, slug), create: createUpload.bind(null, head.id, slug) } : undefined}
+        canRestore={canRestore}
+      />
+    );
+  }
+  const ws = live.workspace.id;
+  const [parts, company, issues, sources, canEdit, solutions, capacitySetup, laneInput] = await Promise.all([
+    loadLiveParts(ws),
+    loadLiveCompany(ws),
+    loadWorkspaceIssues(ws),
+    loadWorkspaceSources(ws),
+    canEditWorkspace(ws),
+    loadWorkspaceSolutions(ws),
+    // Set up's data for the department cards (P6), loaded as the viewer: pay a role can't see never arrives.
+    getDb().then((db) => loadCapacitySetup(db, ws)),
+    // The departments, tier services and servicing links the map's lanes are worked out from (Q4).
+    loadDepartmentLaneInput(ws),
+  ]);
+  const base = `/w/${slug}`;
+  // An earlier version of the company map (only its layout and handoff lines differ); a number that isn't one shows live.
+  const found = company && mapVersion ? await loadCompanyVersion(ws, mapVersion) : null;
+  const view = companyMapView(company, found, canEdit);
+  return (
+    <SourceLinkingScope workspaceId={ws} sources={sources} canEdit={canEdit}>
+    <Overview
+      workspaceName={live.workspace.name}
+      live={live}
+      parts={parts}
+      company={view.map}
+      laneInput={laneInput}
+      viewingMapVersion={view.viewingVersion}
+      issues={issues}
+      mode={canEdit ? "live" : "readonly"}
+      solutions={solutions}
+      hrefs={Object.fromEntries(parts.map((p) => [p.process.id, `${base}/p/${p.process.id}`]))}
+      processesHref={`${base}/processes`}
+      issuesHref={`${base}/issues`}
+      companyEditHref={view.canEdit && company ? `${base}/p/${company.process.id}/edit?from=${encodeURIComponent(base)}` : undefined}
+      companyHistoryHref={company ? `${base}/p/${company.process.id}/history` : undefined}
+      bundleHref={canEdit ? `${base}/export/bundle` : undefined}
+      forecastHref={`${base}/sandbox`}
+      capacity={capacitySetup ? { setup: capacitySetup, base } : null}
+    />
+    </SourceLinkingScope>
+  );
+}

@@ -1,0 +1,738 @@
+"use client";
+
+// Settings, Churn drivers (A56, issue #121; the prototype's Settings screen of the same name): the reasons clients
+// leave, each with a weight and an on/off switch, plus your own. Every row has a Delete: one of your own is deleted for good; a
+// built-in is switched off and taken off the list (`settings.churn_drivers_removed`), and + Add driver puts it back. The simulation measures the ones it can; this section
+// shows each one's value now, its weight and how much of the churn it explains, and projects churn as the weights
+// move (no new simulation: it works from what the latest run measured).
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
+import { ModelError, toEngineModel, type ChurnDriverRow, type ProcessBundle, type Viewer } from "@transpera-flow/db";
+import { CHURN_DRIVER_SPECS, CHURN_WEIGHT_MAX, CHURN_WEIGHT_MIN, CUSTOM_DRIVER_VALUE, equivalentEvents, projectChurn, type ChurnCauses, type EngineModel } from "@transpera-flow/engine";
+import { Help } from "@/components/help";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ConfirmDialog } from "@/components/sandbox/scenario-bar";
+import {
+  CHANCE_HELP,
+  CONTROL_HELP,
+  DRIVER_HELP,
+  MAX_CUSTOM_DRIVERS,
+  NEW_DRIVER_NAME,
+  PRICE_MONTH_HELP,
+  VALUE_HELP,
+  driverStates,
+  engineIdOf,
+  parseDriverPatch,
+  pressureKey,
+  sourceLabel,
+  toEngineDrivers,
+  valueNow,
+  type DriverPatch,
+  type DriverState,
+} from "@/lib/churn-drivers";
+import { useSimulation } from "@/lib/sim/use-simulation";
+import { cn } from "@/lib/utils";
+import { addChurnDriver, removeChurnDriver, saveChurnDriver, saveRemovedDrivers } from "./churn-drivers-actions";
+import { SettingsSection } from "./section";
+
+export type DriversMode = "live" | "readonly" | "demo";
+
+type SaveState = { kind: "idle" } | { kind: "saving" } | { kind: "saved" } | { kind: "error"; message: string };
+
+const SAVE_DELAY_MS = 500;
+
+export function ChurnDriversSettings({
+  mode,
+  workspaceId,
+  bundle,
+  rows,
+  removed: removedStored = null,
+}: {
+  mode: DriversMode;
+  workspaceId: string | null;
+  /** The live process: its model is simulated for what each cause measures now. */
+  bundle: ProcessBundle | null;
+  /** The drivers the workspace has set; a built-in with no row is at its default. */
+  rows: readonly ChurnDriverRow[];
+  /** The built-ins deleted from the list (`settings.churn_drivers_removed`); null: none. */
+  removed?: readonly string[] | null;
+}) {
+  const canEdit = mode !== "readonly";
+  const [states, setStates] = useState<DriverState[]>(() => driverStates(rows));
+  const [save, setSave] = useState<SaveState>({ kind: "idle" });
+  const [adding, setAdding] = useState(false);
+  const nextDemoId = useRef(1);
+  const [removed, setRemoved] = useState<string[]>(() => [...(removedStored ?? [])]);
+  const removedBase = useRef<string[] | null>(removedStored ? [...removedStored] : null);
+  const [confirm, setConfirm] = useState<DriverState | null>(null);
+
+  // Saves: edits to one driver are merged and sent after a short pause, one request at a time per driver.
+  const pending = useRef(new Map<string, DriverPatch>());
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const chains = useRef(new Map<string, Promise<void>>());
+
+  const send = useCallback(
+    (key: string) => {
+      const patch = pending.current.get(key);
+      pending.current.delete(key);
+      timers.current.delete(key);
+      if (!patch || !workspaceId) return;
+      const run = async () => {
+        setSave({ kind: "saving" });
+        try {
+          const out = await saveChurnDriver(workspaceId, key, patch);
+          if (out.status === "saved") {
+            setSave((s) => (pending.current.size || s.kind === "error" ? s : { kind: "saved" }));
+          } else setSave({ kind: "error", message: out.message });
+        } catch {
+          setSave({ kind: "error", message: "Couldn't save. Check your connection and try again." });
+        }
+      };
+      chains.current.set(key, (chains.current.get(key) ?? Promise.resolve()).then(run));
+    },
+    [workspaceId],
+  );
+
+  const change = useCallback(
+    (key: string, patch: DriverPatch) => {
+      const { description, example, name, ...rest } = patch;
+      setStates((all) =>
+        all.map((d) =>
+          d.key === key
+            ? { ...d, ...rest, name: name ?? d.name, description: description === undefined ? d.description : (description ?? ""), example: example === undefined ? d.example : (example ?? "") }
+            : d,
+        ),
+      );
+      if (mode !== "live" || !parseDriverPatch(key, patch)) return;
+      pending.current.set(key, { ...pending.current.get(key), ...patch });
+      const old = timers.current.get(key);
+      if (old) clearTimeout(old);
+      timers.current.set(key, setTimeout(() => send(key), SAVE_DELAY_MS));
+    },
+    [mode, send],
+  );
+
+  // Leaving the page: send what is pending rather than drop it.
+  useEffect(() => {
+    const t = timers.current;
+    return () => {
+      for (const [key, timer] of t) {
+        clearTimeout(timer);
+        send(key);
+      }
+    };
+  }, [send]);
+
+  const add = async () => {
+    if (mode === "demo") {
+      const key = `demo-${nextDemoId.current++}`;
+      setStates((all) => [...all, newCustom(key, null)]);
+      return;
+    }
+    if (!workspaceId) return;
+    setAdding(true);
+    const out = await addChurnDriver(workspaceId).catch(() => null);
+    setAdding(false);
+    if (out?.status === "saved") {
+      setStates((all) => [...all, newCustom(out.rowId, out.rowId)]);
+      setSave({ kind: "saved" });
+    } else setSave({ kind: "error", message: out?.status === "error" ? out.message : "Couldn't add it. Try again." });
+  };
+
+  const deleteOwn = async (d: DriverState) => {
+    if (mode === "live" && workspaceId) {
+      const out = await removeChurnDriver(workspaceId, d.key).catch(() => null);
+      if (out?.status !== "saved") return setSave({ kind: "error", message: out?.status === "error" ? out.message : "Couldn't delete it. Try again." });
+      pending.current.delete(d.key);
+    }
+    setStates((all) => all.filter((x) => x.key !== d.key));
+  };
+
+  /** Take a built-in off the list (switched off too, so the simulation leaves it out), or put it back on (switched on). */
+  const setListed = async (d: DriverState, listed: boolean) => {
+    const next = listed ? removed.filter((k) => k !== d.key) : [...removed.filter((k) => k !== d.key), d.key];
+    setRemoved(next);
+    change(d.key, { enabled: listed });
+    if (mode !== "live" || !workspaceId) return;
+    setSave({ kind: "saving" });
+    const out = await saveRemovedDrivers(workspaceId, removedBase.current, next).catch(() => null);
+    if (out?.status === "saved") {
+      removedBase.current = out.value ? [...out.value] : null;
+      setSave((s) => (pending.current.size || s.kind === "error" ? s : { kind: "saved" }));
+    } else if (out?.status === "conflict") {
+      // Someone else changed the list: theirs, with this change made to it.
+      const theirs = out.theirs ? [...out.theirs] : [];
+      const merged = listed ? theirs.filter((k) => k !== d.key) : [...theirs.filter((k) => k !== d.key), d.key];
+      const again = await saveRemovedDrivers(workspaceId, out.theirs ? [...out.theirs] : null, merged).catch(() => null);
+      if (again?.status === "saved") {
+        removedBase.current = again.value ? [...again.value] : null;
+        setRemoved(merged);
+        setSave({ kind: "saved" });
+      } else setSave({ kind: "error", message: "Couldn't save. Reload the page and try again." });
+    } else setSave({ kind: "error", message: out?.status === "error" ? out.message : "Couldn't save. Try again." });
+  };
+
+  const askDelete = (d: DriverState) => (d.builtin ? void setListed(d, false) : setConfirm(d));
+
+
+  // What each cause measures now: simulated once, and again only when something the measures depend on changes
+  // (an entered number or a driver of your own). Moving a weight or a switch doesn't run anything.
+  const model = useMemo<EngineModel | null>(() => {
+    if (!bundle) return null;
+    try {
+      return toEngineModel(bundle);
+    } catch (err) {
+      if (err instanceof ModelError) return null;
+      throw err;
+    }
+  }, [bundle]);
+  const key = pressureKey(states);
+  const [measured, setMeasured] = useState({ key, states });
+  useEffect(() => {
+    if (key === measured.key) return;
+    const t = setTimeout(() => setMeasured({ key, states }), 700);
+    return () => clearTimeout(t);
+  }, [key, states, measured.key]);
+  const simModel = useMemo(() => (model ? { ...model, churnDrivers: toEngineDrivers(measured.states) } : null), [model, measured]);
+  const sim = useSimulation(simModel);
+  const causes: ChurnCauses | null = sim.run?.result.churnCauses ?? null;
+  const causeOf = (d: DriverState) => causes?.causes.find((c) => c.id === engineIdOf(d));
+
+  const projection = useMemo(
+    () => (causes ? projectChurn(causes, states.map((d) => ({ id: engineIdOf(d), weight: d.weight, enabled: d.enabled, ...(d.effect !== null ? { effect: d.effect / 100, chance: d.chance !== null ? d.chance / 100 : null, months: d.effectMonths ?? 3 } : {}) }))) : null),
+    [causes, states],
+  );
+  const customs = states.filter((d) => !d.builtin).length;
+  const isRemoved = (d: DriverState) => d.builtin !== null && removed.includes(d.key);
+  const shown = states.filter((d) => !isRemoved(d));
+  const deleted = states.filter(isRemoved);
+  const clientCount = model?.activeClients ?? 0;
+
+  return (
+    <SettingsSection
+      id="churn-drivers"
+      band
+      title="Churn drivers"
+      description="Base churn per service is multiplied by these drivers. Weights are your estimates; the simulation measures the drivers marked Measured. Contribution shows how much of the churn in the latest run each driver explains."
+    >
+      {mode === "live" && <SaveStatus state={save} />}
+      {mode === "readonly" && (
+        <p role="note" className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+          Only Agency admins can change the churn drivers. You can see them here.
+        </p>
+      )}
+      {mode === "demo" && (
+        <p role="note" className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+          Demo mode: Northbeam&apos;s sample numbers. Your changes stay in this tab, gone when you reload.
+        </p>
+      )}
+      {save.kind === "error" && (
+        <p role="alert" className="text-sm text-destructive">
+          {save.message}
+        </p>
+      )}
+      {!model && bundle && (
+        <p className="rounded-lg border border-line p-4 text-sm text-muted-foreground">This workspace&apos;s live process can&apos;t be simulated yet, so there is nothing to measure. Fix it on the map first. You can still set the weights.</p>
+      )}
+
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex min-w-56 flex-col gap-1 rounded-lg border border-line p-4">
+          <div className="contents">
+            <span className="flex items-center text-2xs font-semibold tracking-wider text-muted-foreground uppercase">
+              Projected churn
+              <Help label="Projected churn" {...CONTROL_HELP.projected} />
+            </span>
+            <span className="text-3xl font-semibold tabular-nums" aria-live="polite">
+              {projection ? projection.clientsPerMonth.toLocaleString("en-GB", { maximumFractionDigits: 2, minimumFractionDigits: 2 }) : "–"}
+              <small className="ml-1.5 text-sm font-normal text-muted-foreground">clients / month</small>
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {projection
+                ? `with these weights; normal churn alone is ${causes!.baseClientsPerMonth.toLocaleString("en-GB", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}${clientCount ? ` for ${clientCount} clients` : ""}`
+                : sim.status === "error"
+                  ? `The simulation failed: ${sim.error}`
+                  : model
+                    ? "Running the simulation…"
+                    : "no simulation to project from"}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="outline" disabled={!canEdit || adding} data-add-driver>
+                + Add driver
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-64">
+              <DropdownMenuItem data-new-driver disabled={customs >= MAX_CUSTOM_DRIVERS} onSelect={() => void add()}>
+                A driver of your own
+              </DropdownMenuItem>
+              {customs >= MAX_CUSTOM_DRIVERS && <p className="px-1.5 pb-1 text-xs text-muted-foreground">Up to {MAX_CUSTOM_DRIVERS} of your own.</p>}
+              {deleted.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Put back</DropdownMenuLabel>
+                  {deleted.map((d) => (
+                    <DropdownMenuItem key={d.key} data-restore-driver={d.key} onSelect={() => void setListed(d, true)}>
+                      {d.name}
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Help label="Add driver" {...CONTROL_HELP.add} />
+        </div>
+      </div>
+
+      {/* One row a driver; below md each row stacks its cells. */}
+      <div className="overflow-hidden rounded-lg border border-line">
+        <Table aria-label="Churn drivers" aria-busy={sim.status === "running"} className="max-md:block">
+          <TableHeader className="sr-only">
+            <TableRow>
+              <TableHead>Use</TableHead>
+              <TableHead>Driver</TableHead>
+              <TableHead>Weight</TableHead>
+              <TableHead>Contribution</TableHead>
+              <TableHead>Delete</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody className="max-md:block">
+          {shown.map((d) => (
+            <DriverRow
+              key={d.key}
+              d={d}
+              cause={causeOf(d)}
+              model={model}
+              viewer={bundle?.viewer}
+              share={projection ? (projection.shares[engineIdOf(d)] ?? 0) : null}
+              canEdit={canEdit}
+              onChange={(patch) => change(d.key, patch)}
+              onDelete={() => askDelete(d)}
+            />
+          ))}
+          <TableRow className={cn(ROW, "border-t border-line")}>
+            <TableCell className={cn(CELL, "max-md:hidden")} />
+            <TableCell className={CELL}>
+              <span className="flex items-center text-sm font-medium">
+                Normal churn
+                <Help label="Normal churn" {...CONTROL_HELP.normal} />
+              </span>
+            </TableCell>
+            <TableCell className={cn(CELL, "max-md:hidden")} />
+            <TableCell className={CELL}>
+              <Contribution share={projection ? projection.normalShare : null} tone="plain" label="Normal churn" />
+            </TableCell>
+            <TableCell className={cn(CELL, "max-md:hidden")} />
+          </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+      {confirm && (
+        <ConfirmDialog
+          title={`Delete “${confirm.name}”?`}
+          description="Your own driver is deleted for good, with its name, description and numbers."
+          confirm="Delete"
+          cancel="Cancel"
+          destructive
+          onConfirm={() => {
+            const d = confirm;
+            setConfirm(null);
+            void deleteOwn(d);
+          }}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
+    </SettingsSection>
+  );
+}
+
+function newCustom(key: string, rowId: string | null): DriverState {
+  return { key, builtin: null, rowId, name: NEW_DRIVER_NAME, description: "", example: "", weight: 1, enabled: true, value: CUSTOM_DRIVER_VALUE.default, month: null, chance: null, effect: null, effectMonths: null };
+}
+
+function SaveStatus({ state }: { state: SaveState }) {
+  const text = state.kind === "saving" ? "Saving…" : state.kind === "saved" ? "Saved" : "";
+  if (!text) return null;
+  return (
+    <span role="status" className="text-xs text-muted-foreground">
+      {text}
+    </span>
+  );
+}
+
+/** A driver's row: a table row from md up, its cells stacked below. */
+const ROW = "hover:bg-transparent max-md:grid max-md:gap-3 max-md:px-4 max-md:py-3";
+const CELL = "px-4 py-3 align-middle whitespace-normal max-md:block max-md:p-0";
+
+function DriverRow({
+  d,
+  cause,
+  model,
+  viewer,
+  share,
+  canEdit,
+  onChange,
+  onDelete,
+}: {
+  d: DriverState;
+  cause: ChurnCauses["causes"][number] | undefined;
+  model: EngineModel | null;
+  viewer?: Viewer;
+  share: number | null;
+  canEdit: boolean;
+  onChange: (patch: DriverPatch) => void;
+  onDelete: () => void;
+}) {
+  const valueHelp = d.builtin ? VALUE_HELP[d.builtin] : undefined;
+  const range = d.builtin ? CHURN_DRIVER_SPECS[d.builtin].valueRange : { min: CUSTOM_DRIVER_VALUE.min, max: CUSTOM_DRIVER_VALUE.max };
+  const help = d.builtin ? DRIVER_HELP[d.builtin] : { description: d.description || "Your own cause of clients leaving.", example: d.example || "Add an example below." };
+  return (
+    <TableRow className={cn(ROW, "border-t border-line first:border-t-0", !d.enabled && "[&>*:not([data-delete-cell])]:opacity-60")}>
+      <TableCell className={cn(CELL, "w-20")}>
+        <span className="flex items-center">
+          <Switch checked={d.enabled} disabled={!canEdit} onCheckedChange={(on) => onChange({ enabled: on })} aria-label={`Use ${d.name}`} />
+          <Help label={`Use ${d.name}`} {...CONTROL_HELP.switch} />
+        </span>
+      </TableCell>
+
+      <TableCell className={CELL}>
+      <div className="flex min-w-0 flex-col gap-1.5">
+        {d.builtin ? (
+          <span className="flex items-center">
+            <b className="text-sm font-semibold">{d.name}</b>
+            <Help label={d.name} {...help} />
+          </span>
+        ) : (
+          <CustomFields d={d} canEdit={canEdit} onChange={onChange} />
+        )}
+        <span className="text-xs text-muted-foreground">
+          {sourceLabel(d)} · now: {valueNow(d, cause, model, viewer)}
+        </span>
+        {d.builtin !== "tenure" && d.builtin !== "market" && (
+          <ChanceControls d={d} cause={cause} canEdit={canEdit} onChange={onChange} />
+        )}
+        {(valueHelp || !d.builtin) && (
+          <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+            <NumberBox
+              label={valueHelp ? valueHelp.label : "Extra churn at weight 1"}
+              unit={valueHelp ? valueHelp.unit : "%"}
+              help={{ label: valueHelp ? valueHelp.label : "Extra churn", ...(valueHelp ?? CONTROL_HELP.ownValue) }}
+              value={d.value}
+              min={range?.min ?? 0}
+              max={range?.max ?? 100}
+              step={valueHelp?.step ?? 1}
+              disabled={!canEdit}
+              onCommit={(v) => onChange({ value: v })}
+            />
+            {d.builtin === "price" && (
+              <NumberBox
+                label={PRICE_MONTH_HELP.label}
+                unit="of 24"
+                help={{ label: PRICE_MONTH_HELP.label, description: PRICE_MONTH_HELP.description, example: PRICE_MONTH_HELP.example }}
+                value={d.month}
+                min={1}
+                max={24}
+                step={1}
+                whole
+                disabled={!canEdit}
+                onCommit={(v) => v !== null && onChange({ month: v })}
+              />
+            )}
+          </div>
+        )}
+      </div>
+      </TableCell>
+
+      <TableCell className={cn(CELL, "md:w-56")}>
+      <label className={cn("flex flex-col gap-1 text-xs text-muted-foreground", d.effect !== null && "opacity-50")}>
+        <span className="flex items-center">
+          Weight
+          <Help label={`Weight for ${d.name}`} {...CONTROL_HELP.weight} />
+          <span className="ml-auto text-sm font-medium text-foreground tabular-nums">{d.weight.toFixed(1)}</span>
+        </span>
+        <input
+          type="range"
+          min={CHURN_WEIGHT_MIN}
+          max={CHURN_WEIGHT_MAX}
+          step={0.1}
+          value={d.weight}
+          disabled={!canEdit || d.effect !== null}
+          aria-label={`Weight for ${d.name}`}
+          onChange={(e) => onChange({ weight: Number(e.target.value) })}
+          className="w-full accent-[var(--accent)] disabled:opacity-50"
+        />
+      </label>
+      </TableCell>
+
+      <TableCell className={cn(CELL, "md:w-56")}>
+        <Contribution share={d.enabled ? share : 0} tone="accent" label={d.name} hint={CONTROL_HELP.contribution} />
+      </TableCell>
+
+      <TableCell className={cn(CELL, "md:w-20")} data-delete-cell>
+      <span className="flex items-center justify-end">
+        <Button type="button" variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" disabled={!canEdit} onClick={onDelete} aria-label={`Delete ${d.name}`}>
+          <Trash2 aria-hidden />
+        </Button>
+        <Help label={`Delete ${d.name}`} {...(d.builtin ? CONTROL_HELP.removeBuiltin : CONTROL_HELP.remove)} />
+      </span>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function Contribution({ share, tone, label, hint }: { share: number | null; tone: "accent" | "plain"; label: string; hint?: { description: string; example: string } }) {
+  const pct = share === null ? null : Math.round(share * 100);
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="flex items-center text-xs text-muted-foreground">
+          Contribution
+          {hint && <Help label={`Contribution of ${label}`} {...hint} />}
+        </span>
+        <div role="img" aria-label={pct === null ? `${label}: not measured yet` : `${label}: ${pct}% of churn`} className="h-2.5 overflow-hidden rounded-full bg-panel-2">
+          <i className={cn("block h-full rounded-full", tone === "accent" ? "bg-accent" : "bg-fg-3")} style={{ width: `${pct ?? 0}%` }} />
+        </div>
+      </div>
+      <span className="w-10 text-right text-sm font-medium tabular-nums">{pct === null ? "–" : `${pct}%`}</span>
+    </div>
+  );
+}
+
+function CustomFields({ d, canEdit, onChange }: { d: DriverState; canEdit: boolean; onChange: (patch: DriverPatch) => void }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <TextBox label="Name" help={{ label: "Driver name", ...CONTROL_HELP.name }} value={d.name} maxLength={80} required disabled={!canEdit} onCommit={(v) => v && onChange({ name: v })} />
+      <TextBox
+        label="What it is, in one sentence"
+        help={{ label: "Driver description", ...CONTROL_HELP.describe }}
+        value={d.description}
+        maxLength={300}
+        disabled={!canEdit}
+        placeholder="What it is, in one sentence"
+        onCommit={(v) => onChange({ description: v || null })}
+      />
+      <TextBox
+        label="An example"
+        help={{ label: "Driver example", ...CONTROL_HELP.exampleField }}
+        value={d.example}
+        maxLength={300}
+        disabled={!canEdit}
+        placeholder="An example"
+        onCommit={(v) => onChange({ example: v || null })}
+      />
+    </div>
+  );
+}
+
+/** A text field that saves when you leave it or press Enter; Escape puts back what was there. */
+function TextBox({
+  label,
+  help,
+  value,
+  onCommit,
+  disabled,
+  maxLength,
+  placeholder,
+  required,
+}: {
+  label: string;
+  help: { label: string; description: string; example: string };
+  value: string;
+  onCommit: (v: string) => void;
+  disabled?: boolean;
+  maxLength: number;
+  placeholder?: string;
+  required?: boolean;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? value;
+  const commit = () => {
+    if (draft === null) return;
+    const next = draft.trim();
+    setDraft(null);
+    if (next !== value.trim() && !(required && !next)) onCommit(next);
+  };
+  return (
+    <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+      <span className="flex items-center">
+        {label}
+        <Help {...help} />
+      </span>
+      <Input
+        value={shown}
+        maxLength={maxLength}
+        disabled={disabled}
+        placeholder={placeholder}
+        aria-label={label}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          else if (e.key === "Escape") setDraft(null);
+        }}
+      />
+    </label>
+  );
+}
+
+/** A number field that saves when you leave it or press Enter, if it is in range; Escape puts back what was there. */
+function NumberBox({
+  label,
+  unit,
+  help,
+  value,
+  min,
+  max,
+  step,
+  whole,
+  disabled,
+  onCommit,
+}: {
+  label: string;
+  unit: string;
+  help: { label: string; description: string; example: string };
+  value: number | null;
+  min: number;
+  max: number;
+  step: number;
+  whole?: boolean;
+  disabled?: boolean;
+  onCommit: (v: number | null) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? (value === null ? "" : String(value));
+  const parsed = draft === null || draft.trim() === "" ? null : Number(draft);
+  const valid = draft === null || (parsed !== null && Number.isFinite(parsed) && parsed >= min && parsed <= max && (!whole || Number.isInteger(parsed)));
+  const commit = () => {
+    if (draft === null) return;
+    if (valid && parsed !== null && parsed !== value) onCommit(parsed);
+    setDraft(null);
+  };
+  return (
+    <label className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+      <span className="flex items-center">
+        {label}
+        <Help {...help} />
+      </span>
+      <span className="flex items-center gap-1.5">
+        <Input
+          type="number"
+          inputMode="decimal"
+          className="w-24"
+          value={shown}
+          min={min}
+          max={max}
+          step={step}
+          disabled={disabled}
+          aria-label={label}
+          aria-invalid={!valid}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            else if (e.key === "Escape") setDraft(null);
+          }}
+        />
+        <span>{unit}</span>
+      </span>
+      {!valid && (
+        <span role="alert" className="text-crit">
+          Between {min} and {max}.
+        </span>
+      )}
+    </label>
+  );
+}
+
+/**
+ * How a cause is counted (sandbox phase 3, B4): by its weight, or as events (a chance a month and an effect while a hit lasts).
+ * Switching to events pre-fills the chance and effect that give about the churn the weight gave in the last run.
+ */
+function ChanceControls({ d, cause, canEdit, onChange }: { d: DriverState; cause: ChurnCauses["causes"][number] | undefined; canEdit: boolean; onChange: (patch: DriverPatch) => void }) {
+  const events = d.effect !== null;
+  const isPrice = d.builtin === "price";
+  const measured = d.builtin !== null && CHURN_DRIVER_SPECS[d.builtin].events === "measured";
+  const [note, setNote] = useState<string | null>(null);
+  const switchTo = (on: boolean) => {
+    if (!on) {
+      setNote(null);
+      return onChange({ chance: null, effect: null, effectMonths: null });
+    }
+    if (cause) {
+      const eq = equivalentEvents({ id: engineIdOf(d), custom: d.builtin === null, pressure: cause.pressure, chance: cause.chance, value: d.value }, d.weight);
+      onChange({ chance: eq.chance === null ? null : Math.round(eq.chance * 1e4) / 100, effect: Math.round(eq.effect * 1e4) / 100, effectMonths: eq.months });
+      // A measured cause with nothing measured can't carry the weight's churn as a chance: say so rather than pre-filling an effect that does nothing.
+      setNote(measured && !(cause.chance && cause.chance > 0) && cause.pressure > 0 ? CHANCE_HELP.noHits : CHANCE_HELP.same);
+    } else onChange({ chance: null, effect: 50, effectMonths: 3 });
+  };
+  const measuredText = cause?.chance != null ? `Measured: ${(cause.chance * 100).toLocaleString("en-GB", { maximumFractionDigits: 1 })}% a month` : "Measured";
+  return (
+    <div className="flex flex-col gap-1.5" data-driver-mode={events ? "chance" : "weight"}>
+      <span className="flex items-center gap-2 text-xs text-muted-foreground">
+        How it&apos;s counted
+        <Help label="How it's counted" {...CHANCE_HELP.mode} />
+        <span role="group" aria-label={`How ${d.name} is counted`} className="inline-flex rounded-lg border border-border bg-muted/40 p-0.5">
+          {[false, true].map((on) => (
+            <button
+              key={String(on)}
+              type="button"
+              aria-pressed={events === on}
+              disabled={!canEdit}
+              onClick={() => events !== on && switchTo(on)}
+              className={cn("rounded-md px-2 py-0.5 font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring", events === on ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+            >
+              {on ? "Chance and effect" : "Weight"}
+            </button>
+          ))}
+        </span>
+      </span>
+      {events && (
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+          <NumberBox
+            label={isPrice ? "Clients who notice a rise" : "Chance a month"}
+            unit="%"
+            help={{ label: isPrice ? "Clients who notice a rise" : "Chance a month", ...(isPrice ? CHANCE_HELP.priceChance : CHANCE_HELP.chance) }}
+            value={d.chance}
+            min={0}
+            max={100}
+            step={0.5}
+            disabled={!canEdit}
+            onCommit={(v) => onChange({ chance: v })}
+          />
+          <NumberBox
+            label="Raises that client's churn by"
+            unit={isPrice ? "% per 10% rise" : "%"}
+            help={{ label: "Effect", ...(isPrice ? CHANCE_HELP.priceEffect : CHANCE_HELP.effect) }}
+            value={d.effect}
+            min={0}
+            max={500}
+            step={5}
+            disabled={!canEdit}
+            onCommit={(v) => v !== null && onChange({ effect: v })}
+          />
+          <NumberBox
+            label="For"
+            unit="months"
+            help={{ label: "For (months)", ...CHANCE_HELP.months }}
+            value={d.effectMonths ?? 3}
+            min={1}
+            max={24}
+            step={1}
+            whole
+            disabled={!canEdit}
+            onCommit={(v) => v !== null && onChange({ effectMonths: v })}
+          />
+          {measured && d.chance === null && <span className="text-xs text-muted-foreground">{measuredText}. Type a chance to override it.</span>}
+        </div>
+      )}
+      {events && note && <span className="text-xs text-muted-foreground">{note}</span>}
+    </div>
+  );
+}

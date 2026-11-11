@@ -1,0 +1,254 @@
+/* Design tokens (docs/PRD.md §8.1), starting from the prototype. Components use
+   these via Tailwind theme names; no raw hex in components. */
+:root {
+  --paper: #ffffff;
+  --bg: oklch(0.985 0 0);
+  --panel: oklch(1 0 0);
+  --panel-2: oklch(0.97 0 0);
+  --line: oklch(0.922 0 0);
+  --line-2: oklch(0.87 0 0);
+  --fg: oklch(0.145 0 0);
+  --fg-2: oklch(0.44 0 0);
+  --fg-3: oklch(0.53 0 0);
+  --accent: oklch(0.52 0.105 223.128);
+  --accent-soft: oklch(0.95 0.025 215);
+  --accent-fg: oklch(0.984 0.019 200.873);
+  --good: #1baf7a;
+  --warn: #eda100;
+  --serious: #eb6834;
+  --crit: #e34948;
+  --crit-soft: #fbe1e0;
+  --warn-soft: #fdf0d1;
+  --good-soft: #d8f3e8;
+  /* The Editor's colour (issue #104): a screen in this purple is always an editing screen. */
+  --edit: #6d3fc4;
+  --edit-soft: #ece4fa;
+  --edit-fg: #ffffff;
+  /* Text on a solid --crit fill. */
+  --crit-fg: #ffffff;
+  /* Dialog and sheet backdrop, and the Editor tour's spotlight shade. */
+  --overlay: rgba(0, 0, 0, 0.1);
+  --scrim: rgba(0, 0, 0, 0.45);
+  /* Map ratings (A34): Great, Good could improve (lime, so it doesn't clash with the brand blue), Bad not urgent, Operational risk. */
+  --rate-great: oklch(0.6 0.14 155);
+  --rate-great-soft: oklch(0.95 0.045 155);
+  --rate-good: oklch(0.72 0.16 128);
+  --rate-good-soft: oklch(0.95 0.06 128);
+  --rate-bad: var(--warn);
+  --rate-bad-soft: var(--warn-soft);
+  --rate-risk: var(--crit);
+  --rate-risk-soft: var(--crit-soft);
+  /* The chart palette (every graph in the app picks from these through lib/chart-colours.ts; one job per colour, after the dataviz method):
+     - categorical --cat-1..8: identity (which process, purpose, department, scenario), in this fixed order, never cycled; past eight the
+       rest fold into --series-other. Slot 1 is the brand teal. Validated with the dataviz validate_palette.js on --panel and --bg in both
+       themes: lightness band, chroma floor, adjacent CVD and normal-vision separation, 3:1 against the surface.
+     - sequential --seq-1..5: magnitude (heatmaps, shares), one teal hue, light to dark (dark to light in the dark theme).
+     - diverging --div-neg / --div-mid / --div-pos: which side of a baseline (a lever's low and high side).
+     - --series-baseline: "today's path" / "no changes", the line a scenario is compared with (dashed). --series-other: the folded
+       tail and "Not set". --series-idle: time nobody spent. --on-series: a label inside a categorical fill.
+     - Status (--good, --warn, --serious, --crit and the --rate-* ratings) is for state only, never a series. */
+  --cat-1: #0681a1;
+  --cat-2: #4d8e16;
+  --cat-3: #7e53bc;
+  --cat-4: #b44901;
+  --cat-5: #d863a0;
+  --cat-6: #8c6802;
+  --cat-7: #3769ca;
+  --cat-8: #b93c4a;
+  --seq-1: oklch(0.93 0.035 222);
+  --seq-2: oklch(0.83 0.07 222);
+  --seq-3: oklch(0.71 0.1 222);
+  --seq-4: oklch(0.58 0.104 222);
+  --seq-5: oklch(0.45 0.085 222);
+  --div-neg: oklch(0.6 0.15 50);
+  --div-mid: oklch(0.93 0 0);
+  --div-pos: oklch(0.55 0.11 235);
+  --series-baseline: oklch(0.56 0 0);
+  --series-other: oklch(0.82 0 0);
+  --series-idle: var(--panel-2);
+  --on-series: #ffffff;
+  /* Old names kept as aliases: the work split (automatable, augmentable, manual) is an ordered scale, so it takes the sequential ramp and
+     the neutral; --purpose-unset is the folded "Other". */
+  --auto: var(--seq-5);
+  --aug: var(--seq-3);
+  --man: var(--series-other);
+  --purpose-unset: var(--series-other);
+  /* Work items in playback, and those heading to a lost end. */
+  --token: oklch(0.609 0.126 221.723);
+  --token-lost: oklch(0.7 0 0);
+  --destructive: #c93534; /* 5.2:1 on white; the report already uses it */
+  --shadow-overlay: 0 8px 24px rgba(20, 24, 30, 0.12), 0 2px 6px rgba(20, 24, 30, 0.06);
+  /* shadcn/ui semantic aliases: point at our tokens, never at raw values */
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --card: var(--panel);
+  --card-foreground: var(--fg);
+  --popover: var(--panel);
+  --popover-foreground: var(--fg);
+  --primary: var(--accent);
+  --primary-foreground: var(--accent-fg);
+  --secondary: var(--panel-2);
+  --secondary-foreground: var(--fg);
+  --muted: var(--panel-2);
+  --muted-foreground: var(--fg-2);
+  --border: var(--line);
+  --input: var(--line-2);
+  --ring: var(--accent);
+  --sidebar: var(--bg);
+  --sidebar-foreground: var(--fg-2);
+  --sidebar-primary: var(--accent);
+  --sidebar-primary-foreground: var(--accent-fg);
+  --sidebar-accent: var(--panel-2);
+  --sidebar-accent-foreground: var(--fg);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--accent);
+  --radius: 0.625rem;
+  /* The theme preset's teal ramp: the Transpera mark's gradient only. Charts use the palette above. */
+  --chart-1: oklch(0.865 0.127 207.078);
+  --chart-2: oklch(0.715 0.143 215.221);
+  --chart-3: oklch(0.609 0.126 221.723);
+  --chart-4: oklch(0.52 0.105 223.128);
+  --chart-5: oklch(0.45 0.085 224.283);
+  --shadow: 0 1px 2px rgba(20, 24, 30, 0.06), 0 4px 14px rgba(20, 24, 30, 0.05);
+  /* Motion: durations only; every animation stops under prefers-reduced-motion. */
+  --motion-fast: 150ms;
+  --motion-pulse: 1600ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: oklch(0.145 0 0);
+    --panel: oklch(0.205 0 0);
+    --panel-2: oklch(0.269 0 0);
+    --line: oklch(0.3 0 0);
+    --line-2: oklch(0.38 0 0);
+    --fg: oklch(0.985 0 0);
+    --fg-2: oklch(0.76 0 0);
+    --fg-3: oklch(0.68 0 0);
+    --accent: oklch(0.715 0.143 215.221);
+    --accent-soft: oklch(0.3 0.05 225);
+    --accent-fg: oklch(0.2 0.04 229.695);
+    --good: #199e70;
+    --warn: #c98500;
+    --serious: #d95926;
+    --crit: #e66767;
+    --crit-soft: #4a2424;
+    --warn-soft: #45360f;
+    --good-soft: #153f30;
+    --cat-1: #0a98b9;
+    --cat-2: #478809;
+    --cat-3: #a278e4;
+    --cat-4: #bd4d00;
+    --cat-5: #cf5c98;
+    --cat-6: #936e03;
+    --cat-7: #5a8ff3;
+    --cat-8: #ce505b;
+    --seq-1: oklch(0.33 0.05 222);
+    --seq-2: oklch(0.43 0.07 222);
+    --seq-3: oklch(0.54 0.09 222);
+    --seq-4: oklch(0.65 0.105 222);
+    --seq-5: oklch(0.77 0.1 222);
+    --div-neg: oklch(0.66 0.15 50);
+    --div-mid: oklch(0.35 0 0);
+    --div-pos: oklch(0.66 0.11 235);
+    --series-baseline: oklch(0.62 0 0);
+    --series-other: oklch(0.42 0 0);
+    --edit: #a37ef0;
+    --edit-soft: #2e2248;
+    --edit-fg: #140a26;
+    --crit-fg: oklch(0.145 0 0);
+    --overlay: rgba(0, 0, 0, 0.5);
+    --scrim: rgba(0, 0, 0, 0.65);
+    --rate-great: oklch(0.66 0.14 155);
+    --rate-great-soft: oklch(0.3 0.05 155);
+    --rate-good: oklch(0.75 0.15 128);
+    --rate-good-soft: oklch(0.32 0.06 128);
+    --token: oklch(0.715 0.143 215.221);
+    --token-lost: oklch(0.5 0 0);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.3);
+    --destructive: #e66767;
+    --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: oklch(0.145 0 0);
+  --panel: oklch(0.205 0 0);
+  --panel-2: oklch(0.269 0 0);
+  --line: oklch(0.3 0 0);
+  --line-2: oklch(0.38 0 0);
+  --fg: oklch(0.985 0 0);
+  --fg-2: oklch(0.76 0 0);
+  --fg-3: oklch(0.68 0 0);
+  --accent: oklch(0.715 0.143 215.221);
+  --accent-soft: oklch(0.3 0.05 225);
+  --accent-fg: oklch(0.2 0.04 229.695);
+  --good: #199e70;
+  --warn: #c98500;
+  --serious: #d95926;
+  --crit: #e66767;
+  --crit-soft: #4a2424;
+  --warn-soft: #45360f;
+  --good-soft: #153f30;
+  --cat-1: #0a98b9;
+  --cat-2: #478809;
+  --cat-3: #a278e4;
+  --cat-4: #bd4d00;
+  --cat-5: #cf5c98;
+  --cat-6: #936e03;
+  --cat-7: #5a8ff3;
+  --cat-8: #ce505b;
+  --seq-1: oklch(0.33 0.05 222);
+  --seq-2: oklch(0.43 0.07 222);
+  --seq-3: oklch(0.54 0.09 222);
+  --seq-4: oklch(0.65 0.105 222);
+  --seq-5: oklch(0.77 0.1 222);
+  --div-neg: oklch(0.66 0.15 50);
+  --div-mid: oklch(0.35 0 0);
+  --div-pos: oklch(0.66 0.11 235);
+  --series-baseline: oklch(0.62 0 0);
+  --series-other: oklch(0.42 0 0);
+  --edit: #a37ef0;
+  --edit-soft: #2e2248;
+  --edit-fg: #140a26;
+  --crit-fg: oklch(0.145 0 0);
+  --overlay: rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.65);
+  --rate-great: oklch(0.66 0.14 155);
+  --rate-great-soft: oklch(0.3 0.05 155);
+  --rate-good: oklch(0.75 0.15 128);
+  --rate-good-soft: oklch(0.32 0.06 128);
+  --token: oklch(0.715 0.143 215.221);
+  --token-lost: oklch(0.5 0 0);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 14px rgba(0, 0, 0, 0.3);
+  --destructive: #e66767;
+  --shadow-overlay: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+
+/* The printed Sandbox summary is always light, on white paper, whatever theme the screen is in (components/sandbox/print-summary.tsx). */
+@media print {
+  [data-print-root] {
+    color-scheme: light;
+    color: oklch(0.145 0 0);
+    --panel: #ffffff;
+    --panel-2: oklch(0.97 0 0);
+    --line: oklch(0.922 0 0);
+    --line-2: oklch(0.87 0 0);
+    --fg: oklch(0.145 0 0);
+    --fg-2: oklch(0.36 0 0);
+    --fg-3: oklch(0.44 0 0);
+    --accent: oklch(0.52 0.105 223.128);
+    --edit: #6d3fc4;
+    --cat-1: #0681a1;
+    --cat-2: #4d8e16;
+    --cat-3: #7e53bc;
+    --cat-4: #b44901;
+    --div-neg: oklch(0.6 0.15 50);
+    --div-pos: oklch(0.55 0.11 235);
+    --series-baseline: oklch(0.56 0 0);
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}

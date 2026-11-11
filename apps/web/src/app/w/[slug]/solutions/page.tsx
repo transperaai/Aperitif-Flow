@@ -1,0 +1,43 @@
+import { notFound } from "next/navigation";
+import { SolutionsHeader, SolutionsList } from "@/components/solutions/solutions-list";
+import { createProcess } from "@/app/w/[slug]/process-actions";
+import { NotPublished } from "@/components/shell/not-published";
+import { Page } from "@/components/shell/page";
+import { canEditWorkspace, currentUserId } from "@/lib/access-data";
+import { loadMemberNames, loadProcessNames, loadPublishState, loadWorkspaceHead, loadWorkspaceIssues, loadWorkspaceLiveRevisionIds, loadWorkspaceSolutions } from "@/lib/data";
+
+/** The Solutions list (A50): every solution built and simulated, with the issues each solves and how it did. */
+export default async function WorkspaceSolutionsPage(props: PageProps<"/w/[slug]/solutions">) {
+  const { slug } = await props.params;
+  const head = await loadWorkspaceHead(slug);
+  if (!head) notFound();
+  const ws = head.id;
+  const [canEdit, viewerId, solutions, issues, processes, live, memberNames] = await Promise.all([
+    canEditWorkspace(ws),
+    currentUserId(),
+    loadWorkspaceSolutions(ws),
+    loadWorkspaceIssues(ws),
+    loadProcessNames(ws),
+    loadWorkspaceLiveRevisionIds(ws),
+    loadMemberNames(ws),
+  ]);
+  const base = `/w/${slug}`;
+  // Nothing published (a new client): a solution is a changed copy of a published process, so there is nothing to list or to start from.
+  const state = Object.keys(live).length === 0 ? await loadPublishState(slug) : null;
+  return (
+    <Page title="Solutions" hideHeader>
+      <SolutionsHeader count={state ? undefined : solutions.solutions.length} canEdit={canEdit} processes={processes.filter((p) => live[p.id])} issues={issues} base={base} />
+      {state ? (
+        <NotPublished
+          what="A solution is a changed copy of a published process, simulated against its issues."
+          canEdit={canEdit}
+          base={base}
+          firstDraft={state.firstDraft}
+          create={canEdit ? createProcess.bind(null, ws, slug) : undefined}
+        />
+      ) : (
+        <SolutionsList data={solutions} issues={issues} processes={processes} base={base} mode={canEdit ? "live" : "readonly"} viewerId={viewerId} memberNames={memberNames} />
+      )}
+    </Page>
+  );
+}

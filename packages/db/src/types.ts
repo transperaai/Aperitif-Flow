@@ -1,0 +1,1155 @@
+// Row shapes the app and engine work with. The database shape itself lives in
+// `db-types.ts` (generated: `pnpm --filter @transpera-flow/db gen:types`); these
+// narrow its check-constrained text and jsonb columns, and the checks at the
+// bottom fail the typecheck if they drift from it.
+
+import type { ProcessCategory } from "./process-category";
+import type { IssueType, ScenarioPatch, StoredSeverity } from "@transpera-flow/engine";
+import type { Selectable } from "kysely";
+import type { DB } from "./db-types";
+import type { Viewer } from "./queries";
+import type { SandboxChange } from "./sandbox-levers";
+import type { StoredStepChange } from "./capacity-changes";
+
+/**
+ * What `memberships.role` can hold (migration 20270103000000): `owner` is an Agency admin, `viewer` is a Viewer. The Owner needs
+ * no membership (the agency-admin flag). The database enum still has the legacy labels, which a check keeps out of the table.
+ */
+export type MembershipRole = "owner" | "viewer";
+/** The product's three roles, as the "Who can sign in" list stores them (`deployment_access.role`). */
+export type DeploymentRole = "owner" | "agency_admin" | "viewer";
+export type StepKind = "task" | "wait" | "decision" | "subprocess" | "group" | "start" | "end";
+export type StepOutcome = "won" | "lost" | "done";
+export type Distribution = "constant" | "triangular" | "lognormal";
+export type PricingModel = "retainer" | "one_off" | "hourly";
+
+/**
+ * A step duration's distribution parameters (`work_params`, `wait_params`).
+ * Lognormal reads `cv` (spread relative to the mean); triangular reads `min`,
+ * `mode` and `max` in hours; constant reads nothing. Missing keys use defaults.
+ * A type alias, not an interface, so it stays assignable to the jsonb column.
+ */
+export type DistParams = { cv?: number | null; min?: number | null; mode?: number | null; max?: number | null };
+
+export interface WorkspaceSettings {
+  hours_per_week: number;
+  horizon_weeks: number;
+  currency: string;
+  /** Arrivals a week while the workspace has no lead sources; the other three are interim until services and clients land. */
+  leads_per_week: number;
+  active_clients: number;
+  churn_monthly: number;
+  retainer: number;
+  /** Minimum share of a person's week left for pipeline work (default 0.08). */
+  availability_floor?: number;
+  /**
+   * Overtime someone may work when their client work exceeds their week, as a
+   * share of their capacity (default 0: none; docs/PRD.md §6.3.4, decision D7).
+   */
+  overtime_cap?: number;
+  /**
+   * How servicing moves client health (docs/PRD.md §6.3.5; issue #19):
+   * health added for a task done on time, taken off for a late one and for a
+   * missed one, and the health of a client with none entered. Left out: the
+   * estimated defaults (2, 5, 12, 80).
+   */
+  health_recover?: number;
+  health_late_penalty?: number;
+  health_missed_penalty?: number;
+  health_initial?: number;
+  /**
+   * The range of company client health that is normal for the business, 0–100
+   * (for example 70 to 80 for a small agency). The People page shows the
+   * company's simulated client health against it. Left out: no benchmark.
+   */
+  client_health_benchmark_low?: number;
+  client_health_benchmark_high?: number;
+  /**
+   * Fixed costs a month (rent, tools, insurance) in the workspace currency, 0 to 100,000,000; the forecast takes them off
+   * revenue with pay to show profit (sandbox phase 2). Absent or null: none. Not pay, so Viewers see it. Checked by
+   * `workspaces_overhead_monthly`.
+   */
+  overhead_monthly?: number | null;
+  /**
+   * The categories a step's purpose is chosen from (sandbox phase 4): 5 to 12, in display order. Absent or null: the defaults
+   * (`DEFAULT_PURPOSES`). Shape-checked by `workspaces_purposes`; read through `workspacePurposes`.
+   */
+  purposes?: { key: string; name: string; description: string }[] | null;
+  /**
+   * The built-in churn drivers deleted from Settings' list (their keys, such as "price"). A deleted one is also switched off, so the
+   * simulation leaves it out; + Add driver puts it back. Absent or null: none deleted.
+   */
+  churn_drivers_removed?: string[] | null;
+  /** Per-person times (capacity factors, C6): off unless true. Owners and editors switch it; see `person_capacity_factors`. */
+  capacity_factor_enabled?: boolean;
+  /**
+   * Capacity Set up (P1): the share of full capacity a new starter has in each month from their start date, e.g. [0.4, 0.6, 0.8]
+   * (then full). Absent or null: that default. A person's own `ramp` replaces it. Stored only; the capacity figures (P2) use it.
+   * Checked by `workspaces_ramp_default`.
+   */
+  ramp_default?: number[] | null;
+  /**
+   * Capacity Set up (P1, D10, D37): whether DLER counts leadership's salary. Absent or null: true. "To confirm with the client."
+   * Stored only. Checked by `workspaces_dler_includes_leadership`.
+   */
+  dler_includes_leadership?: boolean | null;
+}
+
+/** One per-person time as `team_capacity` returns it (`step_id` null is the person's time on every step). */
+export interface PersonCapacityFactorRow {
+  person_id: string;
+  workspace_id: string;
+  step_id: string | null;
+  factor: number;
+}
+
+export interface WorkspaceRow {
+  id: string;
+  name: string;
+  slug: string;
+  settings: WorkspaceSettings;
+  /** Provenance of the settings, keyed `settings.<key>` (issue #25); loaded only where shown. */
+  provenance?: ProvenanceMap;
+}
+
+export interface RoleRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  color: string | null;
+  default_cost_rate: number;
+  headcount: number;
+  ongoing_hours_per_client_week: number;
+  /** Inactive roles are hidden from pickers; what already names one keeps it, and it still simulates. */
+  active: boolean;
+  /** Leadership: left out of clients and revenue per employee (D22). */
+  leadership: boolean;
+}
+
+export interface PersonRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  fte: number;
+  capacity_hours_week: number | null;
+  cost_rate: number | null;
+  active: boolean;
+  start_date: string | null;
+  end_date: string | null;
+  /** Provenance of fte, capacity, cost rate and dates (issue #25); loaded only where shown. */
+  provenance?: ProvenanceMap;
+}
+
+export interface PersonRoleRow {
+  person_id: string;
+  role_id: string;
+  workspace_id: string;
+}
+
+export interface PersonSkillRow {
+  person_id: string;
+  step_id: string;
+  workspace_id: string;
+}
+
+export interface PersonLeaveRow {
+  id: string;
+  person_id: string;
+  workspace_id: string;
+  /** ISO date, inclusive. */
+  start_date: string;
+  /** ISO date, inclusive. */
+  end_date: string;
+}
+
+export interface ProcessRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  kind: "pipeline" | "servicing";
+  entity_name: string;
+  description: string | null;
+  /** What the process is for, in words people use (Q3, D41). The engine `kind` stays underneath. */
+  category: ProcessCategory;
+  live_revision_id: string | null;
+  /**
+   * The process this one sits inside (a child process, held by one of the
+   * parent's steps), or null for a top-level process: the company map's steps
+   * are the top-level processes (issue #102).
+   */
+  parent_process_id: string | null;
+  /**
+   * True for the workspace's company map: a stored process whose steps are holders of the top-level processes (B11,
+   * #163). It is never simulated and is left out of every list of processes. Absent (false) on fixtures.
+   */
+  is_company?: boolean;
+  /**
+   * When the process was archived (B19, #182): off the map, the lists and the simulation, read only, its history kept. Null or
+   * absent for a process in use.
+   */
+  archived_at?: string | null;
+  /**
+   * The department the company map puts this process under (Q4, migration 20270127000000): the owner's choice, or null when it is worked
+   * out from the tier services its servicing links use (`processDepartment`). Absent on fixtures.
+   */
+  department_id?: string | null;
+  /** The owner put it under "Sales and whole business" although its servicing links would work out a department. Never with `department_id`. */
+  whole_business?: boolean;
+  /**
+   * The company map only (Q17, D51, migration 20270134000000): true once a person has published a version of it, from when its processes and
+   * hand-off lines are what the live run simulates. False: the live run is still today's, whatever the map holds. Absent (true) on fixtures and
+   * on every process but the company map.
+   */
+  map_drives_run?: boolean;
+  /**
+   * Free-text notes on the process (migration 20270202000000), shown with its sources on the process page. On the process, not a version:
+   * not versioned. Absent on fixtures.
+   */
+  notes?: string | null;
+}
+
+export interface ProcessRevisionRow {
+  id: string;
+  workspace_id: string;
+  process_id: string;
+  number: number;
+  status: "draft" | "published" | "superseded";
+}
+
+/** The three parts of a step's hands-on time (`EngineStep.split`). Type aliases, so they stay assignable to the jsonb columns. */
+export type StepSplit = { automatable: number; augmentable: number; manual: number };
+export type StepSplitNotes = { automatable?: string; augmentable?: string; manual?: string };
+/** Tier key → × on the step's time. */
+export type TierMultiplier = { [tier: string]: number };
+
+export interface StepRow {
+  id: string;
+  revision_id: string;
+  workspace_id: string;
+  process_id: string;
+  name: string;
+  kind: StepKind;
+  outcome: StepOutcome | null;
+  role_id: string | null;
+  person_id: string | null;
+  work_hours: number;
+  work_dist: Distribution;
+  work_params: DistParams;
+  wait_hours: number;
+  wait_dist: Distribution;
+  wait_params: DistParams;
+  rework_rate: number;
+  /** Step a rework goes back to; null means the same step. Not simulated yet. */
+  rework_to_step_id: string | null;
+  tool: string | null;
+  /** What the step achieves: a key of the workspace's `settings.purposes`; null is Automatic (`resolvePurpose`). Sandbox phase 4. */
+  purpose: string | null;
+  /** Shares of the step's hands-on time that can be automated, augmented or only done by hand; sum to 1. Null: all manual (capacity P4). */
+  split: StepSplit | null;
+  /** One line of words for each part of the split. */
+  split_notes: StepSplitNotes | null;
+  /** × on the step's time per tier key; a tier not listed is 1. Null: 1 for every tier. */
+  tier_multiplier: TierMultiplier | null;
+  /** The step goes to the client's manager (D32), falling back to its role. */
+  to_client_manager: boolean;
+  notes: string | null;
+  /** Target hours for one visit to the step (queue + hands-on + wait); visits over it are SLA breaches. */
+  sla_hours: number | null;
+  /** How long an item may queue for a person before it counts as waiting too long, in hours; null: the workspace default for the step's kind. */
+  expected_wait_hours: number | null;
+  /** The share of items that go cold for each working day they wait here (0 to 1); null: none assumed. For the cost of waiting. */
+  lost_per_day_waiting: number | null;
+  /** The share of the items leaving the step that may be lost here and still be fine (0 to 1); null: the step isn't rated for work lost. */
+  dropoff_benchmark: number | null;
+  /** Set on the process's start step: how long an item should take end to end, in working hours; null: the process isn't rated. */
+  target_cycle_hours: number | null;
+  /** Items sitting at this step now; null when not entered (docs/PRD.md §6.3.1). */
+  current_wip: number | null;
+  x: number;
+  y: number;
+  /**
+   * The group this step sits in (a step of kind `group` in the same revision),
+   * or null at the top level of its process. `x`/`y` of a step in a group are
+   * relative to the group's box. Any depth, no loops (issue #102).
+   */
+  parent_step_id: string | null;
+  /** For a group: the step of it where entities enter (one of its own steps). */
+  entry_step_id: string | null;
+  /**
+   * For a `subprocess` step: the child process it holds (its `parent_process_id`
+   * is this step's process). The engine simulates the child's live steps in its place.
+   */
+  child_process_id: string | null;
+  /**
+   * The step's values are estimates nobody has confirmed yet (e.g. filled in
+   * by the MCP server). Publishing a draft with any is refused unless they are
+   * accepted as estimates (docs/PRD.md §7.1b).
+   */
+  assumption: boolean;
+  /**
+   * Sources disagree on one of the step's values and nobody has settled it
+   * yet (docs/PRD.md §4.1 Sources and evidence, D17). Kept in step with the
+   * per-column `provenance.<column>.conflict` entries (see evidence.ts).
+   */
+  conflict: boolean;
+  /** Where each value came from, per column (`{work_hours: {source, at, by, evidence, conflict}}`). */
+  provenance: ProvenanceMap;
+  /**
+   * Steps that took over this one's work when it was split or replaced in the
+   * editor (docs/PRD.md §4.1 "Stable step IDs"). A step with any is retired:
+   * its row stays in the revision so saved scenarios aimed at it can be
+   * re-pointed (issue #16), but it is never drawn or simulated; loaders put
+   * it in `ProcessBundle.retired`, not `steps`. Absent or empty on live steps.
+   */
+  replaced_by?: string[];
+}
+
+export interface EdgeRow {
+  id: string;
+  revision_id: string;
+  workspace_id: string;
+  process_id: string;
+  from_step_id: string;
+  to_step_id: string;
+  probability: number;
+  condition_tag: string | null;
+  label: string | null;
+  /**
+   * How far the line's middle segment is moved on the map: the offset, in map units, of its smooth-step path's centre from where it
+   * sits automatically (halfway). Null or absent means automatic. Layout only, like a step's x and y. Optional, so fixtures and older
+   * snapshots still type-check.
+   */
+  center_dx?: number | null;
+  center_dy?: number | null;
+}
+
+/**
+ * Something the business sells (docs/PRD.md §5). Each arrival at a process is
+ * tagged with one of the active services entering it, drawn from the mix, and
+ * is priced and routed by it (§6.4 revenue rules, decision D8).
+ */
+export interface ServiceRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  pricing_model: PricingModel;
+  /** Monthly fee (retainer), whole fee (one-off) or hourly rate. */
+  price: number;
+  /** Gross margin as a share of price (0–1). */
+  margin: number;
+  /** Expected tenure of a retainer client, in months. */
+  tenure_months: number;
+  /** Base monthly churn (0–1): at full health, the churn of a client on this service. */
+  churn_monthly_base: number;
+  /**
+   * How much poor health raises churn (docs/PRD.md §6.3.5): monthly churn =
+   * base × (1 + sensitivity × (100 − health) / 100). Default 3, an estimate.
+   */
+  churn_health_sensitivity: number;
+  /** Relative share of arrivals. */
+  mix_share: number;
+  /** Fee range of a client won on this service (sandbox phase 3, A5): its fee is drawn between these, most often near `price`. Null: no range. */
+  price_low: number | null;
+  price_high: number | null;
+  /** Process its arrivals enter; null means the workspace's pipeline (whichever process is simulated). */
+  entry_process_id: string | null;
+  /** Condition tags its entities follow (`edges.condition_tag`). */
+  path_tags: string[];
+  /**
+   * Hours a month each client on this service needs from each role (role id →
+   * hours), while no servicing process is mapped (docs/PRD.md §6.3.4). Empty:
+   * the roles' `ongoing_hours_per_client_week` apply.
+   */
+  fallback_ongoing_load: FallbackLoad;
+  /** Inactive services are left out of simulations. */
+  active: boolean;
+  /** Provenance of the pricing and churn values (issue #25); loaded only where shown. */
+  provenance?: ProvenanceMap;
+}
+
+/** Role id → hours a month per client. A type alias, so it stays assignable to the jsonb column. */
+export type FallbackLoad = { [roleId: string]: number };
+
+/** Where a parameter's value came from (docs/PRD.md §3 Parameter provenance). */
+export type ProvenanceSource = "estimated" | "entered";
+
+/** The source labels a step's base values carry (requirements section 7), in `steps.provenance.{work|split|tier_multiplier}.source`. */
+export type StepSourceLabel = "interview" | "calculator" | "measured" | "estimate";
+export const STEP_SOURCE_LABELS: readonly StepSourceLabel[] = ["interview", "calculator", "measured", "estimate"];
+/** The step values that carry a source label. `work` is the time per occurrence (`work_hours`). */
+export type StepSourcedValue = "work" | "split" | "tier_multiplier";
+
+/**
+ * One value's provenance (the §5 `provenance jsonb` shape). A type alias, not
+ * an interface, so it stays assignable to the jsonb column.
+ */
+export type Provenance = {
+  source: ProvenanceSource | StepSourceLabel;
+  /** When it was set (ISO timestamp). */
+  at?: string;
+  /** User who set it. */
+  by?: string;
+  /** Why the value is what it is (e.g. Claude's reasoning for an assumption). */
+  note?: string;
+  /** Filled in without a source (a default or an inference); listed for confirmation until someone confirms it. */
+  assumption?: boolean;
+  /** What people said about the value (docs/PRD.md §7.2). */
+  evidence?: EvidenceCitation[];
+  /** Sources disagree on the value: what each said, and whether someone has settled it. */
+  conflict?: ProvenanceConflict;
+  /** The accepted suggestion the value came from (issue #25). */
+  suggestion_id?: string;
+  /**
+   * On a step's `branch_odds` entry (issue #167): its branches took the share the others leave because the file gave no odds.
+   * Goes away when anyone writes one of the branches' probabilities (a trigger), so "Missing for simulation" can list the step.
+   */
+  defaulted?: boolean;
+  /** On `branch_odds`: each branch's probability (by the id of the step it leads to) as it was when defaulted. Changing any of them clears the gap at once. */
+  was?: { [toStepId: string]: number };
+};
+
+/**
+ * One citation of a source for a value (docs/PRD.md §5 `provenance.evidence`):
+ * who said it, their words and where in the recording. `value` is the number
+ * they stated, in the column's units (hours, a 0–1 share, items), when they
+ * stated one; citations that state different values make a conflict.
+ */
+export type EvidenceCitation = {
+  source_id: string;
+  speaker?: string | null;
+  quote: string;
+  /** Where in the source: a time in the recording ("00:12:40"), a page, or a date. */
+  timestamp?: string | null;
+  value?: number | null;
+};
+
+/** One of the disagreeing values (docs/PRD.md §5 `provenance.conflict.values`). */
+export type ConflictValue = { value: number; source_id: string | null; speaker: string | null };
+
+/**
+ * A disagreement between sources. The value becomes a triangular range over
+ * `values` until someone settles it; `resolved` records who did and how.
+ */
+export type ProvenanceConflict = {
+  values: ConflictValue[];
+  resolved?: { at: string; by?: string; choice: "range" | "value" };
+};
+
+/**
+ * Provenance per value column, as stored in a row's `provenance` jsonb
+ * (e.g. `{volume_week: {...}, conversion_to_qualified: {...}}`). The
+ * database stamps `entered` when a person changes a value; a value with no
+ * entry is an estimate.
+ */
+export type ProvenanceMap = { [column: string]: Provenance | undefined };
+
+/**
+ * A client on the roster (docs/PRD.md §5 `clients`, decision D13). Real
+ * clients seed the simulation; per-person client counts come from
+ * `client_assignments`.
+ */
+export interface ClientRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  /** ISO date they became a client; null if not known. */
+  start_date: string | null;
+  /** Monthly recurring revenue. */
+  mrr: number;
+  /** 0–100; null: not entered (simulated from the estimated 80). */
+  health: number | null;
+  /** Provenance of `mrr` and `health`. */
+  provenance: ProvenanceMap;
+  notes: string | null;
+  /** Inactive clients (they left) are kept on record but not simulated. */
+  active: boolean;
+}
+
+/** A service a client takes. */
+export interface ClientServiceRow {
+  client_id: string;
+  service_id: string;
+  workspace_id: string;
+  /** When they started on it; null: with the client. */
+  start_date: string | null;
+}
+
+/** The person looking after a client for a role. No row: the role's people share it. */
+export interface ClientAssignmentRow {
+  client_id: string;
+  role_id: string;
+  person_id: string;
+  workspace_id: string;
+}
+
+/**
+ * The clients of one service, counted instead of named (docs/PRD.md decision
+ * D27; issue #120). One row per service. The engine simulates that many
+ * unnamed clients from these numbers.
+ */
+export interface ClientGroupRow {
+  id: string;
+  workspace_id: string;
+  service_id: string;
+  /** How many clients the service has today. */
+  client_count: number;
+  /** What one client pays a month. */
+  fee: number;
+  /** Share of clients that leave each month when all is going well (0–1). */
+  churn_monthly: number;
+  /** How long a client usually stays, in months. */
+  stay_months: number;
+  /** 0–100. */
+  starting_health: number;
+  /** Provenance of the five numbers. */
+  provenance: ProvenanceMap;
+}
+
+export type SourceKind = "transcript" | "notes" | "sop" | "spreadsheet" | "data" | "screenshot" | "other";
+
+/**
+ * A transcript, note set or screenshot from the audit (docs/PRD.md §3 Source,
+ * §5 `sources`). Parameters cite it by id in `provenance.<column>.evidence`.
+ */
+export interface SourceRow {
+  id: string;
+  workspace_id: string;
+  kind: SourceKind;
+  title: string;
+  speakers: string[];
+  /** ISO date the conversation or notes are from. */
+  recorded_at: string | null;
+  /** The transcript or notes text. */
+  body: string | null;
+  /** Link to the file (a screenshot, the recording), if it lives elsewhere. */
+  file_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A source as the library lists it (migration 20261130500000, `search_sources`): everything but the full text. */
+export type SourceListRow = Omit<SourceRow, "body"> & {
+  /** The first words of the text, or the words around the first match of a search. Empty when there is no text. */
+  excerpt: string;
+  /** Whether there is any text to read when the source is opened. */
+  has_body: boolean;
+};
+
+/** What a source can be linked to (issue #118, A53). */
+export type SourceLinkKind = "process" | "step" | "insight" | "issue" | "solution";
+
+/**
+ * One thing a source is evidence for (`source_links`): the column of its kind is set and the others are null. A step is
+ * named by its stable id and the process it is in; an insight by its detection key.
+ */
+export interface SourceLinkRow {
+  id: string;
+  workspace_id: string;
+  source_id: string;
+  kind: SourceLinkKind;
+  process_id: string | null;
+  step_id: string | null;
+  insight_key: string | null;
+  issue_id: string | null;
+  solution_id: string | null;
+  created_at: string;
+  created_by: string | null;
+}
+
+/** Where qualified leads come from (docs/PRD.md §5 `lead_sources`). */
+export interface LeadSourceRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  /** Leads a week. */
+  volume_week: number;
+  /** Share that become qualified leads (0–1). */
+  conversion_to_qualified: number;
+  provenance: ProvenanceMap;
+}
+
+/** One month of the seasonality curve. A month with no row has a multiplier of 1. */
+export interface SeasonalityRow {
+  id: string;
+  workspace_id: string;
+  /** 1 = January. */
+  month: number;
+  multiplier: number;
+  provenance: ProvenanceMap;
+}
+
+/** The workspace's growth assumption; no row means no growth. */
+export interface DemandSettingsRow {
+  workspace_id: string;
+  /** Compound change in the arrival rate per month (0.02 is +2%). */
+  growth_monthly: number;
+  provenance: ProvenanceMap;
+}
+
+/** A market condition (A57): seven factors as whole percents of today (100 = the same). The four presets are read-only. */
+export interface MarketConditionRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  /** boom, stable, soft or downturn for a preset; null for your own. */
+  preset: MarketPreset | null;
+  /** Enquiries. */
+  leads: number;
+  /** Enquiries that sign. */
+  conv: number;
+  /** Time to decide. */
+  cycle: number;
+  /** Prices you can charge. */
+  price: number;
+  /** Clients leaving. */
+  churn: number;
+  /** Time to hire. */
+  hire: number;
+  /** Late payments. */
+  pay: number;
+}
+
+export type MarketPreset = "boom" | "stable" | "soft" | "downturn";
+
+/** The ten built-in churn drivers (docs/PRD.md decision D28; A56). The engine's `BUILTIN_CHURN_DRIVER_IDS`. */
+export type ChurnDriverKey = "late" | "resp" | "onb" | "rework" | "load" | "handoff" | "results" | "tenure" | "price" | "market";
+
+/**
+ * A churn driver you have set (A56): a built-in's weight and switch, or one of
+ * your own with a name, description and example. A built-in with no row is at
+ * its default. One row per built-in per workspace.
+ */
+export interface ChurnDriverRow {
+  id: string;
+  workspace_id: string;
+  /** The built-in it sets; null for your own. */
+  driver: ChurnDriverKey | null;
+  /** Your own drivers only. */
+  name: string | null;
+  description: string | null;
+  example: string | null;
+  /** 0 to 3: 1 is normal, 0 ignores the cause. */
+  weight: number;
+  enabled: boolean;
+  /** What you enter, where the driver takes a number (the engine's `ChurnDriverSpec.valueLabel`). */
+  value: number | null;
+  /** Price changes: the month of the run the rise takes effect. */
+  month: number | null;
+  /**
+   * Chance mode (sandbox phase 3, B4): the chance a client is hit in a month, in percent (0-100). Null: measured for late, resp, onb,
+   * rework and load, a default for the rest. Only an `effect` switches the driver from its weight to events.
+   */
+  chance: number | null;
+  /** Chance mode: how much a hit raises that client's churn, in percent (0-500). Null: the driver runs on its weight. */
+  effect: number | null;
+  /** Chance mode: months a hit lasts (1-24). Null: 3. */
+  effect_months: number | null;
+  /** Provenance of weight, enabled, value, month, chance, effect and effect_months. */
+  provenance: ProvenanceMap;
+}
+
+/** One change on the 24-month schedule: a condition from month `from_month` to `to_month` (1-based, inclusive). */
+export interface MarketScheduleRow {
+  id: string;
+  workspace_id: string;
+  from_month: number;
+  to_month: number;
+  condition_id: string;
+}
+
+/**
+ * How often a client generates a servicing task (docs/PRD.md §5
+ * `service_servicing.recurrence`): `times` tasks spread evenly over every
+ * week or month, or ad-hoc requests at random, `poisson_per_month` a month on
+ * average. A type alias, so it stays assignable to the jsonb column.
+ */
+export type RecurrenceJson =
+  | { every: "week" | "month"; times: number }
+  | { poisson_per_month: number }
+  /** Follows what the client's tier gets: `perMonth × value ÷ (per ?? 1)` tasks a month (`Recurrence` in the engine). */
+  | { perMonth: number; driver: RecurrenceDriver; per?: number };
+
+/** What a driver recurrence follows: a tier deliverable, or "adhoc" (the chance of a request × how many). */
+export type RecurrenceDriver = "words" | "links" | "techHours" | "meetings" | "builds" | "creativeSets" | "channels" | "adhoc";
+
+/**
+ * A servicing process a service's clients run, and how often (docs/PRD.md
+ * §5 `service_servicing`, §6.3.5; issue #19).
+ */
+export interface ServiceServicingRow {
+  id: string;
+  workspace_id: string;
+  service_id: string;
+  /** A process of kind `servicing`. */
+  process_id: string;
+  recurrence: RecurrenceJson;
+  /** On time within this many working hours of the task starting; missed beyond twice it. */
+  sla_hours: number;
+  /** Provenance of `recurrence` and `sla_hours`. */
+  provenance: ProvenanceMap;
+}
+
+/**
+ * Where the company map's run sends work: when it leaves `from` it goes on at `to`. Each end is a process id (a card) or the id of one of the
+ * map's own steps in `ProcessBundle.companySteps`; `to` may also be `COMPANY_DONE` (the work is done there). Only a decision has more than one
+ * hand-off out, one per branch, with its share `p` (and its condition `tag`); any other has one and no `p`: all the work goes that way.
+ */
+export interface CompanyHandoff {
+  from: string;
+  to: string;
+  /** A decision branch's share of the work, 0-1. Absent: all of it. */
+  p?: number;
+  /** A decision branch's condition tag (only honoured when there are services, as in a process). */
+  tag?: string;
+}
+
+/** `CompanyHandoff.to` when the work is done: an end on the company map, a step with no line out, a branch that went nowhere the run can follow. */
+export const COMPANY_DONE = "__company_done__";
+
+/** One process at one revision: what a run needs of a process other than the one on screen. */
+export interface ProcessPart {
+  process: ProcessRow;
+  revision: ProcessRevisionRow;
+  steps: StepRow[];
+  edges: EdgeRow[];
+}
+
+/** Everything needed to render and simulate one process revision. */
+export interface ProcessBundle {
+  /** Who loaded it (B1 2/3). Absent means "sees everyone" (demo fixtures, tests, the golden models). */
+  viewer?: Viewer;
+  /** Pay is hidden even though the viewer may see everyone (a share link, B3). */
+  payHidden?: true;
+  workspace: WorkspaceRow;
+  roles: RoleRow[];
+  process: ProcessRow;
+  revision: ProcessRevisionRow;
+  steps: StepRow[];
+  edges: EdgeRow[];
+  /**
+   * Steps of this revision that were split or replaced (they have
+   * `replaced_by`). Kept apart from `steps` so nothing draws or simulates
+   * them; read to re-point scenarios that still target them (issue #16).
+   */
+  retired?: StepRow[];
+  /** Named people. When empty, roles' head-counts are used instead. */
+  people: PersonRow[];
+  personRoles: PersonRoleRow[];
+  personSkills: PersonSkillRow[];
+  personLeave: PersonLeaveRow[];
+  /**
+   * Per-person times (C6, #198), in the shape `team_capacity` gives: everyone's for a viewer who sees everyone, only the
+   * viewer's own otherwise, none in a share link. Optional, so fixtures, the demo and older snapshots still type-check.
+   * Read only through `team_capacity` (never the table) in any loader that feeds a bundle.
+   */
+  personCapacityFactors?: PersonCapacityFactorRow[];
+  /** The workspace's services. When none apply, every win is priced at the workspace's interim `retainer`. */
+  services: ServiceRow[];
+  /**
+   * The workspace's demand model (issue #13). With no lead sources, the
+   * interim `settings.leads_per_week` is the arrival rate; with no
+   * seasonality rows or demand settings, it is constant.
+   */
+  leadSources?: LeadSourceRow[];
+  seasonality?: SeasonalityRow[];
+  demand?: DemandSettingsRow | null;
+  /**
+   * Market conditions (A57) and the 24-month schedule. With no schedule (or
+   * every month Stable) the model is simulated exactly as before.
+   */
+  marketConditions?: MarketConditionRow[];
+  marketSchedule?: MarketScheduleRow[];
+  /**
+   * Churn drivers you have set (A56). With none, drivers are at their
+   * defaults, which is how clients churned before drivers existed.
+   */
+  churnDrivers?: ChurnDriverRow[];
+  /**
+   * The client roster (issue #18). With any clients, ongoing load is per
+   * client and assigned person; with none (or omitted), the interim
+   * `settings.active_clients` × the roles' hours per client, as before.
+   */
+  clients?: ClientRow[];
+  clientServices?: ClientServiceRow[];
+  clientAssignments?: ClientAssignmentRow[];
+  /**
+   * Clients counted per service (issue #120). With any groups the engine
+   * simulates unnamed clients from them and ignores the named roster above
+   * (which stays stored, hidden); with none, the roster applies as before.
+   */
+  clientGroups?: ClientGroupRow[];
+  /**
+   * Client servicing (issue #19): which servicing processes each service's
+   * clients run, and the workspace's other processes at their live
+   * revisions, which a run of this one needs: its servicing processes, and,
+   * when this bundle is itself a servicing process, the pipeline it runs
+   * beside. Omitted or empty: no servicing, as before it existed.
+   */
+  servicingLinks?: ServiceServicingRow[];
+  otherProcesses?: ProcessPart[];
+  /**
+   * Hand-offs between pipelines (Q17, ADR 0023), set only by `companyBundle` when the company map has a line from a pipeline to another
+   * pipeline, or to one of the map's own steps: in order from the sales pipeline (`process`), each says where work won in (or done in) `from`
+   * carries on. Each process `to` is in `otherProcesses`; each step is in `companySteps`. Absent: nothing is handed on and `toEngineModel` takes the path it always took.
+   */
+  handoffs?: CompanyHandoff[];
+  /**
+   * Set by `companyBundle` with `handoffs`: the company map's own steps (tasks, waits and decisions) the hand-offs pass through, which the run
+   * simulates as steps of their own. Absent: none (a map whose lines join cards only).
+   */
+  companySteps?: StepRow[];
+  /** Set by `companyBundle`: the name of every process on the company map, for notes about one that isn't in the run. */
+  companyNames?: Record<string, string>;
+  /**
+   * The capacity Set up data the engine reads (P1's columns, mapped by P2b: `docs/plans/capacity/p2b-mapping-brief.md`). Present only
+   * for a workspace that has at least one tier service (a service with a department and a tier); absent, the model is exactly the
+   * one built before capacity existed.
+   */
+  capacity?: CapacityInputs;
+}
+
+/** A deliverable column on a service or a client (the tier's, or a named client's own value). `null`: not entered. */
+export interface CapacityDeliverableColumns {
+  words: number | null;
+  links: number | null;
+  tech_hours: number | null;
+  meetings: number | null;
+  builds: number | null;
+  creative_sets: number | null;
+  channels: number | null;
+}
+
+/** A service's capacity columns (`services.department_id` …). */
+export interface CapacityServiceRow extends CapacityDeliverableColumns {
+  id: string;
+  department_id: string | null;
+  tier_id: string | null;
+  adhoc_chance: number | null;
+  adhoc_requests: number | null;
+  /** The tier's total clients, typed in (Q13). Left out when not set: then the count is worked out as before. */
+  client_total?: number | null;
+}
+
+/** A named client's own values (`clients.<same names>`): each replaces its tier's; null uses the tier's. */
+export interface CapacityClientRow extends CapacityDeliverableColumns {
+  id: string;
+  hand_holding_hours: number | null;
+  adhoc_chance: number | null;
+  adhoc_requests: number | null;
+  adhoc_hours: number | null;
+  step_factor: number | null;
+}
+
+/** What the capacity mapping reads of the Set up data. Plain numbers, so a bundle can be saved and compared. */
+export interface CapacityInputs {
+  /** Tiers, in their order (`tiers.sort`): the engine's tier is the key. */
+  tiers: { id: string; key: string; sort: number }[];
+  services: CapacityServiceRow[];
+  clients: CapacityClientRow[];
+  /** Roles' kind (a client-facing role's holder is a client's manager) and unit of work. */
+  roles: { id: string; kind: "client_facing" | "shared"; unit: string | null }[];
+  /**
+   * People's team time and ramp. Read straight from `people`, so a viewer who can't see people gets none (as pay is hidden):
+   * everyone then has all their hours and no ramp.
+   */
+  people: { id: string; reserved_share: number; ramp: number[] | null }[];
+  personTiers: { person_id: string; tier_id: string }[];
+  portfolio: { person_id: string; service_id: string; client_count: number }[];
+}
+
+/**
+ * A saved whole-run scenario as the process page, the issues register, share snapshots and MCP read it: patches applied in order on
+ * top of the baseline model (docs/PRD.md §5; the grammar is in packages/engine/src/scenario.ts). Since the Sandbox (sandbox
+ * phase 1) these are the standalone whole-run `sandbox_scenarios` (no parent, every change a patch with no `from`), read through
+ * `loadScenarios`; `parent_scenario_id` is always null.
+ */
+export interface ScenarioRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string | null;
+  patch: ScenarioPatch[];
+  parent_scenario_id: string | null;
+}
+
+/** By hand (built or saved by a person) or made by the AI ideas (A52). */
+export type BlockType = "manual" | "ai";
+
+/** A step of a block: a process's step without the revision, workspace and process it sits in (a block belongs to none). */
+export type BlockStep = Omit<StepRow, "revision_id" | "workspace_id" | "process_id">;
+/** A connection between two steps of a block. */
+export type BlockEdge = Omit<EdgeRow, "revision_id" | "workspace_id" | "process_id">;
+
+/**
+ * The steps, connections and groups of a block (`blocks.steps`). Ids are local to the bundle: inserting it into a process
+ * gives everything fresh ids. Groups are steps of kind `group` with `parent_step_id` set, as in a process; steps with no
+ * parent are the block's top level.
+ */
+export interface BlockBundle {
+  steps: BlockStep[];
+  edges: BlockEdge[];
+  /** The top-level step the block is entered at; null when it has none to choose. */
+  entry_step_id: string | null;
+}
+
+/** A saved bundle of steps that can be reused in any process or solution (A51). */
+export interface BlockRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string;
+  type: BlockType;
+  steps: BlockBundle;
+  created_at: string;
+  updated_at: string;
+}
+
+/** How a solution did against an issue's target, or what the user decided. */
+export type SolutionVerdict = "pass" | "fail";
+
+/** Where a solution stands (Q10, D43): a person's call, shown as a pill. The per-issue verdicts stay under it as detail. */
+export const SOLUTION_STATUSES = ["idea", "testing", "works", "doesnt_work", "adopted"] as const;
+export type SolutionStatus = (typeof SOLUTION_STATUSES)[number];
+export const SOLUTION_STATUS_LABELS: Record<SolutionStatus, string> = { idea: "Idea", testing: "Testing", works: "Works", doesnt_work: "Doesn't work", adopted: "Adopted" };
+export const isSolutionStatus = (v: unknown): v is SolutionStatus => typeof v === "string" && (SOLUTION_STATUSES as readonly string[]).includes(v);
+
+/** A separate copy of a process with changed steps, plus optional lever changes (A49, D25). Never a draft: drafts stay single (D18). */
+export interface SolutionRow {
+  id: string;
+  workspace_id: string;
+  /** The process it changes. */
+  process_id: string;
+  /** The revision of that process the copy was made from. */
+  base_revision_id: string;
+  name: string;
+  notes: string;
+  status: SolutionStatus;
+  /** The whole map as the solution has it (the same shape as a block's bundle). */
+  steps: BlockBundle;
+  /** Stable ids of the steps it added or changed against the base revision. */
+  changed_step_ids: string[];
+  /** Lever changes, as scenario patches. */
+  lever_changes: ScenarioPatch[];
+  /** Automations and augmentations in this version of the process (D53). The Sandbox runs them from the month the version is picked. */
+  step_changes: StoredStepChange[];
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}
+
+/**
+ * A scenario of the Sandbox: a named list of changes (one lever each, for the whole run or from a month), optionally built on
+ * another scenario (`parent_id`: the parent's changes apply first). It never changes the live model; it is run against it.
+ */
+export interface SandboxScenarioRow {
+  id: string;
+  workspace_id: string;
+  name: string;
+  description: string | null;
+  parent_id: string | null;
+  changes: SandboxChange[];
+  /** The horizon the scenario opens on, 1 to 24 months. */
+  horizon_months: number;
+  /** The 1st of the month the run starts in; null: today. */
+  start_date: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}
+
+/** A workspace's solutions and which issues each solves, as loaded with a page (the demo keeps its own in memory). */
+export interface SolutionsData {
+  solutions: SolutionRow[];
+  links: SolutionIssueRow[];
+}
+
+/** One issue a solution solves: the automatic verdict against the issue's target, and the user's own. */
+export interface SolutionIssueRow {
+  solution_id: string;
+  issue_id: string;
+  workspace_id: string;
+  /** Pass or fail from the simulation; null when the target couldn't be checked by it. */
+  auto_verdict: SolutionVerdict | null;
+  /** The share of simulated runs that meet the target, 0 to 100. */
+  holds_pct: number | null;
+  /** What it was checked against, in words. */
+  auto_note: string;
+  user_verdict: SolutionVerdict | null;
+  user_notes: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}
+
+/**
+ * Open, Testing solutions, Resolved, Won't fix, as the app shows them; the database holds them as the older
+ * `open`, `in_progress`, `done` plus a `resolution` (see issue-status.ts). And `dismissed`, which is not an issue a person sees: it is what an
+ * insight someone dismissed is stored as, so it stays gone. The register, the map and the counts leave it out
+ * (`isVisibleIssue`).
+ */
+export type IssueStatus = "open" | "testing" | "resolved" | "wont_fix" | "dismissed";
+/** The four statuses a person can give an issue. */
+export const ISSUE_STATUSES = ["open", "testing", "resolved", "wont_fix"] as const satisfies readonly IssueStatus[];
+export type VisibleIssueStatus = (typeof ISSUE_STATUSES)[number];
+/**
+ * A dismissed insight stays dismissed until its process's next published version. True while the process's live
+ * revision is the one it was dismissed against. A different live revision means it has expired, and the analysis may
+ * list the insight again. A dismissal with no revision on record was made before the process had any version (or
+ * migrated without one that could be worked out), so it ends on the first publish.
+ */
+export function isDismissalCurrent(i: { status: IssueStatus; dismissed_revision_id: string | null }, liveRevisionId: string | null | undefined): boolean {
+  if (i.status !== "dismissed") return false;
+  // Nothing to compare with (the page doesn't know the process's versions, or it has never been published): it holds.
+  if (!liveRevisionId) return true;
+  // Dismissed before the process had any version: the first publish ends it.
+  if (!i.dismissed_revision_id) return false;
+  return i.dismissed_revision_id === liveRevisionId;
+}
+
+/** True unless the row is a dismissed insight. */
+export const isVisibleIssue = (i: { status: IssueStatus }): boolean => i.status !== "dismissed";
+/** Still to be dealt with: open, or having a solution tested. */
+export const isActiveStatus = (s: IssueStatus): boolean => s === "open" || s === "testing";
+
+/** One thing an issue touches: a step (by stable id) or, with no step, the whole process. */
+export interface IssueLinkRef {
+  process_id: string | null;
+  step_id: string | null;
+}
+
+/** How a resolved issue was resolved: a solution fixed it, the process was changed directly, or it is no longer a problem. */
+export type ResolveHow = "solution" | "process_change" | "not_a_problem";
+export const RESOLVE_HOWS = ["solution", "process_change", "not_a_problem"] as const satisfies readonly ResolveHow[];
+
+export type IssueEventKind = "created" | "edited" | "solution_tested" | "resolved" | "reopened" | "solution_status";
+/** Logged by hand, detected by a stored run (reserved), or promoted from a detection. */
+export type IssueSource = "manual" | "detected" | "promoted";
+
+/**
+ * A tracked issue in the register (docs/PRD.md §5 `issues`). Detected issues
+ * aren't stored: they come from each run (engine `detectIssues`); promoting
+ * one stores it with its `detected_key`.
+ */
+export interface IssueRow {
+  id: string;
+  workspace_id: string;
+  process_id: string | null;
+  /** A step's stable id (no foreign key: steps are keyed by revision). */
+  step_id: string | null;
+  role_id: string | null;
+  person_id: string | null;
+  /** The client it is about (issue #18). */
+  client_id: string | null;
+  type: IssueType;
+  /** The stored value of the issue's rating (great = info, good = warning, bad = serious, risk = critical; see `ratingOfStored`). */
+  severity: StoredSeverity;
+  title: string;
+  evidence: string | null;
+  /** Numbers behind the finding, e.g. a promoted detection's metrics. */
+  evidence_metrics: Record<string, number>;
+  owner_person_id: string | null;
+  status: IssueStatus;
+  /** The saved scenario "Run the fix" applies. */
+  scenario_id: string | null;
+  source: IssueSource;
+  detected_key: string | null;
+  /** Set by the database when the status becomes resolved, won't fix or dismissed. */
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Stable per workspace, never reused: "Issue #12". Assigned by the database. Null for a dismissed insight, which is not an issue. */
+  number: number | null;
+  /** For a dismissed insight: the live revision of its process it was dismissed against. See `isDismissalCurrent`. */
+  dismissed_revision_id: string | null;
+  /** How it was resolved, while it is resolved (cleared on reopen; the history keeps it). Null for an issue resolved before this was recorded. */
+  resolved_how: ResolveHow | null;
+  /** The solution that fixed it, when `resolved_how` is "solution" and one was picked (A50). Cleared on reopen; the history keeps its name. */
+  resolved_solution_id: string | null;
+  /** The note written when it was resolved. */
+  resolution_note: string | null;
+  /** What is measured ("Wait at Check fit"), its value now ("1.4 d") and the goal ("under 4 hours"). */
+  target_measure: string | null;
+  target_now: string | null;
+  target_goal: string | null;
+  /** What it touches: steps, or (a link with no step) a whole process. `process_id` and `step_id` above are the first. */
+  links: IssueLinkRef[];
+  /** People who own it; `owner_person_id` above is the first. */
+  owner_ids: string[];
+  /** Sources linked to it. */
+  source_ids: string[];
+}
+
+/** One entry of an issue's history. Written by the database; nothing writes it through the API. */
+export interface IssueEventRow {
+  id: string;
+  issue_id: string;
+  workspace_id: string;
+  /** The order entries were written in. */
+  seq: number;
+  kind: IssueEventKind;
+  at: string;
+  actor: string | null;
+  detail: Record<string, unknown>;
+  tx: number | null;
+}
+
+type TableRow<T extends keyof DB> = Selectable<DB[T]>;
+
+/** `true` when every field of `Row` is a column of table `T` with a compatible type. */
+type Matches<Row, T extends keyof DB> = [Exclude<keyof Row, keyof TableRow<T>>] extends [never]
+  ? Row extends Pick<TableRow<T>, keyof Row & keyof TableRow<T>>
+    ? true
+    : { mismatch: T }
+  : { unknownColumns: Exclude<keyof Row, keyof TableRow<T>> };
+type Assert<T extends true> = T;
+
+export type _SchemaDriftChecks = [
+  // settings is jsonb; WorkspaceSettings is its app-side shape.
+  // provenance is loaded only where shown (optional here, required in the table).
+  Assert<Matches<Omit<WorkspaceRow, "settings" | "provenance">, "workspaces">>,
+  Assert<Matches<RoleRow, "roles">>,
+  Assert<Matches<Omit<PersonRow, "provenance">, "people">>,
+  Assert<Matches<PersonRoleRow, "person_roles">>,
+  Assert<Matches<PersonSkillRow, "person_skills">>,
+  Assert<Matches<PersonLeaveRow, "person_leave">>,
+  // is_company and archived_at are optional here (absent on fixtures).
+  Assert<Matches<Omit<ProcessRow, "is_company" | "archived_at" | "category" | "department_id" | "whole_business" | "map_drives_run" | "notes">, "processes">>,
+  Assert<Matches<Required<Pick<ProcessRow, "archived_at" | "department_id" | "whole_business" | "map_drives_run" | "notes">>, "processes">>,
+  Assert<Matches<ProcessRevisionRow, "process_revisions">>,
+  // replaced_by defaults to '{}' in the table; the app leaves it out of new steps.
+  Assert<Matches<Omit<StepRow, "replaced_by">, "steps">>,
+  // center_dx and center_dy are optional here (absent on fixtures).
+  Assert<Matches<Omit<EdgeRow, "center_dx" | "center_dy">, "edges">>,
+  Assert<Matches<Required<Pick<EdgeRow, "center_dx" | "center_dy">>, "edges">>,
+  // fallback_ongoing_load is jsonb; FallbackLoad is its app-side shape.
+  Assert<Matches<Omit<ServiceRow, "provenance">, "services">>,
+  // provenance is jsonb; ProvenanceMap is its app-side shape.
+  Assert<Matches<ClientRow, "clients">>,
+  Assert<Matches<ClientServiceRow, "client_services">>,
+  Assert<Matches<ClientAssignmentRow, "client_assignments">>,
+  Assert<Matches<ClientGroupRow, "client_groups">>,
+  // recurrence and provenance are jsonb; RecurrenceJson and ProvenanceMap are their app-side shapes.
+  Assert<Matches<Omit<ServiceServicingRow, "recurrence">, "service_servicing">>,
+  Assert<Matches<LeadSourceRow, "lead_sources">>,
+  Assert<Matches<SeasonalityRow, "seasonality">>,
+  Assert<Matches<DemandSettingsRow, "demand_settings">>,
+  // preset is check-constrained to MarketPreset.
+  Assert<Matches<Omit<MarketConditionRow, "preset">, "market_conditions">>,
+  Assert<Matches<MarketScheduleRow, "market_schedule">>,
+  // driver is check-constrained to ChurnDriverKey; provenance is jsonb.
+  Assert<Matches<Omit<ChurnDriverRow, "driver" | "provenance">, "churn_drivers">>,
+  // changes is jsonb; SandboxChange[] is its checked shape.
+  Assert<Matches<Omit<SandboxScenarioRow, "changes">, "sandbox_scenarios">>,
+  // evidence_metrics is jsonb; Record<string, number> is its app-side shape.
+  // The three relation arrays are embedded from the link tables.
+  Assert<Matches<Omit<IssueRow, "evidence_metrics" | "links" | "owner_ids" | "source_ids" | "status" | "resolved_how">, "issues">>,
+  Assert<Matches<Omit<IssueEventRow, "kind" | "detail">, "issue_events">>,
+  Assert<Matches<SourceRow, "sources">>,
+  // The check constraint limits kind to SourceLinkKind.
+  Assert<Matches<Omit<SourceLinkRow, "kind">, "source_links">>,
+  // steps is jsonb; BlockBundle is its checked shape, and the check constraint limits type to BlockType.
+  Assert<Matches<Omit<BlockRow, "steps" | "type">, "blocks">>,
+  // steps, changed_step_ids, lever_changes and step_changes are jsonb; SolutionRow has their checked shapes. The verdicts are check-constrained.
+  Assert<Matches<Omit<SolutionRow, "steps" | "changed_step_ids" | "lever_changes" | "step_changes">, "solutions">>,
+  Assert<Matches<Omit<SolutionIssueRow, "auto_verdict" | "user_verdict">, "solution_issues">>,
+];
