@@ -41,7 +41,7 @@ client's own square mark if they send one.
    `git grep -n "Aperitif" -- apps packages docs/import README.md` and change the literal strings in the packages and their tests.
    Run `pnpm lint && pnpm typecheck && pnpm test`.
 6. If the deployment uses its own Google OAuth client, set the consent screen's app name and logo to match
-   ([new-client.md](new-client.md) §6). The shared client's consent screen says "Transpera Flow".
+   ([SETUP.md](../SETUP.md) §5).
 
 ## Where "Transpera" stays on purpose
 

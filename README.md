@@ -7,7 +7,7 @@ This deployment is branded **Aperitif Flow**: the name and logo people see come 
 `apps/web/public/brand/` ([`docs/brand.md`](docs/brand.md) says how to swap them). The code underneath is Transpera Flow, built and
 run by Transpera AI, so package names (`@transpera-flow/*`), environment variables, the database, file formats
 (`transpera-process/2`, `transpera-workspace/1`) and the decision history in `docs/` keep that name.
-Work is tracked as GitHub issues (milestone parents #1–#3). Picking this up? Start with [`docs/HANDOVER.md`](docs/HANDOVER.md).
+**Setting it up:** [`SETUP.md`](SETUP.md). Working on the code: this README, `CLAUDE.md`, [`docs/PRD.md`](docs/PRD.md) and the decision records in [`docs/adr/`](docs/adr/).
 
 ## The app
 
@@ -84,8 +84,7 @@ pnpm --filter @transpera-flow/db gen:types          # db-types.ts, json-columns.
 and production steps are in [`docs/production-migrations.md`](docs/production-migrations.md); notes on what was checked only
 against plain Postgres are in [`docs/supabase-notes.md`](docs/supabase-notes.md).
 
-Standing up a deployment for a new client (Vercel project, Neon database, Google or Microsoft sign-in): follow
-[`docs/new-client.md`](docs/new-client.md); `bash scripts/new-client.sh` walks the dashboard steps.
+Standing up the deployment (Vercel project, Neon database, Google or Microsoft sign-in): follow [`SETUP.md`](SETUP.md).
 
 ## Checks
 
@@ -132,7 +131,7 @@ claude mcp add --transport http aperitif-flow https://<host>/api/mcp \
 ```
 
 The server is **read-only**: Claude and ChatGPT query and report, and nothing they call writes company data, sources, issues,
-drafts or processes (docs/plans/cut-list.md item 5). Tools: `list_workspaces`, `set_active_workspace` (the only state it
+drafts or processes. Tools: `list_workspaces`, `set_active_workspace` (the only state it
 changes: the token's own active-workspace setting), `get_workspace_summary`, `get_process`, `get_facts`,
 `list_issues`, `list_scenarios`, `list_solutions`, `list_sources`, `list_templates`, `run_scenario` (with `scenario`: a saved Sandbox scenario run month by month), `compare_scenarios`, `check_robustness`
 (time-capped; a capped check is flagged `partial`) and `get_bottlenecks` (with the shadow price: extra completions per quarter
@@ -166,5 +165,4 @@ messages are cut down to a fixed vocabulary. See
 
 After setting the variables and redeploying, sign in as an agency admin and open
 `/monitoring-check` (linked from nowhere) to send a test error from the browser
-and one from the server. The steps in Sentry and Vercel are in
-[`docs/plans/c5-sentry-brief.md`](docs/plans/c5-sentry-brief.md), "What Austin does".
+and one from the server. Setting Sentry up: [`SETUP.md`](SETUP.md), section 13.

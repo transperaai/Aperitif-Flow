@@ -1,7 +1,7 @@
 // Gives an empty workspace the capacity starter (src/capacity-starter.ts): two departments, tiers T1 to T3 with the prototype's example numbers
 // (all marked estimate), and the nine roles. Safe to run twice; it refuses a workspace that has anything in it.
 //   pnpm --filter @transpera-flow/db capacity:starter --workspace <slug> [--driver pg|neon-ws]
-// Runs as DATABASE_URL's owner (new-client.sh stage "Capacity starter", docs/new-client.md section 12). Never on a client in use.
+// Runs as DATABASE_URL's owner (SETUP.md section 8). Never on a client in use.
 import { parseArgs } from "node:util";
 import { applyCapacityStarter } from "../src/capacity-starter.ts";
 import { DRIVERS, connectTarget, type Driver } from "./copy-from-supabase/connect.ts";

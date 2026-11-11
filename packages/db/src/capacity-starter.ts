@@ -7,7 +7,7 @@
 // No people and no clients. It never touches a workspace that already has tiers, roles, people, clients or services, so running it
 // twice, or on Northbeam or Larkspur, changes nothing.
 //
-// It writes as whoever holds the connection: the deployment's owner login from `new-client.sh` / `pnpm --filter @transpera-flow/db
+// It writes as whoever holds the connection: the deployment's owner login from `pnpm --filter @transpera-flow/db
 // capacity:starter`, in one transaction.
 
 export interface Queryable {

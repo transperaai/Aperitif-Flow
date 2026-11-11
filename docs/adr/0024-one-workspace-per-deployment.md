@@ -4,7 +4,7 @@ Date: 11 Nov 2026 · Status: accepted · rework-direction decision 1 · builds o
 
 ## Context
 
-Each client gets their own deployment: one Vercel project and one Neon database ([new-client.md](../new-client.md)). A client's
+Each client gets their own deployment: one Vercel project and one Neon database ([SETUP.md](../../SETUP.md)). A client's
 deployment holds one workspace, yet the app still behaved as a multi-tenant system: the home page listed workspaces, the sidebar
 had a switcher with "All workspaces", the Owner could keep making workspaces, and MCP needed the right workspace chosen.
 
