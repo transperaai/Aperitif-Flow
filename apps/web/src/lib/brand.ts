@@ -10,7 +10,7 @@ export const BRAND = {
   /** The square mark cut from the logo: collapsed sidebar; the app icons in src/app are generated from it. */
   mark: { src: "/brand/mark.svg", width: 256, height: 256 },
   /** The word shown after the logo, since the wordmark itself says only "Aperitif". Empty when the logo carries the full name. */
-  logoSuffix: "Flow",
+  logoSuffix: "",
 } as const;
 
 /** A page title: "Not found · Aperitif Flow". */
