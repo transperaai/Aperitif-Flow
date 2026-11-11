@@ -149,7 +149,7 @@ Then deploy with the new settings: **Deployments → the latest one → ⋯ → 
 
 1. Open `<APP_URL>` and sign in with Google, using an address in `ACCESS_ADMIN_EMAILS`.
 2. You'll see **New workspace**. Create your company's workspace, for example name `Aperitif`, address `aperitif`. From then on everyone
-   who signs in goes straight into it.
+   who signs in goes straight into it. Load the company data next (section 8), before adding anything.
 3. **Settings → Access → Who can sign in.** Add your team:
    - **A domain** (for example `aperitif.com.au`): anyone with a verified Google address on it gets that domain's role.
    - **Named emails**: a specific person and role. This overrides their domain's role. Use it for contractors.
@@ -161,7 +161,26 @@ Then deploy with the new settings: **Deployments → the latest one → ⋯ → 
 4. Check it works: create or upload a process, run a simulation and reload the page. It's still there. Then try an address that isn't
    on the list: it should be refused.
 
-## 8. Starting data (optional, once)
+## 8. Load Aperitif's company data
+
+Transpera has already keyed in Aperitif's company information (roles, people, tiers, clients, demand, settings and the process maps)
+and checked it. It ships in this repository as **`data/aperitif-backup.json`**. Load it into your new workspace straight after
+creating it:
+
+1. Sign in as the Owner. On the empty workspace's Overview, under **Restore a backup**, choose **Choose a backup file**.
+2. Pick `data/aperitif-backup.json` from your copy of this repository and confirm.
+3. Each process comes back as a **draft**. Open each one under **Processes** and choose **Publish** to see its numbers.
+
+This works **only on an empty workspace**: do it before you add anything, because the first role, person, client or process you add
+closes the option. The file holds no email addresses, access rules or API tokens, so set up **Settings → Access** yourself (section 7,
+step 3).
+
+The file includes pay and client names. Anyone who can read this repository can read them, so keep the repository private and
+limit who has access.
+
+If you load the backup, skip the rest of this section.
+
+### Starting from defaults instead (optional, once)
 
 A new workspace's **Set up** pages are empty. To start from sensible defaults instead, run this once from your computer, with
 `DATABASE_URL` set as in section 3:
