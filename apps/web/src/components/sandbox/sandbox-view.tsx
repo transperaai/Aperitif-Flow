@@ -9,13 +9,14 @@
 // Who: the Owner and Agency admins (mode "live") add, move, save and delete; a Viewer (mode "readonly") opens, runs and compares
 // saved scenarios and sees the alerts without acknowledging them, with no goal seek and no "What matters most" (Agency admins and the Owner only); the demo (mode "demo") keeps scenarios in the tab.
 
+import { workspaceBusyLine } from "@/lib/busy-line";
 import { useIsPhone } from "@/hooks/use-mobile";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { partOf, speedsNormalisedFor, type IssueRow, type ProcessBundle, type SandboxChange, type SandboxScenarioRow, type SolutionRow, type SourceRow } from "@transpera-flow/db";
-import { offeredLevers, sandboxLever, workspacePurposes } from "@transpera-flow/db";
-import { BUILTIN_CHURN_DRIVER_IDS, CHURN_DRIVER_SPECS, CUSTOM_DRIVER_PREFIX, ENGINE_VERSION, firstCrossing, toRatingConfig } from "@transpera-flow/engine";
+import { offeredLevers, sandboxLever, storedHiringDelay, workspacePurposes } from "@transpera-flow/db";
+import { BUILTIN_CHURN_DRIVER_IDS, CHURN_DRIVER_SPECS, CUSTOM_DRIVER_PREFIX, ENGINE_VERSION, busyCutoffsAt, firstCrossing, roleBusyCutoffs, toRatingConfig } from "@transpera-flow/engine";
 import { Help } from "@/components/help";
 import { HorizonPicker } from "@/components/horizon-picker";
 import { InsightsSection } from "@/components/insights";
@@ -33,7 +34,7 @@ import { useDemoSolutions } from "@/lib/solutions/demo";
 import { horizonLabel, horizonWeeks } from "@/lib/horizon";
 import { issueFormOptions } from "@/lib/issues/draft";
 import { useIssues } from "@/lib/issues/use-issues";
-import { ANALYSIS_DEFAULTS } from "@/lib/analysis/defaults";
+import { analysisRulesOf } from "@/lib/analysis/defaults";
 import { SANDBOX_ANALYSIS_SHOWN } from "@/lib/sandbox/analysis-shown";
 import { SPEEDS_NORMALISED_NOTE } from "@/lib/people";
 import { useSimulation } from "@/lib/sim/use-simulation";
@@ -202,10 +203,18 @@ export function SandboxView({ live, issues, sources = NO_SOURCES, mode, issuesHr
   useEffect(() => {
     if (built.model && built.monthStarts && result) sharedSimPool().seed(runKey(built.model, built.monthStarts, result.initialState), result);
   }, [built.model, built.monthStarts, result]);
-  // The alerts use the documented defaults (D40): the rules editor is gone, so a stored setting nobody can reach doesn't move results.
-  const rules = ANALYSIS_DEFAULTS;
-  const cutoffs = useMemo(() => toRatingConfig(rules, live.workspace.settings.hours_per_week).rules.busy.cutoffs, [rules, live.workspace.settings.hours_per_week]);
+  // The alerts use the workspace's analysis assumptions (Settings > Simulation) and its busy line.
+  const rules = analysisRulesOf(live);
+  const workspaceBusy = workspaceBusyLine(live.workspace.settings);
+  const cutoffs = useMemo(() => toRatingConfig(rules, live.workspace.settings.hours_per_week, workspaceBusy).rules.busy.cutoffs, [rules, live.workspace.settings.hours_per_week, workspaceBusy]);
   const busyLine = cutoffs[1];
+  // Each role, and each person by their first role, against the role's own utilisation threshold (customisability audit 11).
+  const rowCutoffs = (id: string) => {
+    const m = built.model;
+    const rid = m?.roles[id] ? id : m?.people?.[id]?.roles[0];
+    const line = rid ? m?.roles[rid]?.line : undefined;
+    return line ? busyCutoffsAt(cutoffs, line) : undefined;
+  };
   const alerts = useMemo(() => (built.model && result ? forecastInsights(built.model, result, rules, start) : null), [built.model, result, rules, start]);
   const data = useMemo(() => (built.model && result ? timelineData(built.model, result, live, start) : null), [built.model, result, live, start]);
 
@@ -292,8 +301,10 @@ export function SandboxView({ live, issues, sources = NO_SOURCES, mode, issuesHr
     const names = timelineMonths(start, plan.run.result.monthly!.months, built.model.hoursPerWeek).map((mo) => mo.long);
     const lines: string[] = [];
     for (const [id, role] of Object.entries(built.model.roles)) {
-      const l = firstCrossing(result.monthly!.roles[id] ?? [], cutoffs).average;
-      const p = firstCrossing(plan.run.result.monthly!.roles[id] ?? [], cutoffs).average;
+      // The role's own utilisation threshold when it has one, as the heatmap uses.
+      const own = roleBusyCutoffs(cutoffs, built.model.roles, id);
+      const l = firstCrossing(result.monthly!.roles[id] ?? [], own).average;
+      const p = firstCrossing(plan.run.result.monthly!.roles[id] ?? [], own).average;
       if (l?.month === p?.month) continue;
       if (l && p) lines.push(`${role.name}: too busy from ${names[p.month]} (with no changes: ${names[l.month]})`);
       else if (l) lines.push(`${role.name}: no longer too busy in the next ${horizonLabel(months)}`);
@@ -614,7 +625,7 @@ export function SandboxView({ live, issues, sources = NO_SOURCES, mode, issuesHr
   );
   const roleNames = useMemo(() => Object.fromEntries(Object.entries(shownRun?.model.roles ?? {}).map(([id, r]) => [id, r.name])), [shownRun]);
   const timingLine = useMemo(
-    () => (shownRun?.result.monthly && exportMonths ? capacityLine(capacityRunsOut(shownRun.result.monthly, roleNames, cutoffs), exportMonths, horizonLabel(months)) : null),
+    () => (shownRun?.result.monthly && exportMonths ? capacityLine(capacityRunsOut(shownRun.result.monthly, roleNames, cutoffs, shownRun.model.roles), exportMonths, horizonLabel(months)) : null),
     [shownRun, exportMonths, roleNames, cutoffs, months],
   );
   const people = namedForViewer(viewerOf(live), live.people.filter((p) => p.active))
@@ -841,8 +852,9 @@ export function SandboxView({ live, issues, sources = NO_SOURCES, mode, issuesHr
                 data={shownData}
                 rows={rows}
                 cutoffs={cutoffs}
+                rowCutoffs={rowCutoffs}
                 plan={laneProps}
-                label={`How busy each ${rows === "roles" ? "role" : "person"} is per month over the next ${span}, against the ${Math.round(busyLine * 100)}% utilisation threshold.`}
+                label={`How busy each ${rows === "roles" ? "role" : "person"} is per month over the next ${span}, against each role's utilisation threshold.`}
               />
             ) : sim.status === "error" ? (
               <p className="text-sm text-muted-foreground">The forecast couldn&apos;t be worked out: {sim.error}</p>
@@ -968,6 +980,8 @@ export function SandboxView({ live, issues, sources = NO_SOURCES, mode, issuesHr
             return todayValue(lever, targetId, model, live.workspace.settings.currency, {
               conversion: result && finished > 0 ? result.kpi.won.mean / finished : null,
               causes: result?.churnCauses?.causes,
+              // D9's today: the workspace's own Months to hire, which scenario hires take unless D9 changes it.
+              hireDelayMonths: storedHiringDelay(live.workspace.settings) ?? undefined,
             });
           }}
           mix={mix}

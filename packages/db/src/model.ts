@@ -6,8 +6,16 @@ import {
   marketFromSchedule,
   NestingError,
   afterSaleSteps,
+  DEFAULT_RATING_CUTOFFS,
   MAX_REWORK,
   ModelError,
+  DEFAULT_MAX_STAY_MONTHS,
+  tenureFromChurn,
+  DEFAULT_HEALTH_RULES,
+  WEEKS_PER_MONTH,
+  workingDaysOf,
+  CALENDAR_WEEKDAYS,
+  type ChurnLimits,
   type EngineMarket,
   type EngineDemand,
   type Distribution as EngineDistribution,
@@ -15,6 +23,7 @@ import {
   type EngineChurnDriver,
   type EngineClientGroup,
   type EngineEnd,
+  type EngineHealthBands,
   type EngineHealthRules,
   type EngineGroup,
   type EngineModel,
@@ -24,12 +33,14 @@ import {
   type EngineStep,
 } from "@transpera-flow/engine";
 import { resolvePurpose, workspacePurposes, type PurposeSource } from "./purposes";
-import { engineClientCapacity, enginePersonCapacity, engineRoleUnit, engineTierClientGroups, engineTierService, tierContext, type TierContext } from "./capacity-model";
+import { engineClientCapacity, enginePersonCapacity, engineRoleUnit, engineTierClientGroups, engineTierService, namedClientFee, tierContext, type TierContext } from "./capacity-model";
 import { engineRecurrence } from "./servicing";
 import { effectiveMonthlySalary, hourlyCostFromSalary } from "./salary";
 import { COMPANY_DONE, STEP_SOURCE_LABELS, type DistParams, type Distribution, type EdgeRow, type LeadSourceRow, type PersonRow, type ProcessBundle, type ProcessPart, type SeasonalityRow, type StepRow, type StepSourceLabel, type WorkspaceSettings } from "./types";
 
-const WORKING_DAYS_PER_WEEK = 5;
+// Dates map onto run time as calendar weekdays (Monday to Friday), each a fifth of the week, so a calendar week is always one
+// working week whatever the workspace's working days; `working_days` only sets how long "a working day" of work is (the engine's
+// `workingDaysPerWeek`).
 const DAY_MS = 86_400_000;
 
 /** Working days (Mon–Fri) from `from` up to, not including, `to`. Negative if `to` is earlier. */
@@ -321,6 +332,8 @@ function engineModelOf(bundle: ProcessBundle, options: ModelOptions): { model: E
       count: role.headcount,
       cost: Number(role.default_cost_rate),
       ongoing: Number(role.ongoing_hours_per_client_week),
+      // The role's utilisation threshold, when it isn't the rating model's own line (85%): a role left at the default maps as before.
+      ...(role.line != null && Number(role.line) > 0 && Number(role.line) !== DEFAULT_RATING_CUTOFFS.busy[1] ? { line: Number(role.line) } : {}),
       ...(tier && engineRoleUnit(tier, role.id) ? { unit: engineRoleUnit(tier, role.id)! } : {}),
     };
   }
@@ -332,7 +345,9 @@ function engineModelOf(bundle: ProcessBundle, options: ModelOptions): { model: E
   // A typed tier total (Q13) takes the named clients the engine will simulate off the counted remainder (active, and started by the run's start).
   const namedOn = (serviceId: string) =>
     (bundle.clients ?? []).filter((c) => c.active && !(c.start_date && c.start_date > startDate) && (bundle.clientServices ?? []).some((cs) => cs.client_id === c.id && cs.service_id === serviceId)).length;
-  const clientGroups = tier && services ? engineTierClientGroups(tier, bundle.clientGroups ?? [], services, namedOn) : engineClientGroups(bundle, services);
+  // A counted client with no group row starts at the workspace's starting health (finding 8), not a fixed 80.
+  const initialHealth = Math.min(100, healthRules(s)?.initial ?? DEFAULT_HEALTH_RULES.initial);
+  const clientGroups = tier && services ? engineTierClientGroups(tier, bundle.clientGroups ?? [], services, namedOn, initialHealth) : engineClientGroups(bundle, services);
   const clients = clientGroups && !tier ? undefined : engineClients(bundle, services, startDate, tier);
   const market = engineMarket(bundle);
   const churnDrivers = engineChurnDrivers(bundle);
@@ -342,6 +357,8 @@ function engineModelOf(bundle: ProcessBundle, options: ModelOptions): { model: E
     ...(hidesPay(bundle) ? { payHidden: true } : {}),
     horizonWeeks: s.horizon_weeks,
     hoursPerWeek: s.hours_per_week,
+    // Only a stored working week other than 5 days is passed: a 5-day week runs exactly as before the setting was read.
+    ...(workingDaysOf(s.working_days) !== 5 ? { workingDaysPerWeek: workingDaysOf(s.working_days) } : {}),
     leadsPerWeek: arrivalsPerWeek(bundle, services),
     ...(demand ? { demand } : {}),
     ...(market ? { market } : {}),
@@ -355,11 +372,16 @@ function engineModelOf(bundle: ProcessBundle, options: ModelOptions): { model: E
           : s.active_clients,
     churnMonthly: s.churn_monthly,
     retainer: s.retainer,
+    // Only when the owner set one: the implicit retainer then caps its stay too; otherwise it keeps 1 / churn as before.
+    ...(storedMaxStay(s) !== null ? { maxStayMonths: storedMaxStay(s)! } : {}),
     roles: engineRoles,
     ...(services ? { services } : {}),
     ...(people ? { people } : {}),
     ...(s.availability_floor !== undefined ? { availabilityFloor: s.availability_floor } : {}),
     ...(s.overtime_cap !== undefined && s.overtime_cap !== null ? { overtimeCap: Number(s.overtime_cap) } : {}),
+    // How pay becomes cost (the engine's pay.ts); absent, null or junk is the default (a model as before). Pay, so never when hidden.
+    ...(!hidesPay(bundle) && num(s.overtime_pay_factor) !== null && num(s.overtime_pay_factor) !== 1 ? { overtimePayFactor: num(s.overtime_pay_factor)! } : {}),
+    ...(!hidesPay(bundle) && (num(s.employer_on_costs) ?? 0) > 0 ? { employerOnCosts: num(s.employer_on_costs)! } : {}),
     // Overheads are not pay: kept for a Viewer or a share link too. Absent, null, 0 or junk adds nothing (a model as before).
     ...((num(s.overhead_monthly) ?? 0) > 0 ? { overheadMonthly: num(s.overhead_monthly)! } : {}),
     ...(clients ? { clients } : {}),
@@ -368,6 +390,8 @@ function engineModelOf(bundle: ProcessBundle, options: ModelOptions): { model: E
     ...(tier ? { placeNewClients: "least-busy" as const, ...(clientGroups ? { clientMix: "groups-add" as const } : {}) } : {}),
     ...(Object.keys(servicing.processes).length ? { servicingProcesses: servicing.processes } : {}),
     ...optional("health", healthRules(s)),
+    ...optional("healthBands", healthBandsOf(s)),
+    ...optional("churnLimits", churnLimitsOf(s)),
     ...(targetCycleHours !== null ? { targetCycleHours } : {}),
     ...(Object.keys(groups).length ? { groups } : {}),
     entry,
@@ -531,6 +555,17 @@ function heldProcesses(bundle: ProcessBundle): Map<string, ProcessPart> {
  * don't arrive here. Undefined when none apply: then the interim `retainer`
  * prices every win, as before services existed.
  */
+/** The workspace's longest stay worked out from churn (`settings.max_stay_months`, more than 0), or null when it has set none. */
+function storedMaxStay(s: Pick<WorkspaceSettings, "max_stay_months">): number | null {
+  const v = num(s.max_stay_months);
+  return v !== null && v > 0 ? v : null;
+}
+
+/** The longest stay worked out from churn: the workspace's own, else `DEFAULT_MAX_STAY_MONTHS`. */
+export function maxStayMonths(s: Pick<WorkspaceSettings, "max_stay_months">): number {
+  return storedMaxStay(s) ?? DEFAULT_MAX_STAY_MONTHS;
+}
+
 function engineServices(bundle: ProcessBundle, processId: string): Record<string, EngineService> | undefined {
   const here = bundle.services
     .filter((sv) => sv.active && (sv.entry_process_id === null || sv.entry_process_id === processId))
@@ -548,7 +583,11 @@ function engineServices(bundle: ProcessBundle, processId: string): Record<string
       pricingModel: sv.pricing_model,
       price: Number(sv.price),
       margin: Number(sv.margin),
-      tenureMonths: Number(sv.tenure_months),
+      // A blank expected tenure is worked out from churn (finding 30), capped at the workspace's longest stay, so the stay that values
+      // a deal moves with the churn; the flag lets a Sandbox churn change work it out again.
+      ...(sv.tenure_months === null || sv.tenure_months === undefined
+        ? { tenureMonths: tenureFromChurn(Number(sv.churn_monthly_base), maxStayMonths(bundle.workspace.settings)), tenureFromChurn: true }
+        : { tenureMonths: Number(sv.tenure_months) }),
       churnMonthly: Number(sv.churn_monthly_base),
       // Rows written before it existed may not carry it: then health doesn't move churn.
       ...(sv.churn_health_sensitivity != null && Number.isFinite(Number(sv.churn_health_sensitivity))
@@ -661,6 +700,46 @@ function healthRules(s: WorkspaceSettings): EngineHealthRules | undefined {
   return Object.keys(rules).length ? rules : undefined;
 }
 
+/** Months from `from` to `to` (YYYY-MM-DD), as a fraction (an average month of 365.25 / 12 days); 0 when `to` is not later or a date is bad. */
+export function monthsBetween(from: string, to: string): number {
+  const a = Date.parse(`${from}T00:00:00Z`);
+  const b = Date.parse(`${to}T00:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return 0;
+  return (b - a) / DAY_MS / (365.25 / 12);
+}
+
+/** Health bands from the workspace settings (findings 34 and 38); undefined when none is set, so 75, 65 and 50 apply. */
+function healthBandsOf(s: WorkspaceSettings): EngineHealthBands | undefined {
+  const pick = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 100 ? v : undefined);
+  const bands: EngineHealthBands = {
+    ...optional("healthy", pick(s.health_healthy_from)),
+    ...optional("watch", pick(s.health_watch_from)),
+    ...optional("atRisk", pick(s.health_at_risk)),
+  };
+  return Object.keys(bands).length ? bands : undefined;
+}
+
+/**
+ * Where the measured churn drivers start and are full, from the workspace settings (findings 1 and 2). Months are turned into weeks
+ * here; anything not set is left out, so the engine's defaults apply and a workspace that sets nothing simulates as before.
+ */
+export function churnLimitsOf(s: WorkspaceSettings): Partial<ChurnLimits> | undefined {
+  const pick = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const weeks = (v: unknown) => (pick(v) === undefined ? undefined : pick(v)! * WEEKS_PER_MONTH);
+  const limits: Partial<ChurnLimits> = {
+    ...optional("loadThreshold", pick(s.utilisation_threshold)),
+    ...optional("loadFull", pick(s.churn_load_full)),
+    ...optional("responseFullShare", pick(s.churn_response_full_share)),
+    ...optional("reworkFullShare", pick(s.churn_rework_full_share)),
+    ...optional("onboardingFullMultiple", pick(s.churn_onboarding_full_multiple)),
+    ...optional("earlyTenureWeeks", weeks(s.churn_early_tenure_months)),
+    ...optional("awayPressure", pick(s.churn_away_pressure)),
+    ...optional("resultsNormal", pick(s.churn_results_normal)),
+    ...optional("priceWeeks", weeks(s.churn_price_months)),
+  };
+  return Object.keys(limits).length ? limits : undefined;
+}
+
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
@@ -690,13 +769,17 @@ function engineClients(
       .sort((a, b) => (a.role_id < b.role_id ? -1 : a.role_id > b.role_id ? 1 : 0))) {
       assignments[a.role_id] = a.person_id;
     }
+    const takes = (bundle.clientServices ?? [])
+      .filter((cs) => cs.client_id === c.id && services && cs.service_id in services)
+      .map((cs) => cs.service_id)
+      .sort();
     clients[c.id] = {
       name: c.name,
-      services: (bundle.clientServices ?? [])
-        .filter((cs) => cs.client_id === c.id && services && cs.service_id in services)
-        .map((cs) => cs.service_id)
-        .sort(),
-      mrr: Number(c.mrr),
+      services: takes,
+      // A blank fee (0) in a tier workspace is the tier's fee, as the Settings screen shows it.
+      mrr: tier ? namedClientFee(Number(c.mrr), takes.filter((sid) => tier.tierServices.has(sid)).map((sid) => services![sid]!.price)) : Number(c.mrr),
+      // Its start date counts (finding 16): how long it has been a client when the run starts, for the early-tenure driver and what losing it is worth.
+      ...(c.start_date ? { monthsActive: monthsBetween(c.start_date, startDate) } : {}),
       ...(c.health !== null && c.health !== undefined ? { health: Number(c.health) } : {}),
       assignments,
       // A tier workspace: its own values, its manager and its hand-holding hours (capacity-model.ts).
@@ -837,7 +920,7 @@ function engineDemand(bundle: ProcessBundle, startDate: string): EngineDemand | 
  */
 function resolvePeopleRows(bundle: ProcessBundle, working: EngineStep[], startDate: string, planned = false, tier?: TierContext, services?: Record<string, EngineService>) {
   const s = bundle.workspace.settings;
-  const hoursPerDay = s.hours_per_week / WORKING_DAYS_PER_WEEK;
+  const hoursPerDay = s.hours_per_week / CALENDAR_WEEKDAYS;
   const roleIds = new Set(bundle.roles.map((r) => r.id));
   const stepIds = new Set(working.map((st) => st.id));
   const employed = bundle.people
@@ -905,16 +988,17 @@ function resolvePeopleRows(bundle: ProcessBundle, working: EngineStep[], startDa
 /**
  * A person's hourly cost for the engine (D73), in order: their own cost rate; else their monthly salary (their own, or their roles'
  * pro rata to fte; never a role's for a contractor, see `effectiveMonthlySalary`) over their weekly hours × 52/12; else none, so the
- * engine uses their role's `default_cost_rate`. Nothing at all when pay is hidden: a hidden rate or salary is never used, not as 0 and
+ * engine uses their role's `default_cost_rate`. A cost from a salary is marked `costFromSalary`: only it takes employer on-costs. Nothing at all when pay is hidden: a hidden rate or salary is never used, not as 0 and
  * not through the role's salary or default (`model.payHidden` marks what depends on it).
  */
-export function personCost(bundle: ProcessBundle, p: PersonRow, weeklyHours: number): { cost?: number } {
+export function personCost(bundle: ProcessBundle, p: PersonRow, weeklyHours: number): { cost?: number; costFromSalary?: true } {
   if (hidesPay(bundle)) return {};
   if (p.cost_rate != null) return { cost: Number(p.cost_rate) };
   const held = new Set(bundle.personRoles.filter((r) => r.person_id === p.id).map((r) => r.role_id));
   const roleSalaries = bundle.roles.filter((r) => held.has(r.id)).map((r) => r.salary_monthly);
   const hourly = hourlyCostFromSalary(effectiveMonthlySalary(p, roleSalaries), weeklyHours);
-  return hourly !== null ? { cost: hourly } : {};
+  // From a salary: the only cost employer on-costs load (a typed cost rate is the full cost of an hour; the engine's pay.ts).
+  return hourly !== null ? { cost: hourly, costFromSalary: true } : {};
 }
 
 /**

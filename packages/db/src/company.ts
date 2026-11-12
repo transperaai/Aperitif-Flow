@@ -83,6 +83,8 @@ export const COMPANY_FIELDS: Record<CompanyTable, Record<string, FieldMeta>> = {
     overhead_monthly: { label: "Overhead a month", format: "money" },
     target_margin: { label: "Target margin", format: "percent" },
     overtime_cap: { label: "Overtime cap", format: "percent" },
+    overtime_pay_factor: { label: "Overtime paid at (x normal rate)", format: "number" },
+    employer_on_costs: { label: "Employer on-costs", format: "percent" },
     availability_floor: { label: "Availability floor", format: "percent" },
     utilisation_threshold: { label: "Utilisation threshold", format: "percent" },
     capacity_factor_enabled: { label: "Per-person times", format: "bool" },
@@ -91,6 +93,7 @@ export const COMPANY_FIELDS: Record<CompanyTable, Record<string, FieldMeta>> = {
     active_clients: { label: "Active clients (interim)", format: "number" },
     churn_monthly: { label: "Monthly churn (interim)", format: "percent" },
     retainer: { label: "Retainer (interim)", format: "money" },
+    max_stay_months: { label: "Longest stay", format: "months" },
   },
   roles: {
     name: { label: "Name", format: "text" },

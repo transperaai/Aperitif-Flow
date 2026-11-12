@@ -9,6 +9,7 @@
 
 import { Square } from "lucide-react";
 import { useEffect, useRef, useSyncExternalStore, type KeyboardEvent } from "react";
+import { CALENDAR_WEEKDAYS } from "@transpera-flow/engine";
 import { SPEEDS, formatSimTime, type PlaybackClock } from "@/lib/playback/clock";
 import { Button } from "@/components/ui/button";
 
@@ -88,7 +89,8 @@ export function PlaybackBar({ docked = false, inline = false, clock, H, hoursPer
       return;
     }
     if (target !== slider.current) return;
-    const day = hoursPerWeek / 5;
+    // One calendar weekday of the run's clock.
+    const day = hoursPerWeek / CALENDAR_WEEKDAYS;
     const moves: Record<string, () => void> = {
       ArrowLeft: () => clock.stepBy(e.shiftKey ? -day : -1),
       ArrowDown: () => clock.stepBy(e.shiftKey ? -day : -1),

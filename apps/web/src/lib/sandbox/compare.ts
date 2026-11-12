@@ -4,7 +4,7 @@
 // scenarios, not from chance. Pure: no React.
 
 import { DEFAULT_PURPOSES, FIXING_PURPOSE, type ProcessBundle, type PurposeCategory } from "@transpera-flow/db";
-import { isTooBusy, type EngineModel, type MonthBusy, type MonthlyResult, type Stat } from "@transpera-flow/engine";
+import { isTooBusy, roleBusyCutoffs, type EngineModel, type MonthBusy, type MonthlyResult, type Stat } from "@transpera-flow/engine";
 import { timelineMonths, type TimelineMonth } from "@/lib/forecast/timeline";
 import { IDLE, UNCOVERED, timeView } from "./time";
 
@@ -98,7 +98,8 @@ export function compareSandbox(
   const roles = Object.entries(model.roles)
     .filter(([id]) => columns.some((m) => hasWork(m.roles[id], m.uncovered[id])))
     .map(([id, r]) => row(id, r.name, columns.map((m) => m.roles[id] ?? months.map(() => null))));
-  const tooBusy = (r: CompareRow, c: number) => r.values[c]!.filter((m) => m !== null && isTooBusy((m as MonthBusy).mean, cutoffs)).length;
+  // Each role against its own utilisation threshold when it has one.
+  const tooBusy = (r: CompareRow, c: number) => r.values[c]!.filter((m) => m !== null && isTooBusy((m as MonthBusy).mean, roleBusyCutoffs([...cutoffs], model.roles, r.id))).length;
   const sumLast = (c: number) => atRisk.reduce((sum, r) => sum + (r.values[c]![last]?.mean ?? 0), 0);
   const idx = columns.map((_, c) => c);
   // Labour is the same in every run, so adding overtime's range gives labour with overtime's range.

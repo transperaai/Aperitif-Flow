@@ -5,6 +5,8 @@
 ## 1. Churn-driver pressure curves are fixed: overload at 85% busy, early tenure = 26 weeks, response/rework 'full pressure' shares, handoff away bump, results 'normal' score, price-rise memory  
 *high · engine*
 
+Status: fixed in this branch
+
 - **Now:** Only each driver's weight, on/off and one 'value' (e.g. onboarding normal days, handoff share, results score, tenure multiplier, price rise %) are stored. The thresholds that turn a measurement into churn pressure are constants: a team counts as overloaded only above 85% busy and is full pressure at 100%; 'early tenure' is always the first 26 weeks; 50% late ad-hoc requests or 25% reworked visits is maximum pressure; an away account team always adds +0.5; a rating of 8/10 is 'normal'; a price rise weighs for 13 weeks at 2x.
 - **Why it matters:** An owner whose clients only start leaving when the team is 95% busy, or whose risky period is the first 3 months not 6, cannot tell the simulator; the churn blamed on each driver and the lost revenue are driven by our guesses, not their business.
 - **Fix:** Settings > Churn drivers: add a 'starts at' / 'full at' field per measured driver (load threshold, response and rework full shares), an 'early tenure months' field on the tenure driver, an 'away adds' field on handoff, and a 'normal rating' on results. Store as extra columns on churn_drivers, pass through packages/db/src/model.ts churnDrivers into EngineChurnDriver, and read them in simulate.ts driveClient instead of the constants (constants become defaults).
@@ -13,6 +15,8 @@
 ## 2. Workspace 'utilisation_threshold' setting exists but nothing reads it; engine uses fixed 85%  
 *high · engine*
 
+Status: fixed in this branch
+
 - **Now:** docs/PRD.md:223 defines settings.utilisation_threshold default 0.85; it can be written via suggestions/import, shows on the company model, but no code in packages/engine, packages/db/src/model.ts or apps/web reads it.
 - **Why it matters:** An owner (or the MCP assistant) who sets 'we're full at 75%' sees it stored and labelled on the company model, but the overload churn driver, the 'too busy' facts and capacity forecasts still use 85%. A field that does nothing.
 - **Fix:** Map settings.utilisation_threshold in packages/db/src/model.ts to a new EngineModel field (e.g. loadThreshold) used by loadPressure/runLoadHit in simulate.ts:2508-2511 and as the middle busy cut-off; add a 'Full at (busy %)' NumberField in Settings > People next to overtime cap (people-settings.tsx:43).
@@ -20,6 +24,8 @@
 
 ## 3. DLER goal is fixed at 4.5 and no setting can change it  
 *high · money*
+
+Status: fixed in this branch
 
 - **Now:** Every good/warn tone, the goal line on the DLER charts, the 'At or above the 4.5 goal' text and the Sandbox's 'Departments at the goal' count all compare against the constant 4.5. The owner expects a 3:1 goal.
 - **Why it matters:** An agency that aims for 3:1 sees every department marked 'Below the goal' in warning colour even when it is on target, and the Sandbox payoff ('0 of 2 departments at the goal') measures against the wrong bar. The owner can't make the app judge DLER by their own target.
@@ -34,6 +40,8 @@
 - **Fix:** Add a 'Costs' group to play-levers.tsx with overheads a month (C2, set/add from a month), pay change % by role from a month (C1 multiply), and a salary field on each hire row. Carry them in PlayState and map them in playChanges to the existing C1/C2 changes.
 - **Where:** `apps/web/src/components/sandbox/play-levers.tsx:123-293 (the only groups are Market, Win new clients, Lose clients, Prices, People); packages/db/src/sandbox-play.ts:41-66 (PlayState has no cost field) and :231-246 (playChanges emits only A1, A3, B3, B5, D2, D1, E6)`
 
+Status: fixed in this branch. Free play has a Costs group (overheads a month, set or add, from a month; pay change % for a role or everyone, from a month) and each hire row has an FTE and an optional pay a month.
+
 ## 5. A Sandbox hire costs nothing in profit but counts at the role's average salary in DLER  
 *high · money*
 
@@ -41,6 +49,8 @@
 - **Why it matters:** 'Hire a PPC specialist in March' shows profit unchanged or up (more capacity, same cost) while DLER drops. The owner gets an over-rosy answer on whether a hire pays for itself, and the profit and DLER tiles disagree.
 - **Fix:** Give the hire one salary used by both: in run.ts set the hire row's salary_monthly to the same value setupInMonth computes (fte-normalised mean, or a salary typed on the hire row), so personCost costs it. Show that salary on the hire row in play-levers.
 - **Where:** `packages/db/src/sandbox/run.ts:166 (hire PersonRow: cost_rate null, no salary_monthly) -> packages/db/src/model.ts:912-917 personCost (role salary, else nothing) -> packages/engine/src/simulate.ts:3690-3694 rateOf falls back to roles.default_cost_rate, which defaults to 0 (packages/db/migrations/20260929000000_init.sql:53). DLER side: packages/db/src/sandbox-play-series.ts:55-58 gives the hire the mean of the role's people's effective salaries.`
+
+Status: fixed in this branch. A hire's salary is their typed pay, else the role's people's full-time pay (each salary over their FTE) times the hire's FTE; the runner (sandbox/run.ts) and the DLER setup (setupInMonth) use the same number.
 
 ## 6. Most Sandbox levers are hidden: the live Sandbox offers only 9 free-play levers  
 *high · sandbox*
@@ -50,6 +60,8 @@
 - **Fix:** In the free-play band, add a 'Costs' group (Overheads a month: C2; Role cost / pay: C1), a 'Work' group (Hours available: D6; Step time: E1 for a picked step) and a hiring-delay select (D9), all mapped in playChanges (packages/db/src/sandbox-play.ts:232). Or turn SANDBOX_SCENARIOS_SHOWN on, or put an 'Advanced change' button in play that opens change-dialog.tsx and adds the registry change to PlayState.
 - **Where:** `apps/web/src/lib/sandbox/scenarios-shown.ts:5 (SANDBOX_SCENARIOS_SHOWN = false); apps/web/src/app/w/[slug]/sandbox/page.tsx:48-71 renders PlayPage only; apps/web/src/lib/sandbox/analysis-shown.ts:4 (SANDBOX_ANALYSIS_SHOWN = false)`
 
+Status: partly fixed in this branch: free play has a Costs group (C1, C2), a Work group (hours a week, D6) and months to hire. Step time (E1) stays out of the levers: step changes are part of a process version on the company map (D53).
+
 ## 7. Free-play price rise overwrites the price churn driver set in Settings  
 *high · sandbox*
 
@@ -58,8 +70,12 @@
 - **Fix:** In applyPlay, start from the workspace price driver's own effectMonths (and chance, when set), falling back to 3 only when it has none. Add a 'Lasts N months' select next to 'Clients react' in the Prices group. Let price_rise_churn's help text name the driver's months rather than '3'.
 - **Where:** `packages/db/src/sandbox-play.ts:29 (PRICE_RISE_MONTHS = 3) and :281 (entry = {..., enabled: true, chance: 1, effect, effectMonths: PRICE_RISE_MONTHS})`
 
+Status: fixed in this branch
+
 ## 8. Client health rules (starting health, on-time boost, late and missed penalties) cannot be edited  
 *high · settings*
+
+Status: fixed in this branch
 
 - **Now:** Every workspace runs on 80 / +2 / -5 / -12. The editor exists (HealthSettings, apps/web/src/app/w/[slug]/settings/servicing-settings.tsx:224, saving through saveHealthSetting at servicing-actions.ts:88), but nothing renders it.
 - **Why it matters:** Health drives churn: churn = base x (1 + sensitivity x (100 - health)/100). The owner can't say 'our clients forgive a late task' or 'a missed report costs us a lot', so the churn and revenue forecasts run on assumptions they can't see or change. On the tier path a stored health_initial is ignored for counted clients anyway, because capacity-model.ts:203 uses 80.
@@ -74,8 +90,12 @@
 - **Fix:** In Settings > People & roles, add a 'New starter ramp' text field wired to saveRampDefault, and a per-person 'Ramp' field in PersonMore wired to savePersonRamp. Also offer it as a Sandbox lever on hires.
 - **Where:** `packages/db/src/capacity-model.ts:24 DEFAULT_RAMP [0.4,0.6,0.8] and :160-163 (people.ramp ?? settings.ramp_default ?? DEFAULT_RAMP); packages/db/src/model.ts:869-874 passes ramp_default; apps/web/src/components/sandbox/play-levers.tsx:310 says 'the ramp in Settings, under People & roles'`
 
+Status: fixed in this branch
+
 ## 10. A named client with a blank fee brings in no revenue, though the screen shows the tier's fee as its default  
 *high · settings*
+
+Status: fixed in this branch
 
 - **Now:** The Fee cell in tiers-clients.tsx:668-680 shows a blank, with the tier's price as placeholder, whenever mrr is 0. The section text (settings/page.tsx:83) says 'A named client starts from its tier's values; anything filled in replaces them'. The engine then bills 0 for that client.
 - **Why it matters:** Each named client added without a fee takes its tier's fee off starting MRR, the forecast revenue and profit, and the value of losing that client. The owner sees the tier fee on screen, so it looks like a calculation bug.
@@ -85,6 +105,8 @@
 ## 11. A role's utilisation threshold is ignored by the People page, the forecast and the Issues/Overview findings, which use a fixed 85%  
 *high · pages*
 
+Status: fixed in this branch
+
 - **Now:** Every role has an editable 'Utilisation threshold %' (roles.line). Capacity, Overview Busiest people, Overview team load and hiring advice use it (packages/db/src/capacity-figures.ts:150-154 over = util >= role.line). But role.line never reaches the engine model (EngineRole has no line field; packages/db/src/model.ts doesn't read it), so the engine's busy rating, forecast alerts ('who gets too busy, and when'), the Issues register's too-busy findings and the People page's 'above 85% busy in a bad month' / red-amber-green bars all use a fixed 85% (amber at 75%).
 - **Why it matters:** Owner sets Account Managers to 75%: Capacity and the Overview's team load say they are over from month 2, while on the same Overview the 'Across the company' finding, the People page forecast panel ('Nobody crosses the 85% utilisation threshold') and the Issues page say they are fine until 85%. Setting a role to 95% has the opposite disagreement. The threshold looks like it does nothing on half the app.
 - **Fix:** Pass each role's line into the engine model (e.g. EngineRole.line) and have the busy rule/forecastAlerts/firstCrossing use it as the subject's cutoff (or a per-role override in toRatingConfig built from roles.line); make lib/people.ts rate each person against their role's line instead of BUSY_LIMIT, and forecast-panel draw each role's line rather than cutoffs[1].
@@ -92,6 +114,8 @@
 
 ## 12. DLER goal fixed at 4.5 everywhere  
 *high · pages*
+
+Status: fixed in this branch
 
 - **Now:** Every DLER tile, bar, status colour ('Below the 4.5 goal') and the Sandbox's 'Departments at the goal' count is judged against a constant 4.5.
 - **Why it matters:** An agency whose target DLER is 3.0 (or 5.0) sees every department flagged warn/good wrongly on Overview, Capacity and the Sandbox, and the Sandbox's 'reach the goal' verdict is measured against someone else's benchmark.
@@ -106,6 +130,8 @@
 - **Fix:** Settings > People: add 'Overtime paid at' (x normal rate, default 1, 0 = unpaid) to workspace settings; pass as EngineModel.overtimeRateFactor from packages/db/src/model.ts:362 and multiply at simulate.ts:3774 and 3955.
 - **Where:** `packages/engine/src/simulate.ts:3774 (overtimeCostM[m] += ot[m] * rate) and simulate.ts:3955 (overtimeCost += ot * (paid.cost / paid.payHours or rateOf(p)))`
 
+Status: fixed in this branch (Overtime paid at, Settings > Simulation).
+
 ## 14. No Sandbox lever for overtime cap (or availability floor / new-starter ramp)  
 *medium · engine*
 
@@ -117,6 +143,8 @@
 ## 15. Client health rules and churn sensitivity are Sandbox levers marked offered:false  
 *medium · engine*
 
+Status: fixed in this branch (free play: one lever per health rule, and churn sensitivity as a percent; the scenario dialog still does not offer them)
+
 - **Now:** Both are wired through to the engine (patchPath health.* and services.*.churn_health_sensitivity; HEALTH_RULES at sandbox-levers.ts:716) but only kept 'for migrated rows' and never offered.
 - **Why it matters:** An owner cannot test 'what if clients forgive a late report less (penalty 10 instead of 5)?' or 'what if our clients are less health-sensitive?' as a scenario; they must change live Settings, which changes the Overview for everyone.
 - **Fix:** X1 has range:{} and the target 'health_rule', which covers several fields with different units. Offering it needs one lever per rule field (starting health, late penalty, missed penalty, recovery) with ranges for each, not just flipping offered:true.
@@ -124,6 +152,8 @@
 
 ## 16. Client start date is ignored: every existing client counted as brand new  
 *medium · engine*
+
+Status: fixed in this branch
 
 - **Now:** clients.start_date is editable, but model.ts uses it only to drop future clients. monthsActive is never set, so the value of losing a client is always fee x min(tenure, 12) as if month 0, and the early-tenure churn driver never applies to roster clients who joined last month.
 - **Why it matters:** The cost of churn findings overstates the loss on long-standing clients, and a client signed two weeks ago is treated like a five-year client for churn risk. The owner enters the date and it changes nothing.
@@ -138,8 +168,12 @@
 - **Fix:** Use one source of pay. Either drop 'Cost rate' for salaried staff (keep it only for contractors) or show the salary-derived hourly cost as the cost-rate placeholder and warn when both are set. Fix the help text to say it costs all paid hours.
 - **Where:** `packages/db/src/model.ts:913 (personCost: `if (p.cost_rate != null) return { cost: Number(p.cost_rate) }` before any salary); packages/db/src/capacity-figures.ts:455 (DLER uses personSalary, never cost_rate)`
 
+Status: fixed in this branch. In Set up, the Cost rate's blank shows the hourly cost the salary gives, and its help and hint say a Cost rate overrides the salary for profit, that employer on-costs are not added to it, and that DLER keeps the salary. DLER is not switched to the cost rate: DLER is retainers against salary (D40) and its goal is set against salaries, while a cost rate is an hourly cost that may already carry on-costs. Employer on-costs load only a cost worked out from a salary.
+
 ## 18. Sandbox DLER for today's path doesn't match the Overview/Capacity DLER  
 *medium · money*
+
+Status: fixed in this branch
 
 - **Now:** Overview DLER (capacity-view.tsx:213, department-cards.tsx via wholeBusiness) credits nobody with counted clients that sit in a group but in nobody's portfolio, nor with non-tier retainers. The Sandbox puts all of the engine's MRR into the department pools, including unheld counted clients, non-tier services and the market price factor, and shares it across the client-facing people. The fee map at line 104 still prices counted clients at service.price.
 - **Why it matters:** With no lever moved, the Sandbox's month-1 DLER is higher than the DLER on the Overview and Capacity pages, so the owner can't trust either number.
@@ -154,6 +188,8 @@
 - **Fix:** Add 'Overtime pay rate' (x normal rate, default 1, 0 = unpaid) next to the overtime cap in Settings > Simulation, map it to EngineModel.overtimePayFactor, and multiply it in at the two sites.
 - **Where:** `packages/engine/src/simulate.ts:3774 (`overtimeCostM[m] += ot[m] * rate`) and :3955 (`overtimeCost += ot * (paid.cost / paid.payHours || rateOf(p))`)`
 
+Status: fixed in this branch (Overtime paid at, default 1, 0 is unpaid).
+
 ## 20. Contractors are costed like employees: paid for contracted hours, including leave  
 *medium · money*
 
@@ -161,6 +197,8 @@
 - **Why it matters:** An agency that uses freelancers by the hour sees profit fall by their full contracted hours even in quiet months, and the Sandbox can't show the saving from flexing contractors down.
 - **Fix:** Pass the label to EnginePerson (e.g. `paidFor: 'worked'` for contractors) and cost those people on hours worked (personWork) with no paid leave. Optionally add a per-person 'Paid for: contracted hours / hours worked' toggle.
 - **Where:** `packages/engine/src/simulate.ts:3764-3770 ('Paid hours are contracted capacity while on the team (leave is paid)') and :3708-3722 paidOver; packages/db/src/capacity-model.ts:20 (the people label is 'Not an engine input at all')`
+
+Status: fixed in this branch. Contractors are paid for the hours they work by default (agreed with the owner); a per-person Paid for puts anyone on contracted hours or hours worked.
 
 ## 21. Salary becomes hourly cost with no employer on-costs (super, payroll tax, benefits)  
 *medium · money*
@@ -170,6 +208,8 @@
 - **Fix:** Add a workspace 'Employer on-costs %' (Settings > Workspace, default for example 12%) applied in hourlyCostFromSalary for non-contractors. Optionally use the loaded salary in DLER too, with a toggle.
 - **Where:** `packages/db/src/salary.ts hourlyCostFromSalary (`monthly / (weeklyHours * WEEKS_PER_MONTH)`), used by packages/db/src/model.ts:916`
 
+Status: fixed in this branch. Employer on-costs (default none) load an employee's salary-derived cost; a typed cost rate (a person's or a role's) and contractors never take them. DLER uses salaries without them.
+
 ## 22. Hiring delay is fixed at 2 months, and the Sandbox ignores the market stretch the Overview applies  
 *medium · money*
 
@@ -177,6 +217,8 @@
 - **Why it matters:** For the same workspace, the Overview and the Sandbox advise different hire-by months, and an agency that takes 3-4 months to hire is told it has more time than it does.
 - **Fix:** Add a 'Months to hire' workspace setting (and optionally a Sandbox People lever). Pass it, wrapped in hiringDelayAt with the run's market, from use-play-runs to playSeries, as the Overview does.
 - **Where:** `packages/db/src/capacity-figures.ts:34 (DEFAULT_HIRING_DELAY_MONTHS = 2); apps/web/src/lib/sandbox/use-play-runs.ts:80,108 call playSeries(...) with no delay, so sandbox-play-series.ts:86,129 uses a flat 2; apps/web/src/components/overview/overview.tsx:329 passes hiringDelayAt(horizonModel.market, m)`
+
+Status: fixed in this branch
 
 ## 23. Sandbox 'when to hire' uses a flat 2-month hiring delay, Overview stretches it by the market  
 *medium · sandbox*
@@ -186,6 +228,8 @@
 - **Fix:** Add 'Months to hire' to Settings -> People & roles (a workspace setting). Feed it as the base to hiringDelayAt in both the Overview and playSeries (pass (m) => hiringDelayAt(model.market, m, base) from use-play-runs.ts). Offer D9 in free play.
 - **Where:** `packages/db/src/sandbox-play-series.ts:86 and :129 (hiringAdvice(setup, result, hiringDelay) with default DEFAULT_HIRING_DELAY_MONTHS); apps/web/src/lib/sandbox/use-play-runs.ts:80,108 call playSeries without a delay; packages/db/src/capacity-figures.ts:34 (DEFAULT_HIRING_DELAY_MONTHS = 2)`
 
+Status: fixed in this branch
+
 ## 24. Free-play sliders cap realistic changes (leads/win ±50% in 5s, price -20..+30%, 50 wins a month)  
 *medium · sandbox*
 
@@ -193,6 +237,8 @@
 - **Why it matters:** Common owner questions ('what if we double our lead flow with a new channel?', 'what if we raise the Starter tier 50%?', 'what if win rate goes up 2 points?') can't be entered, so the answer looks capped or wrong.
 - **Fix:** Widen the sliders to the registry ranges (leads/win -90..+300% with step 1, price -50..+100% with step 1), or pair each slider with a number input that accepts any value in the registry range.
 - **Where:** `apps/web/src/components/sandbox/play-levers.tsx:143-144 (Leads, Win rate: min -50 max 50 step 5), :204 (Churn -50..100), :244 (Price change -20..30 step 1), :157-161 (Win new clients 0..50 per department), :173 (For: 1,2,3,6,9,12 months)`
+
+Status: fixed in this branch
 
 ## 25. Free-play hires are always 1 FTE, at an averaged salary, and named 'New hire'  
 *medium · sandbox*
@@ -202,6 +248,8 @@
 - **Fix:** Add an FTE select (0.2-1.5) and an optional 'Pay a month' input to each play hire row. Store them in PlayState.hires and pass FTE as the D1 value and pay to setupInMonth (and to the engine's cost when person salary feeds profit).
 - **Where:** `packages/db/src/sandbox-play.ts:242 (D1 change value: 1); packages/db/src/sandbox-play-series.ts:54-72 (fte: 1, salary_monthly = mean of the role's people, name 'New hire')`
 
+Status: fixed in this branch (FTE choice and optional pay a month on each free-play hire; profit and DLER cost the hire at the same salary).
+
 ## 26. Lever months stop at month 12 even on a 3-5 year horizon  
 *medium · sandbox*
 
@@ -210,8 +258,12 @@
 - **Fix:** Pass the full horizon's months to the lever month pickers and make clampMonth, winEntries and marketFrom use the run's months (the horizon) instead of PLAY_MONTHS.
 - **Where:** `packages/db/src/sandbox-play.ts:128 (clampMonth caps at PLAY_MONTHS - 1 = 11), :158 (addMonths <= 12), :259 (market schedule built for 12 months only); apps/web/src/components/sandbox/play-view.tsx:79 (leverMonths = first year unless horizon is 12)`
 
+Status: fixed in this branch
+
 ## 27. Client health rules and ongoing hours per client are editable in Settings but have no Sandbox lever  
 *medium · sandbox*
+
+Status: partly fixed in this branch: the health rules have free-play levers; client hours per client (X2) still has none
 
 - **Now:** Starting health, recovery, and late and missed penalties (X1), and the ongoing hours a client needs from a role (X2), are registry levers kept 'for migrated rows', never offered and with no ranges. Churn sensitivity to health (X3) is the known case.
 - **Why it matters:** The owner can't test 'if we stop missing deadlines' (smaller penalties) or 'if each client needed 2 fewer account hours a week'. These are the service-quality and efficiency questions that drive retention and capacity.
@@ -226,6 +278,8 @@
 - **Fix:** Add a 'Normal working week (hours)' field to Settings > Simulation, saving settings.hours_per_week with the same 1-168 rule as lib/workspaces.ts.
 - **Where:** `packages/db/src/model.ts:344 (hoursPerWeek: s.hours_per_week); model.ts:851 (hoursPerDay for leave); model.ts:880 (capacity = fte x hours_per_week when a person has no own hours)`
 
+Status: fixed in this branch
+
 ## 29. Services that aren't tiers still simulate but can't be seen, edited or added in Settings  
 *medium · settings*
 
@@ -234,8 +288,12 @@
 - **Fix:** In Settings > Tiers & clients, add an 'Other services' list that reuses ServiceMore and GroupFields (or render ServicesSettings with tierServiceIds) for services with no tier, including Add and Remove.
 - **Where:** `apps/web/src/components/setup/tiers-clients.tsx:104-111 (a comment says 'D46: services that aren't tiers ... are not edited here', and a note says they 'still count in the simulation'); packages/db/src/model.ts:536-575 engineServices maps every active service (price, churn, tenure, mix share, fee range, fallback load)`
 
+Status: fixed in this branch
+
 ## 30. Client lifetime value uses 'Expected tenure', which is separate from churn and hidden under More  
 *medium · settings*
+
+Status: fixed in this branch
 
 - **Now:** The tier table edits 'Churn a month' (tiers-clients.tsx:272), but deal value, lost-client cost and lost revenue use services.tenure_months, or client_groups.stay_months when a group row exists. Tenure is editable only under the tier's More panel (services-settings.tsx:221). Nothing ties it to 1/churn, though the implicit retainer does exactly that (simulate.ts:439).
 - **Why it matters:** Example: an owner lowers churn from 5% to 2% a month (implied stay 20 to 50 months). The simulation keeps clients longer, but every value of a won deal or a lost client still uses the old 18-month tenure, so the money figures and the churn figures tell different stories.
@@ -250,8 +308,12 @@
 - **Fix:** In the named client's More panel (ClientMore), add the department's deliverable columns (tierFieldsFor) as override cells with the tier's value as placeholder, plus an 'Effort factor' (step_factor, 0.01-20).
 - **Where:** `packages/db/src/capacity-model.ts:126-139 engineClientCapacity maps every deliverable plus step_factor into EngineClient.overrides; packages/db/src/capacity-setup.ts:62-64 CLIENT_OVERRIDE_COLUMNS and :465-479 SETUP_FIELDS.clients allow saving them`
 
+Status: fixed in this branch
+
 ## 32. Analysis assumptions (absence test length/frequency, lost-client value cap, busy cutoffs, expected waits) are locked to defaults and stored rules are ignored  
 *medium · pages*
+
+Status: fixed in this branch (the value cap, the absence test and the busy bands are in Settings > Simulation; the expected waits stay at their defaults)
 
 - **Now:** Every page rates with the documented defaults: a lost client is worth at most 12 months of fees, the 'If someone is away' test is a 2-week absence twice a year, busy is 70/85/95%, expected waits 1 and 2 days. The defaults.ts comment says what a workspace stored in analysis_rules 'is kept, unread'.
 - **Why it matters:** An owner whose staff take 4 weeks' leave or whose clients stay 3 years can't make the People page's absence test or the money-at-risk figures match their business; any rules saved before the editor was removed silently stop applying (two sources of truth).
@@ -266,8 +328,12 @@
 - **Fix:** Add workspaces.settings.hiring_delay_months (Settings > People or Demand/market), default 2; use it as the base in hiringDelayAt on the Overview, pass it (with the market stretch) into playSeries, and make D9's 'today' value and default start from it.
 - **Where:** `packages/db/src/capacity-figures.ts:34 (DEFAULT_HIRING_DELAY_MONTHS = 2), :37-41; apps/web/src/components/overview/overview.tsx:329 (hiringAdvice with hiringDelayAt(market) base 2, market-stretched); apps/web/src/lib/sandbox/use-play-runs.ts:80,108 -> packages/db/src/sandbox-play-series.ts:86,129 (playSeries default 2, not market-stretched); packages/db/src/sandbox/run.ts:141-151 (scenario hires start with no delay unless lever D9 is set)`
 
+Status: fixed in this branch. Saved scenarios' hires wait the setting once it is set; with it blank they still start on their own date (as before), while the hiring advice uses the default. Free play's hires start in the month picked for them.
+
 ## 34. Client health bands (75/65/50) and the 'at risk below 50' line are fixed  
 *medium · pages*
+
+Status: fixed in this branch
 
 - **Now:** Healthy/Watch/At risk counts on the People page, client-group ratings, the at-risk counts the engine reports per month, the churn issues' text and the agency list's 'client groups at risk' (apps/web/src/lib/overview/headline.ts:33) all use 75/65/50.
 - **Why it matters:** An owner who changes starting health to 60 (or penalties) to match their own health score instantly has most clients 'at risk' because the bands didn't move with the scale; the benchmark they set doesn't change the bands either.
@@ -276,6 +342,8 @@
 
 ## 35. People page busy % disagrees with Capacity/Overview busy % for the same person  
 *medium · pages*
+
+Status: fixed in this branch (same threshold and margin as Capacity; the People page says its figure is over the picked length with new clients)
 
 - **Now:** The People page 'How busy' average comes from a different run (different model, horizon and replication count) than Capacity's and the Overview's Busiest people, and is rated against 85%/75% rather than the role's line (see first finding).
 - **Why it matters:** The owner sees Sam at 82% on Capacity and 91% on People and can't tell which is true.
@@ -290,8 +358,12 @@
 - **Fix:** The fix should also replace the WORKING_DAYS_PER_WEEK constant at packages/db/src/model.ts:32/840 (the leave and start-date hour conversions) and packages/db/src/sandbox/months.ts:40. Those are on top of the engine and web '/ 5' sites.
 - **Where:** `packages/engine/src/simulate.ts:1776 (onbNormalHours = days x hoursPerWeek / 5), simulate.ts:4033; also issues.ts:181, forecast.ts:98, bottlenecks.ts:82, analysis-settings.ts:404 (hoursPerDay = hoursPerWeek / 5)`
 
+Status: fixed in this branch. Every hours-to-days conversion reads the working days. Dates still map onto the run's clock as Monday-to-Friday weekdays (`CALENDAR_WEEKDAYS`), so start dates, leave and month edges are unchanged; which weekdays a shorter week leaves out is not modelled.
+
 ## 37. Pooled (no client list) runs decay starting clients at the hidden workspace churn, while new wins use the service's 'Normal churn'  
 *low · engine*
+
+Status: still open. Making the pooled book churn at the services' base churn changes every pooled workspace's forecast without an edit, so it waits for the owner's sign-off.
 
 - **Now:** With services but no named clients or client groups, the starting book loses clients at settings.churn_monthly ('Monthly churn (interim)', company.ts:92), while clients won during the run churn at each service's churn_monthly_base.
 - **Why it matters:** Before an owner adds client groups, editing a service's churn changes only new clients; the existing book (most of the MRR) keeps churning at an invisible interim rate. Same type of two-sources problem as the tier churn bug.
@@ -300,6 +372,8 @@
 
 ## 38. Client-health bands, 'at risk' line and money assumptions for findings are fixed  
 *low · engine*
+
+Status: partly fixed in this branch: the at-risk line and bands are settings; the 12-month lost-client cap, the absence assumptions and missed = 2x SLA stay fixed
 
 - **Now:** Clients-at-risk KPI (simulate.ts:3659, 4024), health ratings and churn-risk findings use fixed bands. A lost client's value is capped at 12 months, absence tests assume 2 weeks twice a year, and a task is 'missed' at twice its SLA. These were editable as analysis rules before decision D40, which removed the editor.
 - **Why it matters:** An agency with long-tenure clients sees churn cost understated by the 12-month cap; one that treats health 60 as at risk sees too few at-risk clients. Lower priority because D40 fixed these on purpose, but they are business assumptions.
@@ -314,8 +388,12 @@
 - **Fix:** Multiply rateOf by the month's market pay factor (as price already scales won fees), or remove pay from the presets and stored conditions so it doesn't look like it does something.
 - **Where:** `packages/engine/src/market.ts:16 ('hire, pay stored and exposed, but ... change no simulated number') and :61-64 presets; rateOf at packages/engine/src/simulate.ts:3690-3694 never reads mkt(t).pay`
 
+Status: still open. In the market schedule `pay` is Late payments (packages/engine/src/market.ts, PRD D29), not wage pressure, and D29 says role cost inflation is the Sandbox's pay change, not the market. Scaling labour by it would change the profit of every workspace with a market schedule (35% more labour in a Downturn month, 10% less in a Boom) without an edit, so it waits for the owner's decision.
+
 ## 40. Revenue per employee counts heads, not FTE, and always leaves leadership out  
 *low · money*
+
+Status: fixed in this branch
 
 - **Now:** A 0.4 fte part-timer counts as a whole employee. Leadership is always excluded, while DLER has its own toggle (dlerIncludesLeadership, capacity-figures.ts:399-401). People whose role has no department (shared roles) aren't counted anywhere.
 - **Why it matters:** Agencies with part-timers or a shared ops team see misleading MRR per person, and the leadership choice made for DLER doesn't carry over to it.
@@ -330,8 +408,12 @@
 - **Fix:** Either remove the field, or repurpose it as a direct cost per client (a share of the fee, or an amount a month) that the engine subtracts in profit with each client.
 - **Where:** `packages/engine/src/model.ts:143-144 ('recorded for reference, not used'); mapped at packages/db/src/model.ts:550`
 
+Status: fixed in this branch (the field is gone from Settings; the column stays, and backups keep it).
+
 ## 42. Sandbox splits revenue by department using the service price, not the client group fee  
 *low · sandbox*
+
+Status: fixed in this branch
 
 - **Now:** Department retainers, and so the Sandbox's per-department DLER, weight each counted (unnamed) client at the service Price. The engine bills counted clients at their group fee (EngineClientGroup.fee).
 - **Why it matters:** When a tier's group fee differs from its list price (legacy clients on old rates), the Sandbox's department DLER and retainers chart split revenue wrongly between departments and disagree with Capacity and Overview.
@@ -346,6 +428,8 @@
 - **Fix:** Add 'Hours per client a week' to the role panel in Settings > People & roles (and to SETUP_FIELDS.roles), next to the role cost rate that is being added.
 - **Where:** `packages/db/src/model.ts:323 (ongoing: role.ongoing_hours_per_client_week); packages/engine/src/clients.ts:43-48 applies it to every client whose services have no servicing process or fallback load; simulate.ts:1478, 1607 and 1620`
 
+Status: fixed in this branch
+
 ## 44. The client health benchmark can't be set, and the People page links to a Settings anchor that doesn't exist  
 *low · settings*
 
@@ -354,8 +438,12 @@
 - **Fix:** Render ClientHealthBenchmark in Settings > Tiers & clients (or Simulation) and point the People page link at that anchor.
 - **Where:** `apps/web/src/components/people-page.tsx:104 (benchmarkOf(settings)) and :238 (link to settings/clients#clients-heading); apps/web/src/components/setup/tiers-clients.tsx:105 (a comment says the benchmark is not edited here)`
 
+Status: fixed in this branch
+
 ## 45. A lost client's value is fixed at 12 months of fees, and stored analysis settings are ignored  
 *low · settings*
+
+Status: fixed in this branch
 
 - **Now:** Every workspace values a lost deal or churned client at no more than 12 months of fees and assumes a two-week absence twice a year. The analysis_rules table is loaded by packages/db/src/analysis-rules.ts but never applied.
 - **Why it matters:** The 'cost per month' on every finding and the value of a churned client use a 12-month cap that may not fit the agency. Long-tenure retainers are undervalued and one-off-heavy agencies overvalued, and the code comment wrongly claims it is editable.
@@ -370,6 +458,8 @@
 - **Fix:** Remove the field. Otherwise turn it into a used input (for example a target margin the Sandbox and Overview compare actual profit against), or show it read-only as an 'achieved margin' computed from the simulation.
 - **Where:** `packages/db/src/model.ts:550 maps margin into EngineService, but no engine code reads it (grep '\.margin\b' packages/engine/src finds nothing outside the implicit retainer)`
 
+Status: fixed in this branch (the field is gone from Settings).
+
 ## 47. Which deliverables a department has depends on its name starting with 'Perf'  
 *low · settings*
 
@@ -378,8 +468,12 @@
 - **Fix:** Add a department 'kind' (or a chosen set of deliverable columns) in Settings > Tiers & clients and drive tierFieldsFor from it instead of the name.
 - **Where:** `packages/db/src/capacity-setup.ts:57-59 tierFieldsFor (/^\s*perf/i: Performance fields, otherwise Organic); also apps/web/src/components/setup/tiers-clients.tsx:548 for named clients' Channels`
 
+Status: fixed in this branch
+
 ## 48. 'Near threshold' margin of 10 points is fixed, in two separate constants  
 *low · pages*
+
+Status: fixed in this branch
 
 - **Now:** Anyone within 10 points under their threshold counts as at risk on Capacity and shows on the Overview's Busiest people; the two copies could drift.
 - **Why it matters:** Small agencies running close to the line see half the team permanently 'at risk'; changing one constant would make Overview and Capacity disagree.
@@ -389,6 +483,8 @@
 ## 49. DLER, revenue per employee and fee per hour still value counted clients at the service Price, not the group fee the engine uses  
 *low · pages*
 
+Status: fixed in this branch
+
 - **Now:** The Overview MRR fix (known issue 2) addresses MRR, but DLER, revenue per employee (wholeBusiness :902) and the Capacity fee-per-hour table use the service price for counted clients while the simulation bills the group fee.
 - **Why it matters:** If the group fee differs from the tier price, DLER and revenue-per-employee on Overview/Capacity disagree with the simulated revenue the Sandbox shows.
 - **Fix:** Make sure the single-source-of-fee fix for client groups also covers departmentRetainers, personFees and the fee-per-hour table (read the one fee they now share).
@@ -396,6 +492,8 @@
 
 ## 50. Simulation length can't be changed after creating the workspace; Overview caps at 6 months, Capacity fixed at 12  
 *low · pages*
+
+Status: fixed in this branch
 
 - **Now:** workspace.settings.horizon_weeks is set only in the new-workspace form; the Overview can only play 1/3/6 months, so its hiring advice never sees a role crossing its line in months 7-12, while Capacity's year run does.
 - **Why it matters:** An owner planning a year ahead gets 'no hire needed' on the Overview but a crossing on Capacity, and cannot change the default length they picked at creation.

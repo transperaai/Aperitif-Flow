@@ -7,7 +7,8 @@
 // Pure function of the model and one simulation result: no I/O, no clock,
 // no randomness and no language model.
 
-import type { EngineModel, SimulationResult, Stat } from "./model";
+import { busyLine } from "./churn-drivers";
+import { hoursPerWorkingDay, type EngineModel, type SimulationResult, type Stat } from "./model";
 
 export interface RoleConstraint {
   kind: "role";
@@ -71,15 +72,15 @@ const range = (s: Stat) => (pct(s.p10) === pct(s.p90) ? pct(s.p10) : `${Math.rou
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 export interface BottleneckOptions {
-  /** Utilisation above which a role or person counts as over the ceiling (default 0.85, §13). */
+  /** Utilisation above which a role or person counts as over the ceiling (default the workspace's busy line, 0.85 unless set, §13). */
   threshold?: number;
   /** Keep at most this many of each kind (default all). */
   limit?: number;
 }
 
 /** Rank the constraints of `result`, which must come from simulating `model`. */
-export function rankBottlenecks(model: EngineModel, result: SimulationResult, { threshold = 0.85, limit }: BottleneckOptions = {}): Bottlenecks {
-  const hoursPerDay = model.hoursPerWeek / 5;
+export function rankBottlenecks(model: EngineModel, result: SimulationResult, { threshold = busyLine(model), limit }: BottleneckOptions = {}): Bottlenecks {
+  const hoursPerDay = hoursPerWorkingDay(model);
   const people = result.resolvedPeople;
 
   const roles: RoleConstraint[] = Object.keys(model.roles)

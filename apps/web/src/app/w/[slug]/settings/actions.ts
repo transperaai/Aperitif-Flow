@@ -3,7 +3,9 @@
 import { refresh } from "next/cache";
 import type { SaveOutcome } from "@/lib/fields/field-controller";
 import { saveCapacityFactor, saveCapacityFactorSwitch, saveField, saveFields, saveLinks } from "@/lib/fields/server";
-import { DEFAULT_PURPOSES, MAX_PURPOSE_DESCRIPTION, MAX_PURPOSE_NAME, MAX_PURPOSES, newPurposeKey, parsePurposes, type PurposeCategory } from "@transpera-flow/db";
+import { DEFAULT_PURPOSES, MAX_PURPOSE_DESCRIPTION, MAX_PURPOSE_NAME, MAX_PURPOSES, loadAnalysisRules, newPurposeKey, parsePurposes, saveAnalysisRules, type PurposeCategory } from "@transpera-flow/db";
+import { assumptionValues, isAssumptionKey, validAssumption, withAssumption, type AssumptionKey } from "@/lib/analysis/assumptions";
+import { horizonWeeks, isHorizonMonths, monthsForWeeks } from "@/lib/horizon";
 import { isGrowth, isMonth, isMultiplier, parseLeadSourceField, parseNewLeadSource, type LeadSourceField } from "@/lib/demand";
 import { parseNewRole, parseRoleField, type RoleField } from "@/lib/roles";
 import {
@@ -113,6 +115,67 @@ export async function saveOvertimeCap(workspaceId: string, base: number | null, 
   if (!isId(workspaceId) || !share(value) || !isScalar(base)) return invalid;
   if (!(await signedIn())) return signedOut;
   return saveField("workspaces", { id: workspaceId }, "settings.overtime_cap", base, value);
+}
+
+/**
+ * The normal working week in hours (above 0, at most 168: the rule the new-workspace form and `workspaces_hours_per_week` apply).
+ * Required, so never null. Refreshes on a save: every figure that turns FTE into hours reads it.
+ */
+export async function saveHoursPerWeek(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const hours = (v: unknown) => number(v) && (v as number) > 0 && (v as number) <= 168;
+  if (!isId(workspaceId) || !hours(value) || !(base === null || isFiniteNumber(base))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.hours_per_week", base, value);
+  if (out.status === "saved") refresh();
+  return out;
+}
+
+/** Working days a week, 1 to 7 (`workspaces_working_days`); null restores the default of 5. */
+export async function saveWorkingDays(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const days = (v: unknown) => v === null || (number(v) && (v as number) >= 1 && (v as number) <= 7);
+  if (!isId(workspaceId) || !days(value) || !(base === null || isFiniteNumber(base))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.working_days", base, value);
+  if (out.status === "saved") refresh();
+  return out;
+}
+
+/** Months from deciding to hire to the person starting, 0 to 24 (`workspaces_hiring_delay_months`); null clears it: `DEFAULT_HIRING_DELAY_MONTHS` for the hiring advice, no delay for scenario hires. */
+export async function saveHiringDelay(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const months = (v: unknown) => v === null || (number(v) && (v as number) >= 0 && (v as number) <= 24);
+  if (!isId(workspaceId) || !months(value) || !(base === null || isFiniteNumber(base))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.hiring_delay_months", base, value);
+  if (out.status === "saved") refresh();
+  return out;
+}
+
+/**
+ * What an overtime hour costs, as a multiple of the normal hourly rate (customisability audit 13 and 19): 0 (unpaid) to 5; null
+ * restores the default (1, the normal rate). The database checks the same range (`workspaces_overtime_pay_factor`). Refreshes on a
+ * save: the forecast's profit reads it.
+ */
+export async function saveOvertimePayFactor(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const factor = (v: unknown) => v === null || (number(v) && (v as number) >= 0 && (v as number) <= 5);
+  if (!isId(workspaceId) || !factor(value) || !(base === null || isFiniteNumber(base))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.overtime_pay_factor", base, value);
+  if (out.status === "saved") refresh();
+  return out;
+}
+
+/**
+ * Employer on-costs (super, payroll tax, insurance) as a share of employees' pay (customisability audit 21): 0 to 1; null restores
+ * the default (none). Contractors never carry them. The database checks the same range (`workspaces_employer_on_costs`). Refreshes
+ * on a save: the forecast's profit reads it.
+ */
+export async function saveEmployerOnCosts(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const share = (v: unknown) => v === null || (number(v) && (v as number) >= 0 && (v as number) <= 1);
+  if (!isId(workspaceId) || !share(value) || !(base === null || isFiniteNumber(base))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.employer_on_costs", base, value);
+  if (out.status === "saved") refresh();
+  return out;
 }
 
 /**
@@ -226,9 +289,9 @@ export async function saveServiceFallback(
 }
 
 /**
- * One number of a service's client group (issue #120): how many clients, their fee, normal churn, typical stay or
- * starting health. A service with no group yet gets one on its first edit, starting from the service's own price,
- * churn and tenure.
+ * One number of a service's client group (issue #120): how many clients nobody's portfolio holds, or their starting health. A
+ * service with no group yet gets one on its first edit. The fee, churn and stay of a tier's counted clients are the tier's own
+ * (services), so no copy of them is written here.
  */
 export async function saveClientGroupField(
   workspaceId: string,
@@ -250,16 +313,21 @@ export async function saveClientGroupField(
   if (existing) return saveField("client_groups", { service_id: serviceId }, field, base, value);
   const service = await db
     .selectFrom("services")
-    .select(["price", "churn_monthly_base", "tenure_months"])
+    .select(["id", "tier_id"])
     .where("id", "=", serviceId)
     .where("workspace_id", "=", workspaceId)
     .executeTakeFirst()
     .catch(() => undefined);
   if (!service) return { status: "not_found" };
+  const ws = await db.selectFrom("workspaces").select("settings").where("id", "=", workspaceId).executeTakeFirst().catch(() => undefined);
+  if (!ws) return { status: "not_found" };
+  // Counted clients are set up on a tier, whose fee, churn and stay they take. A service that isn't a tier would bill and churn at
+  // the group row's own columns, which this screen no longer writes, so it is refused rather than given a fee and churn of 0.
+  if (service.tier_id === null) return { status: "error", message: "Counted clients belong to a tier. Add them on a tier's row." };
   try {
     await db
       .insertInto("client_groups")
-      .values({ workspace_id: workspaceId, service_id: serviceId, ...newGroupDefaults(service), [field]: value })
+      .values({ workspace_id: workspaceId, service_id: serviceId, ...newGroupDefaults((ws.settings ?? {}) as { health_initial?: number | null }), [field]: value })
       .execute();
   } catch (e) {
     const code = pgCode(e);
@@ -580,4 +648,74 @@ export async function saveGrowth(workspaceId: string, base: number | null, value
   );
   if (outcome.status === "saved") refresh();
   return outcome;
+}
+
+/**
+ * The DLER the agency aims for (`settings.dler_goal`, customisability audit 3 and 12): more than 0 and at most 50, or null for the
+ * default (4.5). The database checks the same range (`workspaces_dler_goal`). Refreshes: the Overview, Capacity and the Sandbox read it.
+ */
+export async function saveDlerGoal(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const goal = (v: unknown) => v === null || (number(v) && (v as number) > 0 && (v as number) <= 50);
+  if (!isId(workspaceId) || !goal(value) || !(base === null || isFiniteNumber(base))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.dler_goal", base, value);
+  if (out.status === "saved") refresh();
+  return out;
+}
+
+/**
+ * How far under their own utilisation threshold someone counts as at risk (`settings.at_risk_margin`, customisability audit 48): a share
+ * from 0 to 0.5, or null for the default (0.1). The database checks the same range (`workspaces_at_risk_margin`).
+ */
+export async function saveAtRiskMargin(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const share = (v: unknown) => v === null || (number(v) && (v as number) >= 0 && (v as number) <= 0.5);
+  if (!isId(workspaceId) || !share(value) || !(base === null || isFiniteNumber(base))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.at_risk_margin", base, value);
+  if (out.status === "saved") refresh();
+  return out;
+}
+
+/**
+ * The workspace's default forecast length (`settings.horizon_weeks`, customisability audit 50): one of the horizon picker's lengths in
+ * months (1, 3, 6, 12 or 24), stored in weeks. `base` is the stored weeks. Until now only the new-workspace form set it.
+ */
+export async function saveForecastLength(workspaceId: string, baseWeeks: number | null, months: string | null): Promise<SaveOutcome<string | null>> {
+  const m = months === null ? NaN : Number(months);
+  if (!isId(workspaceId) || !isHorizonMonths(m) || !(baseWeeks === null || isFiniteNumber(baseWeeks))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.horizon_weeks", baseWeeks, horizonWeeks(m));
+  if (out.status === "saved") {
+    refresh();
+    return { status: "saved", value: String(m) };
+  }
+  if (out.status === "conflict") return { status: "conflict", theirs: typeof out.theirs === "number" ? String(monthsForWeeks(out.theirs) ?? "") || null : null };
+  return out;
+}
+
+/**
+ * One analysis assumption (customisability audit 32 and 45): a lost client's value cap, the absence test, or a busy band, in the
+ * workspace's stored analysis settings. `base` is the value the field showed; when someone has saved another since, they are asked.
+ */
+export async function saveAnalysisAssumption(workspaceId: string, key: AssumptionKey, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  if (!isId(workspaceId) || !isAssumptionKey(key) || !(base === null || isFiniteNumber(base)) || !(value === null || validAssumption(key, value))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const db = await getDb();
+  let current;
+  try {
+    current = await loadAnalysisRules(db, workspaceId);
+  } catch {
+    return { status: "error", message: "Couldn't save. Try again." };
+  }
+  const stored = assumptionValues(current.settings)[key];
+  if (base !== null && Math.abs(base - stored) > 1e-9) return { status: "conflict", theirs: stored };
+  const out = await saveAnalysisRules(db, workspaceId, withAssumption(current.settings, key, value), current.version);
+  if (out.status === "saved") {
+    refresh();
+    return { status: "saved", value: assumptionValues(out.rules.settings)[key] };
+  }
+  if (out.status === "conflict") return { status: "conflict", theirs: assumptionValues(out.rules.settings)[key] };
+  if (out.status === "forbidden") return { status: "error", message: "Only Agency admins can change this." };
+  if (out.status === "invalid") return invalid;
+  return out;
 }

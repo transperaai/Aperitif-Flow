@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { capacitySetupFromModel, dler, DLER_GOAL, perEmployee, serviceLines } from "@transpera-flow/db";
+import { capacitySetupFromModel, dler, DEFAULT_DLER_GOAL, perEmployee, serviceLines } from "@transpera-flow/db";
 import { capacityModel } from "@transpera-flow/engine";
 import { bundleHarness } from "./build-harness";
 
@@ -88,9 +88,9 @@ describe("Overview department cards", { timeout: 180_000 }, () => {
         // DLER against its goal, coloured by the Capacity page's rule.
         const d = await kpi(page, name, "DLER");
         expect(d).toContain(row.ratio!.toFixed(1));
-        expect(d).toContain(row.ratio! >= DLER_GOAL ? "At or above the 4.5 goal" : "Below the 4.5 goal");
+        expect(d).toContain(row.ratio! >= DEFAULT_DLER_GOAL ? "At or above the 4.5 goal" : "Below the 4.5 goal");
         expect(d).not.toContain(":1");
-        expect(await c.locator("[data-kpi]").filter({ hasText: "DLER" }).first().getAttribute("data-tone")).toBe(row.ratio! >= DLER_GOAL ? "good" : "warn");
+        expect(await c.locator("[data-kpi]").filter({ hasText: "DLER" }).first().getAttribute("data-tone")).toBe(row.ratio! >= DEFAULT_DLER_GOAL ? "good" : "warn");
         const room = await kpi(page, name, "Room for more clients");
         expect(room).toMatch(/Plenty of room|Some room|Tight|Full/);
         expect(room).toMatch(/fills first: .+/);

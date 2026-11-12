@@ -24,6 +24,8 @@ import type { Db } from "./queries";
 import { rpc } from "./rpc";
 import { effectiveMonthlySalary } from "./salary";
 import type { Json } from "./db-types";
+import { namedClientFee } from "./capacity-model";
+import { DEFAULT_MAX_STAY_MONTHS } from "@transpera-flow/engine";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Vocabulary
@@ -53,9 +55,20 @@ export const ORGANIC_TIER_FIELDS = ["words", "links", "tech_hours", "meetings", 
 export const PERFORMANCE_TIER_FIELDS = ["channels", "builds", "creative_sets", "meetings", "adhoc_chance", "adhoc_requests"] as const;
 export type TierField = (typeof ORGANIC_TIER_FIELDS)[number] | (typeof PERFORMANCE_TIER_FIELDS)[number];
 
-/** Which fields a department's tier table has: Performance (by name) has channels, builds and creative sets; any other, the Organic set. */
-export function tierFieldsFor(departmentName: string): readonly TierField[] {
-  return /^\s*perf/i.test(departmentName) ? PERFORMANCE_TIER_FIELDS : ORGANIC_TIER_FIELDS;
+/** The kinds of department, by the deliverables their tiers have (`departments.deliverable_kind`). */
+export const DEPARTMENT_KINDS = ["organic", "performance"] as const;
+export type DepartmentKind = (typeof DEPARTMENT_KINDS)[number];
+
+/** A department's kind: the one picked in Settings, else from the name as before it could be picked (a name starting "Perf" is Performance). */
+export function departmentKind(department: string | { name: string; deliverable_kind?: string | null }): DepartmentKind {
+  const d = typeof department === "string" ? { name: department } : department;
+  if (d.deliverable_kind === "organic" || d.deliverable_kind === "performance") return d.deliverable_kind;
+  return /^\s*perf/i.test(d.name) ? "performance" : "organic";
+}
+
+/** Which fields a department's tier table has: a Performance department has channels, builds and creative sets; any other, the Organic set. */
+export function tierFieldsFor(department: string | { name: string; deliverable_kind?: string | null }): readonly TierField[] {
+  return departmentKind(department) === "performance" ? PERFORMANCE_TIER_FIELDS : ORGANIC_TIER_FIELDS;
 }
 
 /** Overrides a named client may carry (null: use the tier's), in the order the screen shows them. */
@@ -70,6 +83,9 @@ export const SHARED_UNITS = ["words", "links", "ticket hours", "tasks", "set-ups
 export const ROLE_KINDS = ["client_facing", "shared"] as const;
 export type RoleKind = (typeof ROLE_KINDS)[number];
 export const PERSON_LABELS = ["contractor", "offshore"] as const;
+/** What a person is paid for (`people.paid_for`; the engine's `paidFor`): contracted hours, leave included, or the hours they work. */
+export const PAID_FOR = ["contracted", "worked"] as const;
+export type PaidForChoice = (typeof PAID_FOR)[number];
 export type PersonLabel = (typeof PERSON_LABELS)[number];
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -81,6 +97,8 @@ export interface SetupDepartment {
   id: string;
   name: string;
   sort: number;
+  /** Which deliverables its tiers have; null (or left out): chosen from the name (`departmentKind`). */
+  deliverable_kind?: DepartmentKind | null;
 }
 export interface SetupTier {
   id: string;
@@ -102,7 +120,8 @@ export interface SetupService {
   price_low: number | null;
   price_high: number | null;
   margin: number;
-  tenure_months: number;
+  /** Null: worked out from churn (`tenureFromChurn`). */
+  tenure_months: number | null;
   churn_monthly_base: number;
   churn_health_sensitivity: number;
   mix_share: number;
@@ -188,6 +207,8 @@ export interface SetupPerson {
   /** Null for everyone when the viewer can't see pay (`payHidden`). */
   salary_monthly: number | null;
   label: PersonLabel | null;
+  /** What they are paid for (`PAID_FOR`); null: the default, hours worked for a contractor, contracted hours otherwise. Null when pay is hidden. */
+  paid_for?: PaidForChoice | null;
   ramp: number[] | null;
   provenance: Prov;
   role_ids: string[];
@@ -215,13 +236,42 @@ export interface CapacitySetup {
   /** `settings.ramp_default`, or the built-in default. */
   rampDefault: number[];
   rampDefaultProvenance: unknown;
+  /** `settings.ramp_default` as stored: null when the workspace uses the built-in default. */
+  rampDefaultStored?: number[] | null;
+  /** `settings.hiring_delay_months` (months to hire, 0 to 24), or null when the workspace has set none (`hiringDelayBase` gives 2). */
+  hiringDelayMonths?: number | null;
   /** `settings.dler_includes_leadership`; false when never set (D48: directors and managers are not counted in DLER). */
   dlerIncludesLeadership: boolean;
   dlerProvenance: unknown;
+  /** `settings.max_stay_months`: the longest stay worked out from churn, or null when the workspace has set none. */
+  maxStayStored: number | null;
+  /** The longest stay worked out from churn that the engine uses: `maxStayStored`, else `DEFAULT_MAX_STAY_MONTHS`. */
+  maxStayMonths: number;
+  /** `settings.dler_goal`: the DLER every figure is judged against; `DEFAULT_DLER_GOAL` (4.5) when never set. */
+  dlerGoal: number;
+  /** `settings.at_risk_margin`: how far under their threshold someone is "near" (at risk); `DEFAULT_AT_RISK_MARGIN` (0.1) when never set. */
+  atRiskMargin: number;
   /** Whether the viewer may change anything here (Owner and Agency admins). */
   canEdit: boolean;
   /** True when the viewer can't see pay: every salary is null and the column is not shown. */
   payHidden: boolean;
+}
+
+/** The DLER a workspace is judged against until it sets its own (`settings.dler_goal`; D24). */
+export const DEFAULT_DLER_GOAL = 4.5;
+/** How far under their threshold someone counts as at risk until the workspace sets its own (`settings.at_risk_margin`): 10 points. */
+export const DEFAULT_AT_RISK_MARGIN = 0.1;
+
+/** `settings.dler_goal` if it is a usable number, else the default. */
+export function dlerGoalOf(settings: Record<string, unknown> | null | undefined): number {
+  const v = settings?.dler_goal;
+  return typeof v === "number" && Number.isFinite(v) && v > 0 && v <= 50 ? v : DEFAULT_DLER_GOAL;
+}
+
+/** `settings.at_risk_margin` if it is a usable share, else the default. */
+export function atRiskMarginOf(settings: Record<string, unknown> | null | undefined): number {
+  const v = settings?.at_risk_margin;
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 0.5 ? v : DEFAULT_AT_RISK_MARGIN;
 }
 
 /** New starters reach about 80% in three months (the prototype: 40%, 60%, 80% in months 1 to 3, then full). */
@@ -238,7 +288,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
   const [canEdit, canSeePeople, departments, tiers, services, groups, clients, clientServices, clientAssignments, roles, people, personRoles, personTiers, portfolio] = await Promise.all([
     rpc(db, "can_edit_workspace", { ws: workspaceId }),
     rpc(db, "can_see_people", { ws: workspaceId }),
-    db.selectFrom("departments").select(["id", "name", "sort"]).where("workspace_id", "=", workspaceId).orderBy("sort").orderBy("name").execute(),
+    db.selectFrom("departments").select(["id", "name", "sort", "deliverable_kind"]).where("workspace_id", "=", workspaceId).orderBy("sort").orderBy("name").execute(),
     db.selectFrom("tiers").select(["id", "key", "name", "sort", "both_count", "provenance"]).where("workspace_id", "=", workspaceId).orderBy("sort").orderBy("key").execute(),
     db
       .selectFrom("services")
@@ -275,7 +325,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
     db
       .selectFrom("people")
       .select([
-        "id", "name", "email", "active", "fte", "capacity_hours_week", "cost_rate", "start_date", "end_date", "notes", "reserved_share", "salary_monthly", "label", "ramp", "provenance",
+        "id", "name", "email", "active", "fte", "capacity_hours_week", "cost_rate", "start_date", "end_date", "notes", "reserved_share", "salary_monthly", "label", "paid_for", "ramp", "provenance",
       ])
       .where("workspace_id", "=", workspaceId)
       .orderBy("name")
@@ -287,6 +337,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
   ]);
 
   const settings = (workspace.settings ?? {}) as Record<string, unknown>;
+  const maxStay = typeof settings.max_stay_months === "number" && settings.max_stay_months > 0 ? settings.max_stay_months : null;
   const wsProv = prov(workspace.provenance);
   const hidden = !canSeePeople;
   const servicesOf = new Map<string, string[]>();
@@ -304,7 +355,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
   return {
     workspaceId,
     currency: typeof settings.currency === "string" ? settings.currency : "USD",
-    departments,
+    departments: departments.map((d) => ({ ...d, deliverable_kind: d.deliverable_kind === "organic" || d.deliverable_kind === "performance" ? d.deliverable_kind : null })),
     tiers: tiers.map((t) => ({ ...t, provenance: prov(t.provenance) })),
     services: services.map((s) => ({
       ...s,
@@ -312,7 +363,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
       price_low: num(s.price_low),
       price_high: num(s.price_high),
       margin: Number(s.margin),
-      tenure_months: Number(s.tenure_months),
+      tenure_months: num(s.tenure_months),
       churn_monthly_base: Number(s.churn_monthly_base),
       churn_health_sensitivity: Number(s.churn_health_sensitivity),
       mix_share: Number(s.mix_share),
@@ -357,6 +408,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
     roles: roles.map((r) => ({
       ...r,
       default_cost_rate: Number(r.default_cost_rate),
+      ongoing_hours_per_client_week: Number(r.ongoing_hours_per_client_week),
       line: Number(r.line),
       leadership: r.leadership === true,
       kind: r.kind === "shared" ? "shared" : "client_facing",
@@ -377,6 +429,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
       reserved_share: Number(p.reserved_share),
       salary_monthly: hidden ? null : num(p.salary_monthly),
       label: p.label === "contractor" || p.label === "offshore" ? p.label : null,
+      paid_for: !hidden && (p.paid_for === "contracted" || p.paid_for === "worked") ? p.paid_for : null,
       ramp: numList(p.ramp as Json),
       provenance: prov(p.provenance),
       role_ids: (rolesOf.get(p.id) ?? []).map((r) => r.role_id),
@@ -385,8 +438,14 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
     portfolio: portfolio.map((r) => ({ ...r, provenance: prov(r.provenance) })),
     rampDefault: numList(settings.ramp_default) ?? [...DEFAULT_RAMP],
     rampDefaultProvenance: wsProv["settings.ramp_default"] ?? null,
+    rampDefaultStored: numList(settings.ramp_default),
+    hiringDelayMonths: typeof settings.hiring_delay_months === "number" && Number.isFinite(settings.hiring_delay_months) ? settings.hiring_delay_months : null,
     dlerIncludesLeadership: settings.dler_includes_leadership === true,
     dlerProvenance: wsProv["settings.dler_includes_leadership"] ?? null,
+    maxStayStored: maxStay,
+    maxStayMonths: maxStay ?? DEFAULT_MAX_STAY_MONTHS,
+    dlerGoal: dlerGoalOf(settings),
+    atRiskMargin: atRiskMarginOf(settings),
     canEdit: canEdit === true,
     payHidden: hidden,
   };
@@ -448,7 +507,7 @@ const DELIVERABLES = Object.fromEntries(DELIVERABLE_COLUMNS.map((c) => [c, count
 
 /** Table → column → rule: the columns the Set up screens save with `save_fields`. */
 export const SETUP_FIELDS = {
-  departments: { name: text(100) },
+  departments: { name: text(100), deliverable_kind: { type: "enum", values: DEPARTMENT_KINDS, nullable: true } },
   tiers: { name: text(100), key: text(20), both_count: n(0, 100_000, false, true) },
   services: {
     ...DELIVERABLES,
@@ -457,6 +516,8 @@ export const SETUP_FIELDS = {
     price_low: amount(true),
     price_high: amount(true),
     churn_monthly_base: share(),
+    // Blank: worked out from churn (finding 30).
+    tenure_months: n(0, 600, true),
     adhoc_chance: share(true),
     adhoc_requests: count(true),
     price_rise_churn: n(0, 10),
@@ -483,12 +544,14 @@ export const SETUP_FIELDS = {
     reserved_share: n(0, 0.9),
     salary_monthly: amount(true),
     label: { type: "enum", values: PERSON_LABELS, nullable: true },
+    paid_for: { type: "enum", values: PAID_FOR, nullable: true },
     ramp: { type: "ramp", nullable: true },
   },
   roles: {
     department_id: { type: "id", nullable: true },
     kind: { type: "enum", values: ROLE_KINDS },
     line: n(0.01, 1.5),
+    ongoing_hours_per_client_week: n(0, 168),
     rule_of_thumb: n(1, 10_000, true, true),
     unit: text(60, true),
     leadership: { type: "boolean" },
@@ -578,6 +641,12 @@ export function tierCount(serviceId: string, data: Pick<CountData, "groups" | "c
   if (total !== null && total !== undefined) return Math.max(total, named + held);
   const rest = data.groups.filter((g) => g.service_id === serviceId).reduce((s, g) => s + g.client_count, 0);
   return named + held + rest;
+}
+
+/** A named client's fee a month: its own, or (left blank) the fee of each tier it takes, by the engine's own rule (`namedClientFee`). */
+export function clientFee(setup: Pick<CapacitySetup, "services">, c: Pick<SetupClient, "mrr" | "service_ids">): number {
+  const tiers = setup.services.filter((s) => s.active && s.tier_id && s.department_id && c.service_ids.includes(s.id));
+  return namedClientFee(c.mrr, tiers.map((s) => s.price));
 }
 
 export type TierDiscrepancyKind = "over" | "unassigned";
@@ -681,7 +750,7 @@ export function missingForCapacity(
     const dept = deptOf.get(s.department_id);
     const tier = tierOf.get(s.tier_id);
     if (!dept || !tier) continue;
-    for (const field of tierFieldsFor(dept.name)) {
+    for (const field of tierFieldsFor(dept)) {
       if (s[field] === null) out.push({ kind: "tier_deliverable", id: s.id, field, label: `${dept.name} ${tier.key}: ${FIELD_WORDS[field]}` });
     }
   }

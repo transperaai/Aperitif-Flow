@@ -3,6 +3,7 @@
 // the month, the same rule as `plannedMarkers`'s `at` (timeline.ts). Dates are ISO strings; time is working hours from
 // the start of the forecast's start date (weekdays only, as the model counts it). Pure: no React.
 
+import { CALENDAR_WEEKDAYS } from "@transpera-flow/engine";
 import { workingDaysBetween } from "../model";
 
 const DAY_MS = 86_400_000;
@@ -37,7 +38,7 @@ export function monthBounds(monthStarts: readonly number[], horizonHours: number
 
 /** Hours from the start of `startDate` to the start of `date` (negative before it), weekdays only. */
 export function hoursToDate(startDate: string, date: string, hoursPerWeek: number): number {
-  return workingDaysBetween(startDate, date) * (hoursPerWeek / 5);
+  return workingDaysBetween(startDate, date) * (hoursPerWeek / CALENDAR_WEEKDAYS);
 }
 
 /** Where a date sits on the timeline, in columns from the left (2.5 = halfway through the third month), clamped to [0, n]. */
@@ -88,7 +89,7 @@ const MIN_PART_DAYS = 5;
  * shorter than a working week joins the month next to it, so no month is a few days long.
  */
 export function calendarMonthStarts(startDate: string, horizonWeeks: number, hoursPerWeek: number): number[] {
-  const perDay = hoursPerWeek / 5;
+  const perDay = hoursPerWeek / CALENDAR_WEEKDAYS;
   const H = horizonWeeks * hoursPerWeek;
   const [y, m] = startDate.split("-").map(Number) as [number, number];
   const starts: number[] = [];
@@ -107,7 +108,7 @@ export function calendarMonthStarts(startDate: string, horizonWeeks: number, hou
 
 /** The calendar date `hours` working hours after the start of `startDate` (weekdays only, as the model counts them). */
 export function dateAtHour(startDate: string, hours: number, hoursPerWeek: number): Date {
-  const perDay = hoursPerWeek / 5;
+  const perDay = hoursPerWeek / CALENDAR_WEEKDAYS;
   let days = Math.floor(hours / perDay + 1e-9);
   const d = new Date(`${startDate}T00:00:00Z`);
   while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);

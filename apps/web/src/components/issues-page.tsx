@@ -32,7 +32,7 @@ import { perceptionGapDetections } from "@/lib/issues/perception";
 import { useIssues } from "@/lib/issues/use-issues";
 import { useDetectedIssues } from "@/lib/issues/use-detected";
 import { visibleFindings } from "@/lib/rules/edit";
-import { ANALYSIS_DEFAULTS } from "@/lib/analysis/defaults";
+import { analysisRulesOf } from "@/lib/analysis/defaults";
 import { useAbsenceTest } from "@/lib/sim/absence";
 import { useSimulation } from "@/lib/sim/use-simulation";
 import { cn } from "@/lib/utils";
@@ -292,7 +292,7 @@ function useIssueCosts(
   const result = sim.run?.result ?? null;
   const broken = useMemo(() => (model ? detectBrokenScenarios(model, scenarios, retiredSteps(bundle)) : []), [model, scenarios, bundle]);
   const gaps = useMemo(() => perceptionGapDetections(bundle.steps), [bundle.steps]);
-  const rules = ANALYSIS_DEFAULTS;
+  const rules = analysisRulesOf(bundle);
   const absence = useAbsenceTest(model && result && sim.status === "done" ? model : null, result?.seed ?? 1, resolveMoney(rules).absenceWeeks);
   const found = useDetectedIssues(model, result, rules, bundle.process.id, bundle.workspace.settings.currency, absence);
   return useMemo(() => {

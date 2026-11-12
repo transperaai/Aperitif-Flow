@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
+import { DEFAULT_MAX_STAY_MONTHS, tenureFromChurn } from "@transpera-flow/engine";
 import type { PricingModel, ServiceRow } from "@transpera-flow/db";
 import { NumberField, SelectField, TextField, ToggleField } from "@/components/fields";
 import { Help, HelpLabel } from "@/components/help";
@@ -48,7 +49,16 @@ const priceUnit = (model: PricingModel) => (model === "retainer" ? "/month" : mo
  * `tierServiceIds`: the services that are a tier of a department. They are edited on Tiers & clients, so this lists the others
  * ("a service with neither keeps working as today"), with the same mix check over all of them.
  */
-export function ServicesSettings({ data, tierServiceIds = new Set<string>() }: { data: WorkspaceSettingsData; tierServiceIds?: ReadonlySet<string> }) {
+export function ServicesSettings({
+  data,
+  tierServiceIds = new Set<string>(),
+  extra,
+}: {
+  data: WorkspaceSettingsData;
+  tierServiceIds?: ReadonlySet<string>;
+  /** More fields under each service's own (Tiers & clients puts its counted-client numbers here). */
+  extra?: (service: ServiceRow) => ReactNode;
+}) {
   const { canEdit } = data;
   const services = data.services.filter((s) => !tierServiceIds.has(s.id));
   const mix = mixPercentages(data.services);
@@ -81,7 +91,7 @@ export function ServicesSettings({ data, tierServiceIds = new Set<string>() }: {
           <ul className="flex flex-col divide-y divide-line border-y border-line">
             {services.map((sv) => (
               <li key={sv.id}>
-                <ServiceItem service={sv} share={mix?.get(sv.id)} data={data} />
+                <ServiceItem service={sv} share={mix?.get(sv.id)} data={data} extra={extra?.(sv)} />
               </li>
             ))}
           </ul>
@@ -134,7 +144,7 @@ function AddService({ workspaceId }: { workspaceId: string }) {
   );
 }
 
-function ServiceItem({ service: sv, share, data }: { service: ServiceRow; share: number | undefined; data: WorkspaceSettingsData }) {
+function ServiceItem({ service: sv, share, data, extra }: { service: ServiceRow; share: number | undefined; data: WorkspaceSettingsData; extra?: ReactNode }) {
   const currency = data.workspace.settings.currency;
   return (
     <details className="group py-2">
@@ -153,13 +163,14 @@ function ServiceItem({ service: sv, share, data }: { service: ServiceRow; share:
         </span>
         {!sv.active && <span className="rounded-lg bg-panel-2 px-1.5 text-xs text-fg-2">Inactive</span>}
       </summary>
+      {extra && <div className="grid gap-4 px-1 pt-3 sm:grid-cols-2 lg:grid-cols-3">{extra}</div>}
       <ServiceMore service={sv} share={share} data={data} />
     </details>
   );
 }
 
 /** Everything about one service that can be edited (the part of a row that opens): Set up shows it under "More" for a tier's service. */
-export function ServiceMore({ service: sv, share, data, removable = true }: { service: ServiceRow; share?: number | undefined; data: WorkspaceSettingsData; /** A tier's service goes with its tier (Remove tier), not on its own. */ removable?: boolean }) {
+export function ServiceMore({ service: sv, share, data, removable = true, showChurn = true }: { service: ServiceRow; share?: number | undefined; data: WorkspaceSettingsData; /** A tier's service goes with its tier (Remove tier), not on its own. */ removable?: boolean; /** False for a tier's service: its normal churn is set on Settings, Churn drivers (Normal churn by tier). */ showChurn?: boolean }) {
   const disabled = !data.canEdit;
   const currency = data.workspace.settings.currency;
   const pipelines = data.processes.filter((p) => p.kind === "pipeline");
@@ -207,26 +218,18 @@ export function ServiceMore({ service: sv, share, data, removable = true }: { se
           hint={rangeWarning(sv)}
           help={{ description: "Each new client's fee is drawn between the lowest and highest, most often near the fee above. Clients you already have keep theirs. A blank end is the fee itself.", example: "6,000 for the occasional large client." }} />
         <NumberField
-          label="Margin"
-          value={Number(sv.margin)}
-          save={serviceSaver(sv.id, "margin")}
-          scale={100}
-          unit="%"
-          min={0}
-          max={100}
-          step={1}
-          disabled={disabled}
-          hint="Recorded for reference. Profit is worked out from the hours people are paid for, not from this." help={{ description: "Recorded for reference. Profit is worked out from the hours people are paid for, not from this.", example: "Profit comes from the team's pay and the overheads, so a 40% margin here doesn't change it." }} />
-        <NumberField
           label="Expected tenure"
-          value={Number(sv.tenure_months)}
+          value={sv.tenure_months === null || sv.tenure_months === undefined ? null : Number(sv.tenure_months)}
           save={serviceSaver(sv.id, "tenure_months")}
           unit="months"
+          optional
           min={0}
           max={600}
           step={1}
+          placeholder={String(Math.round(tenureFromChurn(Number(sv.churn_monthly_base), data.workspace.settings.max_stay_months ?? DEFAULT_MAX_STAY_MONTHS)))}
           disabled={disabled}
-          hint={retainer ? "How long a client stays: LTV and lost revenue use price × tenure. Overridden by Typical stay in Services and client groups, once that is filled in." : "Used for retainers only."} help={{ description: "How many months a client typically stays. Lifetime value and lost revenue use price times tenure. Retainers only.", example: "At 2,500 a month and 18 months, a client is worth 45,000." }} />
+          hint={retainer ? "How long a client stays: LTV and lost revenue use price × tenure. Blank: worked out from base churn (1 ÷ churn)." : "Used for retainers only."} help={{ description: "How many months a client typically stays. Lifetime value and lost revenue use price times tenure. Leave it blank to work it out from base churn. Retainers only.", example: "At 2,500 a month and 18 months, a client is worth 45,000. Blank at 2% churn: 50 months." }} />
+        {showChurn && (
         <NumberField
           label="Base churn"
           value={Number(sv.churn_monthly_base)}
@@ -237,7 +240,8 @@ export function ServiceMore({ service: sv, share, data, removable = true }: { se
           max={100}
           step={0.5}
           disabled={disabled}
-          hint="Monthly churn of a client in full health; revenue billed in the horizon stops when a client leaves. Overridden by Normal churn in Services and client groups, once that is filled in." help={{ description: "The chance each month that a perfectly healthy client leaves. Revenue stops when a client leaves.", example: "At 2% a month, about 1 in 50 healthy clients leaves each month." }} />
+          hint="Monthly churn of a client in full health; revenue billed in the horizon stops when a client leaves. Named and counted clients on this service both churn at this rate." help={{ description: "The chance each month that a perfectly healthy client leaves. Revenue stops when a client leaves.", example: "At 2% a month, about 1 in 50 healthy clients leaves each month." }} />
+        )}
         <NumberField
           label="Churn sensitivity to health"
           value={sv.churn_health_sensitivity === undefined ? null : Number(sv.churn_health_sensitivity)}

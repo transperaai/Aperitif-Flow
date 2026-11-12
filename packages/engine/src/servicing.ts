@@ -7,7 +7,7 @@
 // falls.
 
 import { effectiveDeliverables, tasksPerMonth } from "./capacity-inputs";
-import type { EngineClient, EngineHealthRules, EngineModel, EngineService, EngineServicingLink, Recurrence } from "./model";
+import type { EngineClient, EngineHealthBands, EngineHealthRules, EngineModel, EngineService, EngineServicingLink, Recurrence } from "./model";
 
 /** The PRD's estimated defaults (§6.3.5): start at 80; +2 on time, −5 late, −12 missed. */
 export const DEFAULT_HEALTH_RULES: Required<EngineHealthRules> = { initial: 80, recover: 2, latePenalty: 5, missedPenalty: 12 };
@@ -15,8 +15,30 @@ export const DEFAULT_HEALTH_RULES: Required<EngineHealthRules> = { initial: 80, 
 /** The PRD's estimated churn sensitivity (§5 `services.churn_health_sensitivity`), which the database defaults to. */
 export const DEFAULT_CHURN_SENSITIVITY = 3;
 
-/** Health below which a client is at risk (docs/PRD.md §13). */
+/** Health below which a client is at risk (docs/PRD.md §13): the default of `EngineHealthBands.atRisk`. */
 export const AT_RISK_HEALTH = 50;
+
+/** The default health bands: Great from 75, Good from 65, Bad from 50, at risk below 50 (rule 9, docs/analysis-rules.md). */
+export const DEFAULT_HEALTH_BANDS: Required<EngineHealthBands> = { healthy: 75, watch: 65, atRisk: AT_RISK_HEALTH };
+
+/**
+ * The model's health bands with the defaults filled in. Each is brought into 0 to 100, and they are kept in order (healthy ≥ watch ≥
+ * at risk): a band set below the one under it is raised to it.
+ */
+export function healthBands(model: Pick<EngineModel, "healthBands">): Required<EngineHealthBands> {
+  const b = model.healthBands ?? {};
+  const pick = (v: number | undefined, d: number) => (v !== undefined && Number.isFinite(v) ? clampHealth(v) : d);
+  const atRisk = pick(b.atRisk, DEFAULT_HEALTH_BANDS.atRisk);
+  const watch = Math.max(atRisk, pick(b.watch, DEFAULT_HEALTH_BANDS.watch));
+  const healthy = Math.max(watch, pick(b.healthy, DEFAULT_HEALTH_BANDS.healthy));
+  return { healthy, watch, atRisk };
+}
+
+/** The bands as rating cut-offs, best first (`rateClientHealth`). */
+export const healthCutoffs = (model: Pick<EngineModel, "healthBands">): [number, number, number] => {
+  const b = healthBands(model);
+  return [b.healthy, b.watch, b.atRisk];
+};
 
 /** Weeks in a month for recurrences and churn, as elsewhere in the engine. */
 const WEEKS_PER_MONTH = 4.33;

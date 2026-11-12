@@ -113,6 +113,10 @@ export function build(who: "owner" | "viewer", extraTiers: number, scenario?: Sc
     rampDefaultProvenance: null,
     dlerIncludesLeadership: true,
     dlerProvenance: null,
+    maxStayStored: null,
+    maxStayMonths: 60,
+    dlerGoal: 4.5,
+    atRiskMargin: 0.1,
     canEdit: who === "owner",
     payHidden: who !== "owner",
   };

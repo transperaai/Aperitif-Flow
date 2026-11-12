@@ -2,7 +2,7 @@
 // far with named people, services, end-step outcomes, seasonal demand, a client
 // roster, overtime, and client servicing with health and churn (docs/PRD.md §6).
 
-import type { ChurnCauses, ChurnReplication, DriverEvents, EngineChurnDriver } from "./churn-drivers";
+import type { ChurnCauses, ChurnLimits, ChurnReplication, DriverEvents, EngineChurnDriver } from "./churn-drivers";
 import type { EngineMarket } from "./market";
 import type { Loop } from "./loops";
 
@@ -11,6 +11,27 @@ import type { Loop } from "./loops";
  * churn to weeks with (cost.ts, demand.ts, market.ts, the capacity inputs and the run itself).
  */
 export const WEEKS_PER_MONTH = 52 / 12;
+
+/**
+ * Weekdays in a calendar week (Monday to Friday): the run's clock places dates on weekdays only, so a calendar week is
+ * `hoursPerWeek` hours and each weekday a fifth of it (start dates, leave, month edges, the playback's day step). This is the
+ * calendar, not a business number: the workspace's working days (`workingDaysPerWeek`) say how many hours make a working day
+ * when hours are shown or entered as days. Which weekdays a shorter week leaves out is not modelled.
+ */
+export const CALENDAR_WEEKDAYS = 5;
+
+/** Working days a week when the workspace sets none (`EngineModel.workingDaysPerWeek`). */
+export const DEFAULT_WORKING_DAYS = 5;
+
+/** The working days a week to use: a stored number from 1 to 7, else the default 5. */
+export function workingDaysOf(days: number | null | undefined): number {
+  return typeof days === "number" && Number.isFinite(days) && days >= 1 && days <= 7 ? days : DEFAULT_WORKING_DAYS;
+}
+
+/** Hours in one working day: the week's hours over its working days (5 unless the model says otherwise). */
+export function hoursPerWorkingDay(model: { hoursPerWeek: number; workingDaysPerWeek?: number }): number {
+  return model.hoursPerWeek / workingDaysOf(model.workingDaysPerWeek);
+}
 
 /** Times are in working hours. */
 export interface EngineRole {
@@ -27,6 +48,12 @@ export interface EngineRole {
    * engine's own unit is working hours, and the label is turned into hours outside it (capacity-inputs.ts). Omitted: none.
    */
   unit?: { label: string; perHour?: number };
+  /**
+   * The role's utilisation threshold (Settings: "Utilisation threshold", `roles.line`), as a share: at or over it the role and
+   * its people count as too busy. It is rule 1's middle cut-off for the role (`withRoleLines`); the rule's other cut-offs keep
+   * their distance from it. Omitted: the rule's own cut-offs.
+   */
+  line?: number;
 }
 
 /**
@@ -52,6 +79,21 @@ export interface EnginePerson {
   leave?: [number, number][];
   /** Cost per hour, for overtime cost; omitted means the mean of their roles' costs. */
   cost?: number;
+  /**
+   * A contractor (Set up's label): no employer on-costs on their pay (`employerOnCosts`), and paid for the hours they work unless
+   * `paidFor` says otherwise (pay.ts). Omitted: an employee, as everyone was before this field existed.
+   */
+  contractor?: boolean;
+  /**
+   * Their `cost` is worked out from a salary (their own or their roles'), not typed as a cost rate: only such a cost takes employer
+   * on-costs (`employerOnCosts`, pay.ts). Omitted: a typed rate, or none.
+   */
+  costFromSalary?: boolean;
+  /**
+   * What they are paid for (pay.ts): "contracted" hours while on the team, leave included, or only the hours "worked", up to their
+   * contracted hours, with no paid leave. Omitted: "worked" for a contractor, "contracted" for everyone else.
+   */
+  paidFor?: "contracted" | "worked";
   /**
    * A planned hire's first hour, in simulation hours from t = 0 (the forecast, issue #35). Before it they take no
    * work and carry no share of the clients' work: their role's pool is the others. Omitted: there from the start.
@@ -144,6 +186,11 @@ export interface EngineService {
   margin: number;
   /** Expected tenure of a retainer client, in months (LTV and lost revenue). */
   tenureMonths: number;
+  /**
+   * True when no expected tenure was entered: `tenureMonths` is worked out from `churnMonthly` (`tenureFromChurn`, capped at the
+   * model's `maxStayMonths`), so a change to the churn (a Sandbox base-churn change) works it out again. Omitted: entered.
+   */
+  tenureFromChurn?: boolean;
   /** Base monthly churn of a client on this service; billed-in-horizon is net of it. */
   churnMonthly: number;
   /** Relative share of arrivals; shares are normalised over the model's services. */
@@ -294,6 +341,16 @@ export interface EngineHealthRules {
 }
 
 /**
+ * Client health bands (customisability audit, findings 34 and 38): health at or above `healthy` is Great, at or above `watch` Good, at
+ * or above `atRisk` Bad, and below `atRisk` the client is at risk. Each is 0 to 100; the defaults are 75, 65 and 50.
+ */
+export interface EngineHealthBands {
+  healthy?: number;
+  watch?: number;
+  atRisk?: number;
+}
+
+/**
  * A client on the roster (docs/PRD.md §5 `clients`, §6.2, decision D13).
  * Real clients seed the run; clients won during it are added as synthetic ones.
  */
@@ -305,8 +362,10 @@ export interface EngineClient {
   mrr: number;
   /**
    * Months it has been a client when the run starts, for what losing it is
-   * worth (the tenure it has left, docs/analysis-rules.md "Cost per month").
-   * Omitted: counted as new. It doesn't change the simulation.
+   * worth (the tenure it has left, docs/analysis-rules.md "Cost per month"),
+   * and for the early-tenure churn driver: a client younger than its window
+   * is in early tenure until it isn't. Omitted: counted as new for what
+   * losing it is worth, and never in early tenure (as before).
    */
   monthsActive?: number;
   /** Health 0–100 at the start of the run. Omitted: `EngineHealthRules.initial` (80). */
@@ -368,8 +427,16 @@ export interface EngineClientGroup {
   churnMonthly: number;
   /** Typical stay in months: the service's expected tenure (lifetime value and lost revenue). */
   stayMonths: number;
+  /** True when the stay is worked out from `churnMonthly` (its service has no expected tenure entered); see `EngineService.tenureFromChurn`. */
+  stayFromChurn?: boolean;
   /** Average health at the start, 0-100. */
   health: number;
+  /**
+   * True when the group has no starting health of its own and starts at the model's starting health rule (`health.initial`), as a
+   * named client with no stored health does: a run that changes that rule (Sandbox X1 "Starting health") moves these clients too.
+   * `health` holds the same number for readers of the model.
+   */
+  healthFromRules?: boolean;
 }
 
 export interface EngineStep {
@@ -579,8 +646,24 @@ export interface EngineModel {
   payHidden?: boolean;
   /** Fixed costs a month (rent, tools), per 52/12-week month. Omitted or 0: none. Not pay, so kept when `payHidden`. */
   overheadMonthly?: number;
+  /**
+   * × the normal hourly rate for an overtime hour (pay.ts): 1.5 is time and a half, 0 is unpaid. Omitted: 1, as before this field
+   * existed.
+   */
+  overtimePayFactor?: number;
+  /**
+   * Employer on-costs (super, payroll tax, insurance) as a share of an employee's pay, 0 to 1 (pay.ts): the labour and overtime cost
+   * of people whose cost comes from a salary (`EnginePerson.costFromSalary`), contractors aside, × (1 + this). A typed cost rate is the
+   * full cost of an hour and never takes them. Omitted: 0, as before this field existed.
+   */
+  employerOnCosts?: number;
   horizonWeeks: number;
   hoursPerWeek: number;
+  /**
+   * Working days in the week (the workspace's `working_days`, 1 to 7): a "working day" is `hoursPerWeek / workingDaysPerWeek` hours
+   * wherever days turn into hours (first-delivery days, expected waits, days shown in findings). Omitted: 5.
+   */
+  workingDaysPerWeek?: number;
   /**
    * Mean arrivals per week: qualified leads into this process (docs/PRD.md
    * §6.2: lead sources' volume × conversion, split by the services mix).
@@ -606,6 +689,12 @@ export interface EngineModel {
    * months (none, so no LTV, when churn is 0).
    */
   retainer: number;
+  /**
+   * The longest stay, in months, a stay worked out from churn may be (the workspace's `max_stay_months`): a churn of 0 is a stay of
+   * this long. Omitted: `DEFAULT_MAX_STAY_MONTHS` for a service's worked-out stay; the implicit retainer keeps 1 / churn, uncapped
+   * (none at a churn of 0), as before.
+   */
+  maxStayMonths?: number;
   /**
    * Services by id. Each arrival is tagged with one, drawn from the mix, and
    * is routed and priced by it. Omitted or empty: the implicit retainer above.
@@ -648,6 +737,11 @@ export interface EngineModel {
    */
   churnDrivers?: EngineChurnDriver[];
   /**
+   * Where each measured churn driver starts and is full (churn-drivers.ts `ChurnLimits`), from the workspace's settings. Omitted,
+   * or a number left out: the defaults, exactly as before this field existed.
+   */
+  churnLimits?: Partial<ChurnLimits>;
+  /**
    * Per-month values the engine reads while it runs (sandbox phase 3, channels.ts). Omitted, or every array neutral: the run
    * is exactly as before this field existed.
    */
@@ -659,6 +753,8 @@ export interface EngineModel {
   servicingProcesses?: Record<string, EngineServicingProcess>;
   /** How servicing moves client health. Omitted: `DEFAULT_HEALTH_RULES`. */
   health?: EngineHealthRules;
+  /** Where client health turns from healthy to watch to at risk. Omitted: `DEFAULT_HEALTH_BANDS` (75, 65, 50). */
+  healthBands?: EngineHealthBands;
   /**
    * Warm-up run before measuring, in weeks, discarded from every reported
    * metric. Omitted means automatic: 4 weeks, or 2x the P90 cycle time of a

@@ -1,15 +1,22 @@
+import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { BUILTIN_CHURN_DRIVER_IDS, CHURN_DRIVER_SPECS, simulate } from "@transpera-flow/engine";
-import { NORTHBEAM_WORKSPACE_ID, northbeamBundle, toEngineModel, type ChurnDriverRow } from "@transpera-flow/db";
+import { BUILTIN_CHURN_DRIVER_IDS, CHURN_DRIVER_SPECS, DEFAULT_CHURN_LIMITS, simulate } from "@transpera-flow/engine";
+import { HEALTH_SETTINGS } from "@/lib/servicing";
+import { NORTHBEAM_WORKSPACE_ID, northbeamBundle, toEngineModel, type CapacitySetup, type ChurnDriverRow } from "@transpera-flow/db";
 import { ChurnDriversSettings } from "@/app/w/[slug]/settings/churn-drivers-settings";
+import { NormalChurnByTier } from "@/app/w/[slug]/settings/normal-churn-settings";
 import {
+  CHURN_LIMIT_KEYS,
+  CHURN_LIMIT_SETTINGS,
   CONTROL_HELP,
   DRIVER_HELP,
   VALUE_HELP,
   driverStates,
   engineIdOf,
+  isChurnLimitValue,
+  limitsOf,
   parseDriverPatch,
   pressureKey,
   sourceLabel,
@@ -50,10 +57,10 @@ describe("the ten drivers", () => {
       "Response time to ad-hoc requests",
       "Onboarding speed (won to first delivery)",
       "Rework or errors on deliverables",
-      "Account team overload (above 85% busy)",
+      "Account team overload",
       "Account manager changes",
       "Client results or satisfaction",
-      "Early tenure (first 6 months)",
+      "Early tenure",
       "Price changes",
       "Market conditions",
     ]);
@@ -150,7 +157,7 @@ describe("the value now", () => {
   it("says so when nothing could be measured, and shows the numbers you entered", () => {
     expect(now("resp")).toBe("no ad-hoc requests in the run");
     expect(now("results")).toBe("7 / 10 average");
-    expect(now("tenure")).toBe("×1.6 in months 1 to 6");
+    expect(now("tenure")).toBe("×1.6 while new");
     expect(now("price")).toBe("no change planned");
     expect(now("handoff")).toBe("30% of clients change account manager a year");
     expect(now("market")).toBe("Stable: no change to churn");
@@ -256,5 +263,82 @@ describe("the screen", () => {
     const readonly = renderToStaticMarkup(createElement(ChurnDriversSettings, { mode: "readonly", workspaceId: null, bundle: null, rows: [] }));
     expect(readonly).toContain("Only Agency admins can change the churn drivers.");
     expect(readonly).toMatch(/<input[^>]*type="range"[^>]*disabled/);
+  });
+});
+
+describe("churn-driver limits (customisability audit, findings 1 and 2)", () => {
+  it("each driver with a fixed line gets its fields; late work and the market have none", () => {
+    expect(limitsOf("load")).toEqual(["utilisation_threshold", "churn_load_full"]);
+    expect(limitsOf("resp")).toEqual(["churn_response_full_share"]);
+    expect(limitsOf("rework")).toEqual(["churn_rework_full_share"]);
+    expect(limitsOf("onb")).toEqual(["churn_onboarding_full_multiple"]);
+    expect(limitsOf("tenure")).toEqual(["churn_early_tenure_months"]);
+    expect(limitsOf("handoff")).toEqual(["churn_away_pressure"]);
+    expect(limitsOf("results")).toEqual(["churn_results_normal"]);
+    expect(limitsOf("price")).toEqual(["churn_price_months"]);
+    expect(limitsOf("late")).toEqual([]);
+    expect(limitsOf("market")).toEqual([]);
+    expect(limitsOf(null)).toEqual([]);
+  });
+
+  it("the ranges are the database's (save_health_rules and the settings checks), and a blank shows the engine's default", () => {
+    const sql = readFileSync(new URL("../../../packages/db/migrations/20270203002000_churn_and_health_settings.sql", import.meta.url), "utf8");
+    const ranges = JSON.parse(/select '(\{[\s\S]*?\})'::jsonb/.exec(sql)![1]!) as Record<string, [number, number]>;
+    for (const k of CHURN_LIMIT_KEYS) {
+      const s = CHURN_LIMIT_SETTINGS[k];
+      expect([s.min, s.max], k).toEqual(ranges[k]);
+      expect(isChurnLimitValue(k, s.min) && isChurnLimitValue(k, s.max) && isChurnLimitValue(k, null), k).toBe(true);
+      expect(isChurnLimitValue(k, s.max + 1), k).toBe(false);
+    }
+    for (const k of Object.keys(HEALTH_SETTINGS)) expect(ranges[k], k).toEqual([0, 100]);
+    expect(CHURN_LIMIT_SETTINGS.utilisation_threshold.fallback).toBe(DEFAULT_CHURN_LIMITS.loadThreshold * 100);
+    expect(CHURN_LIMIT_SETTINGS.churn_load_full.fallback).toBe(DEFAULT_CHURN_LIMITS.loadFull * 100);
+    expect(CHURN_LIMIT_SETTINGS.churn_response_full_share.fallback).toBe(DEFAULT_CHURN_LIMITS.responseFullShare * 100);
+    expect(CHURN_LIMIT_SETTINGS.churn_rework_full_share.fallback).toBe(DEFAULT_CHURN_LIMITS.reworkFullShare * 100);
+    expect(CHURN_LIMIT_SETTINGS.churn_results_normal.fallback).toBe(DEFAULT_CHURN_LIMITS.resultsNormal);
+    expect(CHURN_LIMIT_SETTINGS.churn_away_pressure.fallback).toBe(DEFAULT_CHURN_LIMITS.awayPressure * 100);
+    expect(CHURN_LIMIT_SETTINGS.churn_onboarding_full_multiple.fallback).toBe(DEFAULT_CHURN_LIMITS.onboardingFullMultiple);
+  });
+
+  it("the screen shows the limit fields under their drivers, at the stored value or the default", () => {
+    const bundle = northbeamBundle();
+    const withLimit = { ...bundle, workspace: { ...bundle.workspace, settings: { ...bundle.workspace.settings, utilisation_threshold: 0.9 } } };
+    const html = renderToStaticMarkup(createElement(ChurnDriversSettings, { mode: "demo", workspaceId: null, bundle: withLimit, rows: [] }));
+    expect(html).toContain("Overloaded above");
+    expect(html).toContain("Early tenure lasts");
+    expect(html).toMatch(/value="90"/);
+    expect(html).toContain("100 (default)");
+  });
+});
+
+describe("normal churn by tier (owner request: set in one place, on Churn drivers)", () => {
+  const D1 = "d0000000-0000-4000-8000-000000000001";
+  const D2 = "d0000000-0000-4000-8000-000000000002";
+  const T1 = "f0000000-0000-4000-8000-000000000001";
+  const svc = (id: string, department_id: string, churn: number) =>
+    ({ id, name: id, active: true, department_id, tier_id: T1, churn_monthly_base: churn, provenance: {} }) as unknown as CapacitySetup["services"][number];
+  const setup = (canEdit: boolean) =>
+    ({
+      canEdit,
+      departments: [{ id: D1, name: "Organic (SEO)", sort: 1 }, { id: D2, name: "Performance", sort: 2 }],
+      tiers: [{ id: T1, key: "T1", name: "Tier 1", sort: 1 }],
+      services: [svc("00000000-0000-4000-8000-0000000000a1", D1, 0.01), svc("00000000-0000-4000-8000-0000000000a2", D2, 0.025)],
+    }) as unknown as CapacitySetup;
+
+  it("shows one cell per department and tier, as a percentage, and goes above the drivers", () => {
+    const table = renderToStaticMarkup(createElement(NormalChurnByTier, { setup: setup(false) }));
+    expect(table).toContain("Normal churn by tier");
+    expect(table).toContain("Organic (SEO) %");
+    expect(table).toContain("Performance %");
+    expect(table).toContain(">1<");
+    expect(table).toContain(">2.5<");
+    const page = renderToStaticMarkup(createElement(ChurnDriversSettings, { mode: "readonly", workspaceId: null, bundle: null, rows: [], normalChurn: createElement(NormalChurnByTier, { setup: setup(false) }) }));
+    expect(page.indexOf("Normal churn by tier")).toBeLessThan(page.indexOf("Drivers that raise or lower it"));
+  });
+
+  it("an editor gets inputs", () => {
+    const html = renderToStaticMarkup(createElement(NormalChurnByTier, { setup: setup(true) }));
+    expect(html).toMatch(/<input/);
+    expect(html).toContain("Organic (SEO) T1: Normal churn a month");
   });
 });

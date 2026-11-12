@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { loadCapacitySetup, uniqueClients, workspacePurposes } from "@transpera-flow/db";
+import { loadAnalysisRules, loadCapacitySetup, uniqueClients, workspacePurposes } from "@transpera-flow/db";
+import { assumptionValues } from "@/lib/analysis/assumptions";
 import { PurposesSettings } from "@/components/purposes/purposes-settings";
 import { SettingsBand } from "@/components/settings/settings-band";
 import { SettingsPage } from "@/components/settings/settings-page";
@@ -15,6 +16,8 @@ import { peopleMeta } from "@/lib/setup/people-meta";
 import { AccessSection, accessParams } from "./access/access-section";
 import { ChurnDriversSettings } from "./churn-drivers-settings";
 import { DemandSettings } from "./demand-settings";
+import { NormalChurnByTier } from "./normal-churn-settings";
+import { HealthSettings } from "./servicing-settings";
 import { SimulationSettings } from "./people-settings";
 import { saveOverheadMonthly, savePurposes } from "./actions";
 import { saveWorkspaceCurrency, saveWorkspaceName } from "./workspace-actions";
@@ -33,13 +36,14 @@ export default async function WorkspaceSettingsPage(props: PageProps<"/w/[slug]/
   const [data, bundle] = await Promise.all([loadWorkspaceSettings(slug), loadLiveProcess(slug)]);
   if (!data) notFound();
   const ws = data.workspace.id;
-  const [purposes, purposeUse, setup, roster, access] = await Promise.all([
+  const [purposes, purposeUse, setup, roster, access, analysis] = await Promise.all([
     loadStoredPurposes(ws),
     loadPurposeUse(ws),
     getDb().then((db) => loadCapacitySetup(db, ws)),
     loadWorkspaceClients(ws),
     // Access is for owners and Agency admins only: loadAccessSettings answers null without can_manage_workspace.
     data.canManage ? Promise.all([loadAccessSettings(slug), currentUserId(), loadDeploymentAccess(), props.searchParams]) : null,
+    getDb().then((db) => loadAnalysisRules(db, ws)),
   ]);
   if (!setup) notFound();
   const u = uniqueClients(setup);
@@ -63,7 +67,7 @@ export default async function WorkspaceSettingsPage(props: PageProps<"/w/[slug]/
         saveCurrency={saveWorkspaceCurrency}
         saveOverhead={saveOverheadMonthly}
       />
-      <SimulationSettings data={data} />
+      <SimulationSettings data={data} assumptions={assumptionValues(analysis.settings)} />
       <PurposesSettings
         mode={data.canEdit ? "live" : "readonly"}
         workspaceId={ws}
@@ -80,7 +84,15 @@ export default async function WorkspaceSettingsPage(props: PageProps<"/w/[slug]/
           and on the Overview.
         </p>
       </PurposesSettings>
-      <ChurnDriversSettings mode={data.canEdit ? "live" : "readonly"} workspaceId={ws} bundle={bundle} rows={data.churnDrivers} removed={data.workspace.settings.churn_drivers_removed} />
+      <ChurnDriversSettings
+        mode={data.canEdit ? "live" : "readonly"}
+        workspaceId={ws}
+        bundle={bundle}
+        rows={data.churnDrivers}
+        removed={data.workspace.settings.churn_drivers_removed}
+        normalChurn={<NormalChurnByTier setup={setup} />}
+        health={<HealthSettings data={data} />}
+      />
       <DemandSettings data={data} />
       <SettingsBand
         id="tiers-clients"

@@ -23,6 +23,7 @@
 // run serves both.
 // The trend charts load on their own.
 
+import { workspaceBusyLine } from "@/lib/busy-line";
 import type { ScreenMode } from "@/lib/mode";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -53,9 +54,9 @@ import { openIssues, timeSplitByProcess } from "@/lib/overview/health";
 import { forecastInsights, forecastModel, today } from "@/lib/forecast/forecast";
 import { timelineData } from "@/lib/forecast/timeline";
 import { calendarMonthStarts } from "@transpera-flow/db/sandbox";
-import { hiringAdvice, hiringDelayAt } from "@transpera-flow/db";
+import { hiringAdvice, hiringDelayAt, hiringDelayBase } from "@transpera-flow/db";
 import { rerate, visibleFindings } from "@/lib/rules/edit";
-import { ANALYSIS_DEFAULTS } from "@/lib/analysis/defaults";
+import { analysisRulesOf } from "@/lib/analysis/defaults";
 import { useAbsenceTest } from "@/lib/sim/absence";
 import { useSimulation } from "@/lib/sim/use-simulation";
 import { useDemoSolutions } from "@/lib/solutions/demo";
@@ -227,8 +228,8 @@ export function Overview({
   const baseSim = useSimulation(haveBase ? null : base);
   const baseResult = sameModel ? horizonResult : shared && shared.model === base ? shared.result : current(baseSim.status === "done" ? baseSim.run.result : null, base);
 
-  // The facts (D40), from the run at the workspace's own length, rated with the documented defaults: evidence, never findings.
-  const rules = ANALYSIS_DEFAULTS;
+  // The facts (D40), from the run at the workspace's own length, rated with the workspace's analysis assumptions: evidence, never findings.
+  const rules = analysisRulesOf(live);
   const absence = useAbsenceTest(base && baseResult ? base : null, baseResult?.seed ?? 1, resolveMoney(rules).absenceWeeks);
   const gaps = useMemo(() => visibleFindings(rules, perceptionGapDetections(parts.flatMap((p) => p.steps))), [rules, parts]);
   // Who gets too busy, and when, over the horizon (B6): "Across the company".
@@ -323,11 +324,12 @@ export function Overview({
     () => (groups ? groups.filter((g) => g.id !== COMPANY_GROUP || g.openIssues > 0).map((g) => ({ id: g.id, name: g.name, count: g.openIssues, href: hrefs[g.id] })) : null),
     [groups, hrefs],
   );
-  const cutoffs = useMemo(() => toRatingConfig(rules, hoursPerWeek).rules.busy.cutoffs, [rules, hoursPerWeek]);
+  const busy = workspaceBusyLine(live.workspace.settings);
+  const cutoffs = useMemo(() => toRatingConfig(rules, hoursPerWeek, busy).rules.busy.cutoffs, [rules, hoursPerWeek, busy]);
   // The Capacity page's "What to do" for this run, and each role's own line (Set up); without Set up the sentence is worked out from the rows.
   const advice = useMemo(
-    () => (capacity && horizonModel && horizonResult?.monthly ? hiringAdvice(capacity.setup, horizonResult, (m) => hiringDelayAt(horizonModel.market, m)) : null),
-    [capacity, horizonModel, horizonResult],
+    () => (capacity && horizonModel && horizonResult?.monthly ? hiringAdvice(capacity.setup, horizonResult, (m) => hiringDelayAt(horizonModel.market, m, hiringDelayBase(live.workspace.settings))) : null),
+    [capacity, horizonModel, horizonResult, live.workspace.settings],
   );
   const roleLines = useMemo(() => Object.fromEntries((capacity?.setup.roles ?? []).map((r) => [r.id, r.line])), [capacity]);
   const teamLoad = useMemo(() => (horizonModel && horizonResult ? timelineData(horizonModel, horizonResult, live, start) : null), [horizonModel, horizonResult, live, start]);
@@ -366,7 +368,7 @@ export function Overview({
         >
           {teamLoad ? (
             teamLoad.roles.length ? (
-              <TeamLoad rows={teamLoad.roles} months={teamLoad.months} lines={roleLines} fallbackLine={cutoffs[1]} advice={advice} span={span} sandboxHref={forecastHref} how={false} />
+              <TeamLoad rows={teamLoad.roles} months={teamLoad.months} lines={roleLines} fallbackLine={cutoffs[1]} margin={capacity?.setup.atRiskMargin} advice={advice} span={span} sandboxHref={forecastHref} how={false} />
             ) : (
               <EmptyState>No role has any work in this run.</EmptyState>
             )
@@ -651,7 +653,7 @@ export function Overview({
             </div>
             {peopleReady && (
               <div data-chart="busiest" className="flex min-w-0 flex-col [&>*]:flex-1">
-                <BusiestPeople people={departmentFigures.people} failed={!!departmentFigures.failure} capacityHref={`${capacity!.base}/capacity`} />
+                <BusiestPeople people={departmentFigures.people} failed={!!departmentFigures.failure} capacityHref={`${capacity!.base}/capacity`} margin={capacity!.setup.atRiskMargin} />
               </div>
             )}
           {charts.map((c) => (
@@ -661,7 +663,7 @@ export function Overview({
           ))}
         </div>
 
-        {peopleReady && <DepartmentTiles figures={departmentFigures} base={capacity!.base} currency={capacity!.setup.currency} />}
+        {peopleReady && <DepartmentTiles figures={departmentFigures} base={capacity!.base} currency={capacity!.setup.currency} dlerGoal={capacity!.setup.dlerGoal} />}
       </div>
     </div>
   );

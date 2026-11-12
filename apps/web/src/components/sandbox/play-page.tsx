@@ -4,6 +4,7 @@
 // workspace's solutions (their step changes, D53, run when a version is picked). The company map is the Overview's, with its controls (D25), playing the run on screen. The model-driven `PlayView` is
 // what the browser test mounts.
 
+import { workspaceBusyLine } from "@/lib/busy-line";
 import { useCallback, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -30,7 +31,7 @@ import { preparePlay } from "@transpera-flow/db/sandbox";
 import { ENGINE_VERSION, toRatingConfig } from "@transpera-flow/engine";
 import { NO_SELECTION, ProcessCanvas } from "@/components/process-canvas";
 import { EmptyState } from "@/components/page-kit";
-import { ANALYSIS_DEFAULTS } from "@/lib/analysis/defaults";
+import { analysisRulesOf } from "@/lib/analysis/defaults";
 import { today as todayIso, DEFAULT_FORECAST_MONTHS } from "@/lib/forecast/forecast";
 import { timelineMonths } from "@/lib/forecast/timeline";
 import { horizonLabel } from "@/lib/horizon";
@@ -132,8 +133,8 @@ export function PlayPage({ live, parts, company, setup, solutions, solutionLinks
   }, [live, start, setup, issueOf, solutions, horizon]);
   const ctx: PlayContext = useMemo(() => {
     const model = base0.segments[0]?.model;
-    return { startDate: start, setup, issueOf, winMix: (d) => (model ? winMix(setup, model, d) : {}) };
-  }, [base0, start, setup, issueOf]);
+    return { startDate: start, months: horizon, setup, issueOf, winMix: (d) => (model ? winMix(setup, model, d) : {}) };
+  }, [base0, start, setup, issueOf, horizon]);
   const prepare = useCallback(
     (play: PlayState) => {
       const prepared = preparePlay(run, play, ctx, solutions, horizon);
@@ -254,7 +255,8 @@ export function PlayPage({ live, parts, company, setup, solutions, solutionLinks
 function PlayExport({ live, runs, play, ctx, solutions, start, canSeeMoney, mapMoved, horizon }: { live: ProcessBundle; runs: PlayRuns; play: PlayState; ctx: PlayContext; solutions: SolutionRow[]; start: string; canSeeMoney: boolean; mapMoved: boolean; horizon: number }) {
   const [includeCosts, setIncludeCosts] = useState(true);
   const hpw = live.workspace.settings.hours_per_week;
-  const cutoffs = useMemo(() => toRatingConfig(ANALYSIS_DEFAULTS, hpw).rules.busy.cutoffs, [hpw]);
+  const busy = workspaceBusyLine(live.workspace.settings);
+  const cutoffs = useMemo(() => toRatingConfig(analysisRulesOf(live), hpw, busy).rules.busy.cutoffs, [live, hpw, busy]);
   const changes = useMemo(() => playChanges(play, ctx).map((change) => ({ change, scenarioId: "play", scenarioName: "Free play", inherited: false })), [play, ctx]);
   const today = runs.today;
   const changed = runs.changed;
@@ -267,7 +269,7 @@ function PlayExport({ live, runs, play, ctx, solutions, start, canSeeMoney, mapM
   const data: ExportData | null =
     ready && columns && months ? { columns, months, model: changed.run.model, categories: workspacePurposes(live.workspace.settings), currency: live.workspace.settings.currency, ctx: exportCtx } : null;
   const roleNames = useMemo(() => Object.fromEntries(Object.entries(changed?.run.model.roles ?? {}).map(([id, r]) => [id, r.name])), [changed]);
-  const timingLine = ready && months ? capacityLine(capacityRunsOut(changed.run.result.monthly!, roleNames, cutoffs), months, horizonLabel(horizon)) : null;
+  const timingLine = ready && months ? capacityLine(capacityRunsOut(changed.run.result.monthly!, roleNames, cutoffs, changed.run.model.roles), months, horizonLabel(horizon)) : null;
   return (
     <>
       <SandboxExportMenu

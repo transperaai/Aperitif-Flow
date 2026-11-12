@@ -6,7 +6,7 @@
 // The headline is filled in from fixed sentence templates, so every number
 // in it comes straight from the runs.
 
-import type { SimulationResult, Stat } from "./model";
+import { hoursPerWorkingDay, type SimulationResult, type Stat } from "./model";
 import { stat } from "./simulate";
 
 /** A metric on both sides and the change between them. */
@@ -85,6 +85,8 @@ export interface HeadlineInput {
   plural?: boolean;
   horizonWeeks: number;
   hoursPerWeek: number;
+  /** Working days a week, for cycle time in days (5 when omitted). */
+  workingDaysPerWeek?: number;
   /** ISO 4217 code for money; omit to leave money out. */
   currency?: string;
   /** Role names by id, for the bottleneck sentence. */
@@ -143,7 +145,7 @@ function direction(d: Stat, noise: number): Direction {
  * “Automate proposals” adds avg 2.1 wins/quarter (range 1.4–2.9).
  */
 export function compareHeadline(input: HeadlineInput): Headline {
-  const { comparison: c, subject, plural = false, horizonWeeks, hoursPerWeek, currency, roleNames } = input;
+  const { comparison: c, subject, plural = false, horizonWeeks, hoursPerWeek, workingDaysPerWeek, currency, roleNames } = input;
   const verb = (singular: string, pluralForm: string) => (plural ? pluralForm : singular);
   const perQuarter = WEEKS_PER_QUARTER / horizonWeeks;
   const scale = (s: Stat, k: number): Stat => ({ mean: s.mean * k, p10: s.p10 * k, p90: s.p90 * k });
@@ -178,7 +180,7 @@ export function compareHeadline(input: HeadlineInput): Headline {
   }
 
   // Cycle time, in working days.
-  const days = scale(c.cycle.delta, 5 / hoursPerWeek);
+  const days = scale(c.cycle.delta, 1 / hoursPerWorkingDay({ hoursPerWeek, workingDaysPerWeek }));
   const dDir = direction(days, NOISE.days);
   if (dDir === "down") details.push(`Cycle time falls by avg ${num(-days.mean)} days (range ${range(num(-days.p90), num(-days.p10), false)}).`);
   else if (dDir === "up") details.push(`Cycle time rises by avg ${num(days.mean)} days (range ${range(num(days.p10), num(days.p90), false)}).`);

@@ -1,5 +1,5 @@
 import { Info } from "lucide-react";
-import { withClientGroups, type EngineModel, type SimulationResult } from "@transpera-flow/engine";
+import { busyLine, withClientGroups, type EngineModel, type SimulationResult } from "@transpera-flow/engine";
 import { PayHidden } from "@/components/pay-hidden";
 import { Card } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -27,7 +27,7 @@ interface Tile {
 export function KpiStrip({ model, currency, result, status, durationMs }: KpiStripProps) {
   const k = result?.kpi;
   const whole = (v: number) => formatNumber(v, 0);
-  const days = (h: number) => formatDays(h, model.hoursPerWeek);
+  const days = (h: number) => formatDays(h, model.hoursPerWeek, model.workingDaysPerWeek);
   const money = (v: number) => formatCurrency(v, currency);
   const bnId = result?.bnRole ?? null;
   const bn = bnId ? k?.roles[bnId] : undefined;
@@ -52,7 +52,7 @@ export function KpiStrip({ model, currency, result, status, durationMs }: KpiStr
       label: "Bottleneck",
       value: bnId ? (model.roles[bnId]?.name ?? "–") : "–",
       detail: bn ? `${formatPercent(bn.util.mean)} utilised · ${formatRange(bn.util, formatPercent)}` : "",
-      tone: bn && bn.util.mean > 0.85 ? "crit" : undefined,
+      tone: bn && bn.util.mean > busyLine(model) ? "crit" : undefined,
     },
     {
       label: `Overtime / ${weeks} wks`,

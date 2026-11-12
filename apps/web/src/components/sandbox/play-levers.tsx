@@ -2,16 +2,37 @@
 
 // The free-play Sandbox's levers, one full-width band under the company map (capacity build P7, brief "The short version"; the prototype's `.levers`).
 // Every change is a new `PlayState`: the page re-runs, debounced, and nothing is saved. Market, Win new clients, Lose clients, Prices (with "Clients
-// react", D36) and People sit side by side as columns (all five on one row from about 1440px, wrapping on smaller screens), divided by hairlines; every
+// react", D36), People, Client service (health rules and how much health moves churn), Work (hours a week) and Costs (only for those who see pay) sit side by side as columns (wrapping on smaller screens), divided by hairlines; every
 // group shows. The band's header counts the changes and resets them. The levers are business conditions only: an automation or augmentation is part
 // of a process version, picked on the company map (D53).
 
 import { MARKET_PRESETS, type MarketPresetKey } from "@transpera-flow/engine";
-import { PRICE_REACTION, defaultPlay, type CapacitySetup, type PlayMarket, type PlayState, type PriceReaction } from "@transpera-flow/db";
+import Link from "next/link";
+import {
+  HIRE_FTE,
+  PLAY_HEALTH_RANGE,
+  PLAY_HEALTH_RULES,
+  PLAY_SENSITIVITY_RANGE,
+  PRICE_REACTION,
+  PRICE_RISE_MONTHS,
+  defaultPlay,
+  healthMoved,
+  overheadsMoved,
+  hireFte,
+  hiringDelayBase,
+  playHireSalary,
+  playSliderRanges,
+  type CapacitySetup,
+  type PlayHealthRule,
+  type PlayMarket,
+  type PlaySliderRange,
+  type PlayState,
+  type PriceReaction,
+} from "@transpera-flow/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, formatWholeCurrency } from "@/lib/format";
 import type { PlayMonths } from "./play-types";
 
 const FIELD = "flex min-w-0 flex-col gap-1 text-xs text-muted-foreground";
@@ -43,27 +64,74 @@ export function leverChanges(p: PlayState): number {
     (p.churn ? 1 : 0) +
     Object.values(p.add).filter((n) => n > 0).length +
     (p.price ? 1 : 0) +
+    ((p.hiringDelay ?? null) !== null ? 1 : 0) +
     p.leavers.length +
     p.hires.length +
-    p.lose.length
+    p.lose.length +
+    healthMoved(p).length +
+    (Number(p.sensitivity) ? 1 : 0) +
+    (overheadsMoved(p) ? 1 : 0) +
+    (Number(p.pay) ? 1 : 0) +
+    (Number(p.hours) ? 1 : 0)
   );
 }
 
-function Slider({ id, label, value, min, max, step, unit, onChange }: { id: string; label: string; value: number; min: number; max: number; step: number; unit: string; onChange: (v: number) => void }) {
+/** The Client service group's health rules, as the levers word them. */
+const HEALTH_LEVERS: Record<PlayHealthRule, { label: string; title: string }> = {
+  initial: { label: "Starting health", title: "Health a client starts at when it has none of its own (new wins, counted clients and named clients with no health set), out of 100" },
+  recover: { label: "Task on time", title: "Health a client gains for each task done on time" },
+  late_penalty: { label: "Task late", title: "Health a client loses for each late task" },
+  missed_penalty: { label: "Task missed", title: "Health a client loses for each missed task" },
+};
+
+/** A slider over the lever's whole range (the registry's), with a box beside it to type an exact change; both clamp to the range. */
+function Slider({ id, label, value, range, unit, onChange }: { id: string; label: string; value: number; range: PlaySliderRange; unit: string; onChange: (v: number) => void }) {
+  const { min, max, step } = range;
+  const clamp = (v: number) => Math.min(max, Math.max(min, Math.round(Number.isFinite(v) ? v : 0)));
   return (
-    <label className="flex flex-col gap-1 text-sm" data-lever={id}>
-      <span className="flex justify-between gap-2">
-        {label}
-        <b className="tabular-nums" data-lever-value>
-          {value > 0 && min < 0 ? "+" : ""}
-          {formatNumber(value, 0)}
-          {unit}
-        </b>
+    <div className="flex flex-col gap-1 text-sm" data-lever={id}>
+      <span className="flex items-center justify-between gap-2">
+        <span id={`lever-${id}-label`}>{label}</span>
+        <span className="flex items-center gap-1">
+          <b className="sr-only tabular-nums" data-lever-value>
+            {value > 0 && min < 0 ? "+" : ""}
+            {formatNumber(value, 0)}
+            {unit}
+          </b>
+          <Input
+            type="number"
+            inputMode="numeric"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            onChange={(e) => onChange(clamp(Number(e.target.value)))}
+            aria-label={`${label}, exact ${unit}`}
+            className="h-7 w-20 text-right tabular-nums"
+            data-lever-input={id}
+          />
+          <span className="text-xs text-muted-foreground">{unit}</span>
+        </span>
       </span>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} aria-label={label} className="w-full accent-[var(--accent)]" />
-    </label>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(clamp(Number(e.target.value)))} aria-label={label} className="w-full accent-[var(--accent)]" />
+    </div>
   );
 }
+
+/** "For" in Win new clients: these spans, up to the run's length. */
+const ADD_SPANS = [1, 2, 3, 6, 9, 12, 18, 24, 36, 48, 60];
+
+/** "Lasts" in Prices: how many months a rise can weigh on churn (the driver's own 1 to 24). */
+const PRICE_SPANS = [1, 2, 3, 4, 6, 9, 12, 18, 24];
+
+/** "Months to hire" in People: the saved scenario's D9 range (0 to 6) and a little past it. */
+const HIRE_SPANS = [0, 1, 2, 3, 4, 5, 6, 9, 12];
+
+/** A hire's FTE choices: the hire lever's offered range, in tenths. */
+const HIRE_FTES = Array.from({ length: Math.round((HIRE_FTE.offered.max - HIRE_FTE.offered.min) * 10) + 1 }, (_, i) => Math.round((HIRE_FTE.offered.min + i / 10) * 10) / 10);
+
+/** The sliders' ranges, from the lever registry the levers map to. */
+const RANGES = playSliderRanges();
 
 function MonthSelect({ value, months, onChange, label, id, disabled }: { value: number; months: PlayMonths; onChange: (m: number) => void; label: string; id?: string; disabled?: boolean }) {
   return (
@@ -86,7 +154,10 @@ export function PlayLevers({
   setup,
   months,
   expectedWinsPerMonth,
+  priceDriverMonths = PRICE_RISE_MONTHS,
+  settingsHref,
   note,
+  healthToday,
 }: {
   play: PlayState;
   setPlay: (next: PlayState) => void;
@@ -94,10 +165,17 @@ export function PlayLevers({
   months: PlayMonths;
   /** What the lead flow brings a month, in clients, for the note under "Win new clients". */
   expectedWinsPerMonth: number | null;
+  /** How long a price rise weighs on churn by the workspace's own price churn driver (`priceRiseMonths`), for "Lasts" and its note. */
+  priceDriverMonths?: number;
+  /** The workspace's Settings page, for the links in the notes. */
+  settingsHref?: string;
   /** Under the columns: where the baselines are set. */
   note?: React.ReactNode;
+  /** The workspace's own health rules (today's run), shown in the Client service fields until one is changed. */
+  healthToday?: Record<PlayHealthRule, number>;
 }) {
   const set = (p: Partial<PlayState>) => setPlay({ ...play, ...p });
+  const hiringBase = hiringDelayBase({ hiring_delay_months: setup.hiringDelayMonths });
   const people = setup.people.filter((p) => p.active);
   const roles = setup.roles.filter((r) => r.active !== false);
   const clients = setup.clients.filter((c) => c.active);
@@ -119,7 +197,7 @@ export function PlayLevers({
           Reset
         </Button>
       </div>
-      <div className="-mt-px -ml-px grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(15rem,100%),1fr))]" data-lever-columns>
+      <div className="-mt-px -ml-px grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(13rem,100%),1fr))]" data-lever-columns>
         <Group title="Market" id="market">
           <div className="grid grid-cols-2 gap-2">
             <label className={FIELD}>
@@ -135,8 +213,8 @@ export function PlayLevers({
             </label>
             <MonthSelect value={play.marketFrom} months={months} onChange={(m) => set({ marketFrom: m })} label="From" id="marketFrom" />
           </div>
-          <Slider id="leads" label="Leads" value={play.leads} min={-50} max={50} step={5} unit="%" onChange={(v) => set({ leads: v })} />
-          <Slider id="win" label="Win rate" value={play.win} min={-50} max={50} step={5} unit="%" onChange={(v) => set({ win: v })} />
+          <Slider id="leads" label="Leads" value={play.leads} range={RANGES.leads} unit="%" onChange={(v) => set({ leads: v })} />
+          <Slider id="win" label="Win rate" value={play.win} range={RANGES.win} unit="%" onChange={(v) => set({ win: v })} />
         </Group>
 
         <Group title="Win new clients" id="add">
@@ -162,7 +240,7 @@ export function PlayLevers({
             <label className={FIELD}>
               For
               <NativeSelect value={play.addMonths} onChange={(e) => set({ addMonths: Number(e.target.value) })} data-lever="addMonths" aria-label="For how many months">
-                {[1, 2, 3, 6, 9, 12].map((n) => (
+                {ADD_SPANS.filter((n) => n <= Math.max(12, months.long.length)).map((n) => (
                   <option key={n} value={n}>
                     {n} month{n > 1 ? "s" : ""}
                   </option>
@@ -188,7 +266,7 @@ export function PlayLevers({
         </Group>
 
         <Group title="Lose clients" id="lose">
-          <Slider id="churn" label="Churn" value={play.churn} min={-50} max={100} step={1} unit="%" onChange={(v) => set({ churn: v })} />
+          <Slider id="churn" label="Churn" value={play.churn} range={RANGES.churn} unit="%" onChange={(v) => set({ churn: v })} />
           {play.lose.map((x, i) => (
             <div key={i} className={ROW} data-lose-row>
               <NativeSelect className="col-span-full" value={x.id} onChange={(e) => listEdit<{ id: string }>("lose", i, { id: e.target.value })} aria-label="Client who leaves">
@@ -221,7 +299,7 @@ export function PlayLevers({
         </Group>
 
         <Group title="Prices" id="price">
-          <Slider id="price" label="Price change" value={play.price} min={-20} max={30} step={1} unit="%" onChange={(v) => set({ price: v })} />
+          <Slider id="price" label="Price change" value={play.price} range={RANGES.price} unit="%" onChange={(v) => set({ price: v })} />
           <div className="grid grid-cols-2 gap-2">
             <label className={FIELD}>
               Tiers
@@ -245,8 +323,29 @@ export function PlayLevers({
                 ))}
               </NativeSelect>
             </label>
+            <label className={FIELD}>
+              Lasts
+              <NativeSelect
+                value={play.priceMonths ?? ""}
+                onChange={(e) => set({ priceMonths: e.target.value === "" ? null : Number(e.target.value) })}
+                data-lever="priceMonths"
+                aria-label="How long a price rise weighs on churn"
+              >
+                <option value="">
+                  {priceDriverMonths} month{priceDriverMonths === 1 ? "" : "s"} (Settings)
+                </option>
+                {PRICE_SPANS.filter((n) => n !== priceDriverMonths).map((n) => (
+                  <option key={n} value={n}>
+                    {n} month{n === 1 ? "" : "s"}
+                  </option>
+                ))}
+              </NativeSelect>
+            </label>
           </div>
-          <p className="text-xs text-muted-foreground">A rise lifts churn for 3 months. How much depends on the reaction, from each tier&apos;s own &ldquo;extra churn for each 10% rise&rdquo; in Settings, under Tiers & clients.</p>
+          <p className="text-xs text-muted-foreground">
+            A rise lifts churn for {play.priceMonths ?? priceDriverMonths} month{(play.priceMonths ?? priceDriverMonths) === 1 ? "" : "s"} (the price driver in Settings, under Churn drivers, unless you pick another). How much
+            depends on the reaction, from each tier&apos;s own &ldquo;extra churn for each 10% rise&rdquo; in Settings, under Tiers & clients.
+          </p>
         </Group>
 
         <Group title="People" id="people">
@@ -293,6 +392,41 @@ export function PlayLevers({
               <Button type="button" variant="ghost" size="icon-sm" onClick={() => listDel("hires", i)} aria-label="Remove">
                 ✕
               </Button>
+              <span className="text-xs">at</span>
+              <NativeSelect
+                className={setup.payHidden ? "col-span-2" : undefined}
+                value={String(hireFte(x))}
+                onChange={(e) => listEdit<{ fte: number }>("hires", i, { fte: Number(e.target.value) })}
+                aria-label="FTE of the hire"
+                data-lever="hireFte"
+              >
+                {HIRE_FTES.map((f) => (
+                  <option key={f} value={String(f)}>
+                    {formatNumber(f, 1)} FTE
+                  </option>
+                ))}
+              </NativeSelect>
+              {!setup.payHidden && (
+                <Input
+                  type="number"
+                  min={0}
+                  step={100}
+                  inputMode="decimal"
+                  value={typeof x.pay === "number" ? x.pay : ""}
+                  placeholder={(() => {
+                    const usual = playHireSalary(setup, { ...x, pay: null });
+                    return usual === null ? "Pay a month" : `${formatWholeCurrency(usual, setup.currency)} a month`;
+                  })()}
+                  title="What they'd be paid a month at this FTE. Blank: what the role's people are paid for a full-time week, times the FTE. Profit and DLER both cost the hire at it."
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    const v = Number(raw);
+                    listEdit<{ pay: number | null }>("hires", i, { pay: raw === "" || !Number.isFinite(v) || v < 0 ? null : v });
+                  }}
+                  aria-label="Pay a month"
+                  data-lever="hirePay"
+                />
+              )}
             </div>
           ))}
           <div className="flex flex-wrap gap-2">
@@ -307,8 +441,161 @@ export function PlayLevers({
               </Button>
             )}
           </div>
-          <p className="text-xs text-muted-foreground">New hires take about {setup.rampDefault.length} months to reach full speed (the ramp in Settings, under People & roles).</p>
+          {play.hires.length > 0 && (
+            <label className={FIELD}>
+              Hires get up to speed
+              <NativeSelect
+                value={play.hireRamp ?? "workspace"}
+                onChange={(e) => set({ hireRamp: e.target.value === "none" ? "none" : undefined })}
+                data-lever="hireRamp"
+                aria-label="How the hires get up to speed"
+              >
+                <option value="workspace">Over the new starter ramp (Settings)</option>
+                <option value="none">At full speed from day one</option>
+              </NativeSelect>
+            </label>
+          )}
+          <label className={FIELD}>
+            Months to hire
+            <NativeSelect
+              value={play.hiringDelay ?? ""}
+              onChange={(e) => set({ hiringDelay: e.target.value === "" ? null : Number(e.target.value) })}
+              data-lever="hiringDelay"
+              aria-label="Months from deciding to hire to the person starting"
+            >
+              <option value="">
+                {hiringBase} month{hiringBase === 1 ? "" : "s"} (Settings)
+              </option>
+              {HIRE_SPANS.filter((n) => n !== hiringBase).map((n) => (
+                <option key={n} value={n}>
+                  {n} month{n === 1 ? "" : "s"}
+                </option>
+              ))}
+            </NativeSelect>
+          </label>
+          <p className="text-xs text-muted-foreground">
+            &ldquo;Start hiring by&rdquo; allows this long to hire, stretched by the market. New hires take about {setup.rampDefault.length} months to reach full speed (the new starter ramp in{" "}
+            {settingsHref ? (
+              <Link href={`${settingsHref}#new-starters-heading`} className="font-medium text-accent hover:underline">
+                Settings, under People &amp; roles
+              </Link>
+            ) : (
+              "Settings, under People & roles"
+            )}
+            ).
+          </p>
         </Group>
+
+        <Group title="Client service" id="service">
+          <div className="grid grid-cols-2 gap-2">
+            {PLAY_HEALTH_RULES.map((k) => {
+              const v = play.health?.[k];
+              return (
+                <label key={k} className={FIELD} title={HEALTH_LEVERS[k].title}>
+                  {HEALTH_LEVERS[k].label}
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    min={PLAY_HEALTH_RANGE.min}
+                    max={PLAY_HEALTH_RANGE.max}
+                    step={PLAY_HEALTH_RANGE.step}
+                    value={typeof v === "number" ? v : ""}
+                    placeholder={healthToday ? formatNumber(healthToday[k], 0) : undefined}
+                    onChange={(e) => {
+                      const text = e.target.value.trim();
+                      const n = text === "" ? null : Number(text);
+                      set({ health: { ...play.health, [k]: n !== null && Number.isFinite(n) ? n : null } });
+                    }}
+                    data-lever={`health-${k}`}
+                    aria-label={HEALTH_LEVERS[k].title}
+                  />
+                </label>
+              );
+            })}
+          </div>
+          <Slider
+            id="sensitivity"
+            label="How much health moves churn"
+            value={Number(play.sensitivity) || 0}
+            range={PLAY_SENSITIVITY_RANGE}
+            unit="%"
+            onChange={(v) => set({ sensitivity: v })}
+          />
+          <p className="text-xs text-muted-foreground">Blank keeps your own rules from Settings, under Churn drivers. -100% means health doesn&apos;t change churn at all.</p>
+        </Group>
+
+        <Group title="Work" id="work">
+          <Slider id="hours" label="Hours a week" value={Number(play.hours) || 0} range={RANGES.hours} unit="%" onChange={(v) => set({ hours: v })} />
+          <div className="grid grid-cols-2 gap-2">
+            <label className={FIELD}>
+              For
+              <NativeSelect value={play.hoursRole ?? "all"} onChange={(e) => set({ hoursRole: e.target.value })} data-lever="hoursRole" aria-label="Whose hours change">
+                <option value="all">Everyone</option>
+                {roles.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </label>
+            <MonthSelect value={play.hoursFrom ?? 0} months={months} onChange={(m) => set({ hoursFrom: m })} label="From" id="hoursFrom" />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            The hours people have for work each week, from a month: -20% is a four-day week. Step times are part of a process version, picked on the company map.
+          </p>
+        </Group>
+
+        {!setup.payHidden && (
+          <Group title="Costs" id="costs">
+            <div className="grid grid-cols-2 gap-2">
+              <label className={FIELD}>
+                Overheads a month
+                <NativeSelect value={play.overheadsOp} onChange={(e) => set({ overheadsOp: e.target.value === "set" ? "set" : "add" })} data-lever="overheadsOp" aria-label="Change overheads by">
+                  <option value="add">Add to today&apos;s</option>
+                  <option value="set">Set to</option>
+                </NativeSelect>
+              </label>
+              <label className={FIELD}>
+                Amount
+                <Input
+                  type="number"
+                  step={100}
+                  min={play.overheadsOp === "set" ? 0 : -100_000_000}
+                  max={100_000_000}
+                  inputMode="decimal"
+                  value={play.overheads ?? ""}
+                  placeholder={play.overheadsOp === "set" ? "As today" : "0"}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    const v = Number(raw);
+                    set({ overheads: raw === "" || !Number.isFinite(v) ? null : Math.max(play.overheadsOp === "set" ? 0 : -100_000_000, Math.min(100_000_000, v)) });
+                  }}
+                  data-lever="overheads"
+                  aria-label="Overheads a month"
+                />
+              </label>
+              <MonthSelect value={play.overheadsFrom} months={months} onChange={(m) => set({ overheadsFrom: m })} label="From" id="overheadsFrom" />
+            </div>
+            <Slider id="pay" label="Pay change" value={Number(play.pay) || 0} range={RANGES.pay} unit="%" onChange={(v) => set({ pay: v })} />
+            <div className="grid grid-cols-2 gap-2">
+              <label className={FIELD}>
+                For
+                <NativeSelect value={play.payRole} onChange={(e) => set({ payRole: e.target.value })} data-lever="payRole" aria-label="Whose pay changes">
+                  <option value="all">Everyone</option>
+                  {roles.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </label>
+              <MonthSelect value={play.payFrom} months={months} onChange={(m) => set({ payFrom: m })} label="From" id="payFrom" />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Rent, tools and other fixed costs, and a pay rise or cut from a month. Profit counts both; today&apos;s overheads, overtime pay and on-costs are in Settings.
+            </p>
+          </Group>
+        )}
       </div>
       {note && <div className="border-t border-line px-4 py-2">{note}</div>}
     </aside>

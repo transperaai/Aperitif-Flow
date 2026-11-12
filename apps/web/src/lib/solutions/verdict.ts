@@ -11,7 +11,7 @@
 // read by re-running each run on its own with the seed the full run gave it (`seed + i * SEED_STRIDE`), which reproduces
 // the same run. Pure and framework-free, so the Editor's footer, the Save button and the tests all read one answer.
 
-import { SEED_STRIDE, simulate, type EngineModel, type SimulationResult } from "@transpera-flow/engine";
+import { SEED_STRIDE, hoursPerWorkingDay, simulate, type EngineModel, type SimulationResult } from "@transpera-flow/engine";
 import { formatNumber } from "@/lib/format";
 
 export type Direction = "atMost" | "atLeast";
@@ -166,21 +166,21 @@ export interface TargetVerdict {
 
 const unchecked = (note: string): TargetVerdict => ({ status: "unchecked", holdsPct: null, note, value: null });
 
-/** A time in working hours, as a person reads it: hours under a working day, else days. */
-export function formatSpan(hours: number, hoursPerWeek: number): string {
-  const day = hoursPerWeek / 5;
+/** A time in working hours, as a person reads it: hours under a working day (the week's hours over its working days, 5 when omitted), else days. */
+export function formatSpan(hours: number, hoursPerWeek: number, workingDaysPerWeek?: number): string {
+  const day = hoursPerWorkingDay({ hoursPerWeek, workingDaysPerWeek });
   return hours < day ? `${formatNumber(hours, hours < 10 ? 1 : 0)} h` : `${formatNumber(hours / day, hours / day < 10 ? 1 : 0)} d`;
 }
 
 /** A time in the unit the goal was written in, so "under 3 hours" is answered in hours and "under 2 days" in days. */
-export function formatSpanLike(hours: number, hoursPerWeek: number, unit: GoalUnit): string {
+export function formatSpanLike(hours: number, hoursPerWeek: number, unit: GoalUnit, workingDaysPerWeek?: number): string {
   if (unit === "seconds") return `${formatNumber(hours * 3600, 0)} s`;
   if (unit === "minutes") return `${formatNumber(hours * 60, 0)} min`;
   if (unit === "months") return `${formatNumber(hours / ((hoursPerWeek * 52) / 12), 1)} mo`;
-  if (unit === "days") return `${formatNumber(hours / (hoursPerWeek / 5), 1)} d`;
+  if (unit === "days") return `${formatNumber(hours / hoursPerWorkingDay({ hoursPerWeek, workingDaysPerWeek }), 1)} d`;
   if (unit === "weeks") return `${formatNumber(hours / hoursPerWeek, 1)} w`;
   if (unit === "hours") return `${formatNumber(hours, hours < 10 ? 1 : 0)} h`;
-  return formatSpan(hours, hoursPerWeek);
+  return formatSpan(hours, hoursPerWeek, workingDaysPerWeek);
 }
 
 /** The goal as the person wrote it, for the note. */
@@ -222,8 +222,8 @@ export function checkTarget(args: {
   const hpw = model.hoursPerWeek;
   let goalValue: number;
   if (TIME.includes(kind)) {
-    // Working hours: a working day is a fifth of the week, a month a twelfth of the year's weeks. No unit, or a unit that isn't time: no verdict.
-    const toHours = { seconds: 1 / 3600, minutes: 1 / 60, hours: 1, days: hpw / 5, weeks: hpw, months: (hpw * 52) / 12, none: NaN, percent: NaN, money: NaN } as const;
+    // Working hours: a working day is the week over its working days, a month a twelfth of the year's weeks. No unit, or a unit that isn't time: no verdict.
+    const toHours = { seconds: 1 / 3600, minutes: 1 / 60, hours: 1, days: hoursPerWorkingDay(model), weeks: hpw, months: (hpw * 52) / 12, none: NaN, percent: NaN, money: NaN } as const;
     goalValue = goal.value * toHours[goal.unit];
   } else if (kind === "busy" || kind === "winRate") {
     if (goal.unit !== "percent" && goal.unit !== "none") return unchecked(`The goal “${goalText(target.goal)}” isn't a percentage, so it wasn't checked. Give your own verdict.`);
@@ -298,7 +298,7 @@ export function checkTarget(args: {
   const meets = (v: number) => (goal.direction === "atMost" ? v <= goalValue + 1e-9 : v >= goalValue - 1e-9);
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
   const holdsPct = Math.round((100 * values.filter(meets).length) / values.length);
-  const shown = TIME.includes(kind) ? formatSpanLike(mean, hpw, goal.unit) : kind === "busy" || kind === "winRate" ? `${Math.round(mean * 100)}%` : formatNumber(mean, mean < 10 ? 1 : 0);
+  const shown = TIME.includes(kind) ? formatSpanLike(mean, hpw, goal.unit, model.workingDaysPerWeek) : kind === "busy" || kind === "winRate" ? `${Math.round(mean * 100)}%` : formatNumber(mean, mean < 10 ? 1 : 0);
   return {
     status: meets(mean) ? "pass" : "fail",
     holdsPct,

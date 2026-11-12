@@ -29,7 +29,7 @@ const COLUMN_HELP = {
   clients: {
     label: "Client groups at risk",
     description: "How many groups of similar clients are, on average, at risk of leaving by the end of the forecast, out of all the groups.",
-    example: "1 of 3 means one of three client groups has an average health below 50.",
+    example: "1 of 3 means one of three client groups has an average health below the at-risk line (50 unless Settings, Churn drivers, Client health sets it).",
   },
   activity: {
     label: "Last activity",

@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { DEFAULT_AVAILABILITY_FLOOR } from "@transpera-flow/engine";
-import { ChecklistField, DateField, FieldRows, NumberField, TextField, ToggleField } from "@/components/fields";
+import { DEFAULT_AVAILABILITY_FLOOR, DEFAULT_WORKING_DAYS } from "@transpera-flow/engine";
+import { DEFAULT_AT_RISK_MARGIN, DEFAULT_DLER_GOAL } from "@transpera-flow/db";
+import { ChecklistField, DateField, FieldRows, NumberField, SelectField, TextField, ToggleField } from "@/components/fields";
+import { ASSUMPTION_LIMITS, assumptionValues, type AssumptionKey } from "@/lib/analysis/assumptions";
+import { HORIZON_MONTHS, horizonLabel, horizonWeeks, isHorizonMonths, monthsForWeeks } from "@/lib/horizon";
 import { Help, HelpLabel } from "@/components/help";
 import { Button } from "@/components/ui/button";
 import { useAddForm } from "@/components/settings/use-add-form";
@@ -19,14 +22,23 @@ import {
   addLeave,
   createPerson,
   removeLeave,
+  saveAnalysisAssumption,
+  saveAtRiskMargin,
   saveAvailabilityFloor,
   saveCapacityFactorsEnabled,
+  saveDlerGoal,
+  saveForecastLength,
+  saveHoursPerWeek,
+  saveWorkingDays,
+  saveEmployerOnCosts,
   saveOvertimeCap,
+  saveOvertimePayFactor,
   savePersonField,
   savePersonSet,
   type ActionResult,
   type PersonField,
 } from "./actions";
+import { saveDlerIncludesLeadership } from "./setup-actions";
 
 type Scalar = string | number | boolean | null;
 
@@ -37,14 +49,123 @@ const personSaver =
     savePersonField(personId, field, base, next) as Promise<SaveOutcome<T>>;
 
 
-export function SimulationSettings({ data }: { data: WorkspaceSettingsData }) {
+/** The analysis assumptions as Settings shows them (`assumptionValues` of the stored analysis settings, defaults filled in). */
+export type Assumptions = Record<AssumptionKey, number>;
+
+const numOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+export function SimulationSettings({ data, assumptions = assumptionValues({}) }: { data: WorkspaceSettingsData; assumptions?: Assumptions }) {
   const { workspace, canManage } = data;
   const floor = workspace.settings.availability_floor ?? null;
   const overtime = workspace.settings.overtime_cap ?? null;
+  const overtimePay = typeof workspace.settings.overtime_pay_factor === "number" ? workspace.settings.overtime_pay_factor : null;
+  const onCosts = typeof workspace.settings.employer_on_costs === "number" ? workspace.settings.employer_on_costs : null;
   const ownersOnly = canManage ? undefined : "Only Agency admins can change this.";
+  const editorsOnly = data.canEdit ? undefined : "Only Agency admins can change this.";
+  const weeks = workspace.settings.horizon_weeks;
+  const months = monthsForWeeks(weeks);
+  const lengthOptions = [
+    ...HORIZON_MONTHS.map((m) => ({ value: String(m), label: horizonLabel(m) })),
+    ...(months === null ? [{ value: "custom", label: `${weeks} weeks (pick a length to change it)` }] : []),
+  ];
+  const assumption = (key: AssumptionKey) => (base: number | null, next: number | null) => saveAnalysisAssumption(workspace.id, key, base, next);
+  // Pay settings show only to those who see pay (Agency admins and the Owner), like salaries and cost rates.
+  const seesPay = data.canEdit;
   return (
-    <SettingsSection id="simulation" band title="Simulation" description="Limits on how the simulation treats people's time.">
+    <SettingsSection id="simulation" band title="Simulation" description="The working week, limits on how the simulation treats people's time, the goals the figures are judged against, and the assumptions behind them.">
       <FieldRows>
+        <NumberField
+          label="Normal working week"
+          value={workspace.settings.hours_per_week}
+          save={(base, next) => saveHoursPerWeek(workspace.id, base, next)}
+          unit="hours"
+          min={1}
+          max={168}
+          step={0.5}
+          disabled={!canManage}
+          hint={ownersOnly}
+          help={{
+            description: "The hours in a normal full-time week. Anyone without their own hours a week has this times their working time.",
+            example: "37.5: someone at 0.8 working time has 30 hours a week.",
+          }}
+        />
+        <NumberField
+          label="Working days a week"
+          value={workspace.settings.working_days ?? null}
+          save={(base, next) => saveWorkingDays(workspace.id, base, next)}
+          optional
+          unit="days"
+          min={1}
+          max={7}
+          step={0.5}
+          placeholder={`${DEFAULT_WORKING_DAYS} (default)`}
+          disabled={!canManage}
+          hint={ownersOnly ?? "Leave blank for a 5-day week."}
+          help={{
+            description: "How many days the normal week is spread over. A working day is the week's hours over these days, wherever days are turned into hours: first delivery, waits and days in findings.",
+            example: "A 4-day week of 32 hours: a working day is 8 hours, so 10 working days to first delivery is 80 hours.",
+          }}
+        />
+        <SelectField
+          label="Default forecast length"
+          value={months === null ? "custom" : String(months)}
+          save={(base, next) => saveForecastLength(workspace.id, base !== null && isHorizonMonths(Number(base)) ? horizonWeeks(Number(base)) : weeks, next)}
+          options={lengthOptions}
+          disabled={!canManage}
+          hint={ownersOnly}
+          help={{
+            description: "How far ahead the Overview and the People page run when they open. You can still pick another length on each page.",
+            example: "12 months: the Overview's team load and hiring advice look a year ahead, as the Capacity page does.",
+          }}
+        />
+        <NumberField
+          label="DLER goal"
+          value={numOrNull(workspace.settings.dler_goal)}
+          save={(base, next) => saveDlerGoal(workspace.id, base, next)}
+          optional
+          min={0.1}
+          max={50}
+          step={0.1}
+          unit="× salaries"
+          placeholder={`${DEFAULT_DLER_GOAL} (default)`}
+          disabled={!canManage}
+          hint={ownersOnly ?? "Leave blank to use the default."}
+          help={{
+            description: "The DLER you aim for: what clients pay a month for every dollar of salary. The Overview, Capacity and the Sandbox mark each department at or below it.",
+            example: "3 for a 3:1 goal: someone on 8,000 a month should look after clients paying 24,000 a month.",
+          }}
+        />
+        <ToggleField
+          label="DLER counts leadership"
+          value={workspace.settings.dler_includes_leadership === true}
+          save={(base, next) => saveDlerIncludesLeadership(workspace.id, base, next)}
+          onLabel="On: directors and managers count"
+          offLabel="Off: directors and managers are left out"
+          disabled={!canManage}
+          hint={ownersOnly}
+          help={{
+            description: "Whether roles marked as leadership count in DLER and in MRR per person. Off leaves their salaries and their time out of both.",
+            example: "Off: a director who also manages two clients doesn't pull the department's DLER down.",
+          }}
+        />
+        <NumberField
+          label="At-risk margin"
+          value={numOrNull(workspace.settings.at_risk_margin)}
+          save={(base, next) => saveAtRiskMargin(workspace.id, base, next)}
+          optional
+          scale={100}
+          unit="points"
+          min={0}
+          max={50}
+          step={1}
+          placeholder={`${DEFAULT_AT_RISK_MARGIN * 100} (default)`}
+          disabled={!canManage}
+          hint={ownersOnly ?? "Leave blank to use the default."}
+          help={{
+            description: "How close under their role's utilisation threshold someone can be before they show as at risk (amber) on Capacity, the Overview and the Sandbox.",
+            example: "At 10, a role with an 85% threshold shows people from 75% busy as at risk.",
+          }}
+        />
         <ToggleField
           label="Per-person times"
           value={workspace.settings.capacity_factor_enabled === true}
@@ -93,6 +214,122 @@ export function SimulationSettings({ data }: { data: WorkspaceSettingsData }) {
           help={{
             description: "How much extra, beyond a normal week, people work to keep up when their client work is more than their week. The simulation counts the extra hours and their cost. Past this limit, people show as too busy and an Operational risk is raised.",
             example: "At 10%, someone with a 40-hour week can work up to 4 hours extra before they count as overloaded.",
+          }}
+        />
+        {seesPay && (
+          <NumberField
+            label="Overtime paid at"
+            value={overtimePay}
+            save={(base, next) => saveOvertimePayFactor(workspace.id, base, next)}
+            optional
+            unit="x normal rate"
+            min={0}
+            max={5}
+            step={0.25}
+            placeholder="1 (default)"
+            disabled={!canManage}
+            hint={ownersOnly ?? "Leave blank to pay overtime at the normal rate. 0 means overtime is unpaid."}
+            help={{
+              description: "What an hour of overtime costs, as a multiple of the person's normal hourly rate. It changes the overtime cost in profit, not the hours worked.",
+              example: "1.5 for time and a half. 0 if salaried staff aren't paid for extra hours.",
+            }}
+          />
+        )}
+        {seesPay && (
+          <NumberField
+            label="Employer on-costs"
+            value={onCosts}
+            save={(base, next) => saveEmployerOnCosts(workspace.id, base, next)}
+            optional
+            scale={100}
+            unit="% of pay"
+            min={0}
+            max={100}
+            step={0.5}
+            placeholder="0 (default: none)"
+            disabled={!canManage}
+            hint={ownersOnly ?? "Leave blank for none. Contractors never have on-costs."}
+            help={{
+              description: "What the business pays on top of employees' pay, such as super, payroll tax and insurance, as a share of their pay. Profit adds it to the cost worked out from a salary only: a typed cost rate (a person's or a role's) is taken as the full cost of an hour, so nothing is added to it. Contractors are left out. DLER uses salaries without it.",
+              example: "15%: an employee whose pay costs 6,000 a month costs 6,900.",
+            }}
+          />
+        )}
+        <NumberField
+          label="Busy warning starts"
+          value={assumptions.busyBelow}
+          save={assumption("busyBelow")}
+          scale={100}
+          unit="points under the threshold"
+          min={ASSUMPTION_LIMITS.busyBelow.min * 100}
+          max={ASSUMPTION_LIMITS.busyBelow.max * 100}
+          step={1}
+          disabled={!data.canEdit}
+          hint={editorsOnly}
+          help={{
+            description: "How far under a role's utilisation threshold the facts start calling someone busy. Each role's own threshold is the too-busy line.",
+            example: `At ${ASSUMPTION_LIMITS.busyBelow.default * 100}, a role with an 85% threshold is busy from 70%.`,
+          }}
+        />
+        <NumberField
+          label="Overloaded from"
+          value={assumptions.busyAbove}
+          save={assumption("busyAbove")}
+          scale={100}
+          unit="points over the threshold"
+          min={ASSUMPTION_LIMITS.busyAbove.min * 100}
+          max={ASSUMPTION_LIMITS.busyAbove.max * 100}
+          step={1}
+          disabled={!data.canEdit}
+          hint={editorsOnly}
+          help={{
+            description: "How far over a role's utilisation threshold someone counts as an operational risk, not just too busy.",
+            example: `At ${Math.round(ASSUMPTION_LIMITS.busyAbove.default * 100)}, a role with an 85% threshold is an operational risk from 95%.`,
+          }}
+        />
+        <NumberField
+          label="A lost client is worth up to"
+          value={assumptions.capMonths}
+          save={assumption("capMonths")}
+          unit="months of fees"
+          min={ASSUMPTION_LIMITS.capMonths.min}
+          max={ASSUMPTION_LIMITS.capMonths.max}
+          step={1}
+          disabled={!data.canEdit}
+          hint={editorsOnly}
+          help={{
+            description: "The most a lost deal or a client who leaves is counted as costing, in months of their fee. Used for the cost a month of each fact.",
+            example: "At 24, a client paying 3,000 a month who leaves with years to go counts as 72,000 lost.",
+          }}
+        />
+        <NumberField
+          label="Absence test: weeks away"
+          value={assumptions.absenceWeeks}
+          save={assumption("absenceWeeks")}
+          unit="weeks"
+          min={ASSUMPTION_LIMITS.absenceWeeks.min}
+          max={ASSUMPTION_LIMITS.absenceWeeks.max}
+          step={1}
+          disabled={!data.canEdit}
+          hint={editorsOnly}
+          help={{
+            description: "How long the \u201cIf someone is away\u201d test takes a person out, to see what only they can do.",
+            example: "4 weeks for a typical summer holiday.",
+          }}
+        />
+        <NumberField
+          label="Absences a year"
+          value={assumptions.absencesPerYear}
+          save={assumption("absencesPerYear")}
+          unit="a year"
+          min={ASSUMPTION_LIMITS.absencesPerYear.min}
+          max={ASSUMPTION_LIMITS.absencesPerYear.max}
+          step={1}
+          disabled={!data.canEdit}
+          hint={editorsOnly}
+          help={{
+            description: "How often such an absence happens in a year, for what it costs.",
+            example: "2: a long break in summer and one in winter.",
           }}
         />
       </FieldRows>
@@ -144,7 +381,22 @@ export type PersonPart = "basics" | "time" | "more";
  * Everything else about a person (the part of a row that opens). The Set up panel asks for one `part` at a time and sets `compact` for a
  * single narrow column; hours a week is not in a part, because the panel keys it through Set up (which records its source).
  */
-export function PersonMore({ person: p, data, saveFactor, part, compact }: { person: PersonDetail; data: WorkspaceSettingsData; saveFactor?: SaveFactor; part?: PersonPart; compact?: boolean }) {
+export function PersonMore({
+  person: p,
+  data,
+  saveFactor,
+  part,
+  compact,
+  salaryRate,
+}: {
+  person: PersonDetail;
+  data: WorkspaceSettingsData;
+  saveFactor?: SaveFactor;
+  part?: PersonPart;
+  compact?: boolean;
+  /** What an hour of theirs costs from their salary (their own, else their role's pro rata), for whoever sees pay: the Cost rate's blank. */
+  salaryRate?: number | null;
+}) {
   const roleIds = data.personRoles.filter((r) => r.person_id === p.id).map((r) => r.role_id);
   const skillIds = data.personSkills.filter((s) => s.person_id === p.id).map((s) => s.step_id);
   const leave = data.personLeave.filter((l) => l.person_id === p.id);
@@ -203,8 +455,15 @@ export function PersonMore({ person: p, data, saveFactor, part, compact }: { per
             unit={`${data.workspace.settings.currency}/h`}
             min={0}
             step={1}
-            placeholder="Role default"
-            disabled={disabled} help={{ description: "What an hour of this person's time costs. Leave blank to use the role's rate. The simulation uses it to cost overtime.", example: "35 means each overtime hour costs 35." }} />
+            placeholder={typeof salaryRate === "number" ? `${formatNumber(salaryRate, 2)} from salary` : "Role default"}
+            hint={p.cost_rate !== null && typeof salaryRate === "number" ? `Used in profit in place of the ${formatNumber(salaryRate, 2)} an hour their salary gives. DLER still uses the salary.` : undefined}
+            disabled={disabled}
+            help={{
+              description:
+                "What an hour of this person's time costs: profit costs every hour they are paid for, and their overtime, at it. When set, it overrides their salary for profit; DLER is retainers against salary, so it keeps using the salary. Employer on-costs are not added to a cost rate, so enter the full cost of an hour. Leave blank to cost them from their salary (with on-costs), else at their role's rate.",
+              example: "35 means each hour they are paid for costs 35.",
+            }}
+          />
         )}
         {show("time") && (
           <>

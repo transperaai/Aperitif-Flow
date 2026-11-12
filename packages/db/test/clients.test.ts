@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { rosterLoads } from "@transpera-flow/engine";
 import {
   NORTHBEAM_WORKSPACE_ID,
+  monthsBetween,
   northbeamBundle,
   northbeamClientIds,
   northbeamPersonIds,
@@ -288,6 +289,8 @@ describe("the roster in the engine model", () => {
       services: [northbeamServiceIds.seo],
       mrr: 3500,
       health: 88,
+      // Its start date counts (finding 16): the months from it to the run start.
+      monthsActive: monthsBetween(northbeamBundle().clients!.find((r) => r.id === first)!.start_date!, START),
       assignments: {
         [northbeamRoleIds.strat]: northbeamPersonIds["Maya Collins"],
         [northbeamRoleIds.am]: northbeamPersonIds["Leah Brooks"],

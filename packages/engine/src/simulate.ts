@@ -16,16 +16,13 @@ import { withAvailability, availabilityBase } from "./availability";
 import { capacityEntry, capacityStep, cleanChanges, type CapacityEntry, type CapacityStep } from "./capacity-time";
 import { activeChannels, capacityFactors, channelMonth, keyFactors, planChannels, withMaxRework, type FeeRise } from "./channels";
 import {
-  AWAY_PRESSURE,
-  EARLY_TENURE_WEEKS,
-  LOAD_THRESHOLD,
+  churnLimits,
   loadPressure,
   normaliseEvents,
   onboardingPressure,
   pricePressure,
   PRICE_EFFECT_PER,
   PRICE_PRESSURE_PER_UNIT,
-  PRICE_WEIGHT_WEEKS,
   resolveChurnDrivers,
   responsePressure,
   resultsPressure,
@@ -37,10 +34,10 @@ import {
 import { carriersFor, clientChurnMonthly, clientHandHolding, clientRoleLoads, managerRoles, rolePools, withClientGroups, type Carrier } from "./clients";
 import { effectiveDeliverables } from "./capacity-inputs";
 import {
-  AT_RISK_HEALTH,
   clampHealth,
   clientChurnSensitivity,
   clientTasksPerWeek,
+  healthBands,
   healthRules,
   poissonMeanGap,
   recurrenceInterval,
@@ -49,7 +46,8 @@ import {
 } from "./servicing";
 import { arrivalTimes as drawArrivals } from "./demand";
 import { activeMarket, type MarketFactors } from "./market";
-import { WEEKS_PER_MONTH } from "./model";
+import { onCostFactor, overtimePayFactor, paidFor } from "./pay";
+import { WEEKS_PER_MONTH, hoursPerWorkingDay } from "./model";
 import { EventQueue } from "./event-queue";
 import { exp, log } from "./det-math";
 import { eligible } from "./eligibility";
@@ -420,6 +418,24 @@ export function pooledMonthlyFee(model: EngineModel): number {
 }
 
 /**
+ * The longest a stay worked out from churn may be, in months, when the workspace has set none (`settings.max_stay_months`): five
+ * years, the longest simulation horizon. Only a default: the owner sets their own in Settings.
+ */
+export const DEFAULT_MAX_STAY_MONTHS = 60;
+
+/**
+ * How long a client stays, in months, worked out from its monthly churn: 1 / churn (a 2% churn is a 50-month stay), capped at
+ * `maxStayMonths`; a churn of 0 never ends a stay, so it is the cap. A service with no expected tenure entered uses this, as does
+ * the implicit retainer. With no cap (the implicit retainer of a workspace that has set none) it is 1 / churn uncapped, and 0 at a
+ * churn of 0, as before.
+ */
+export function tenureFromChurn(churnMonthly: number, maxStayMonths?: number): number {
+  const rate = Number.isFinite(churnMonthly) && churnMonthly > 0 ? churnMonthly : 0;
+  if (maxStayMonths === undefined || !Number.isFinite(maxStayMonths) || maxStayMonths <= 0) return rate > 0 ? 1 / rate : 0;
+  return rate > 0 ? Math.min(1 / rate, maxStayMonths) : maxStayMonths;
+}
+
+/**
  * The model's services, or one implicit retainer at `model.retainer` when it
  * has none, so such a model's revenue is `won × retainer` as before.
  */
@@ -436,7 +452,7 @@ function resolveServices(model: EngineModel): ServiceState[] {
             pricingModel: "retainer",
             price: model.retainer,
             margin: 0,
-            tenureMonths: churn > 0 ? 1 / churn : 0,
+            tenureMonths: tenureFromChurn(churn, model.maxStayMonths),
             churnMonthly: churn,
             mixShare: 1,
             pathTags: [],
@@ -708,6 +724,8 @@ interface PersonState {
   /** Measured-window integrals of the above, from `lastT` on. */
   lastT: number;
   ongoingHours: number;
+  /** The part of `ongoingHours` that fell in their leave (only for someone paid for the hours they work, pay.ts). */
+  awayOngoingHours: number;
   roleOngoingHours: Float64Array;
   roleOngoingHas: Uint8Array;
   clientWeeks: number;
@@ -766,6 +784,8 @@ interface RosterClient {
   /** What it bills a week while active, and since when. */
   weeklyBill: number;
   since: number;
+  /** A roster client's age at the run's start (t = 0), in hours, from its start date (`EngineClient.monthsActive`); -1 when unknown or won in the run. */
+  ageAtStart: number;
   /**
    * A client won on an hourly service: its rate (service price × the market's price factor when won), the hours a week
    * of ongoing (fallback) client work its shape carries, since when they are billed, and its service's index. 0 for
@@ -926,6 +946,8 @@ export function runOnce(
   const endsAt = (p: EnginePerson) => (p.until !== undefined && Number.isFinite(p.until) && p.until < H ? p.until : Infinity);
   const staffing = Object.values(peopleModel).some((p) => startsAt(p) > -Infinity || endsAt(p) < Infinity);
   const presentAt = (p: EnginePerson, t: number) => t >= startsAt(p) && t < endsAt(p);
+  /** Whether anyone is paid only for the hours they work (pay.ts): only then is the client load in their leave tracked apart. */
+  const paidByWorked = Object.values(peopleModel).some((p) => paidFor(p) === "worked");
   /** Their leave, with the time before a planned start and after an end date as leave too, so nothing new starts then. */
   const absences = (p: EnginePerson): [number, number][] | null => {
     if (!staffing) return p.leave?.length ? p.leave : null;
@@ -980,6 +1002,7 @@ export function runOnce(
 
   // Servicing (docs/PRD.md §6.3.5): only with a roster, whose clients generate the tasks.
   const rules = healthRules(model);
+  const atRiskHealth = healthBands(model).atRisk;
   const processes = model.servicingProcesses ?? {};
   const linksBySvc = services.map((sv) => (roster ? servicingLinks(model, sv.s) : []));
   const servicing = linksBySvc.some((links) => links.length > 0);
@@ -1135,6 +1158,7 @@ export function runOnce(
     clients: 0,
     lastT: -W,
     ongoingHours: 0,
+    awayOngoingHours: 0,
     roleOngoingHours: new Float64Array(roleIds.length),
     roleOngoingHas: new Uint8Array(roleIds.length),
     clientWeeks: 0,
@@ -1589,6 +1613,7 @@ export function runOnce(
     if (mon) monthlyOngoing(p, a, b);
     const weeks = (b - a) / hpw;
     p.ongoingHours += p.load * weeks;
+    if (p.leave && paidByWorked && paidFor(p.person) === "worked") p.awayOngoingHours += (p.load * awayHours(p, a, b)) / hpw;
     const has = p.roleHas;
     for (let r = 0; r < has.length; r++) {
       if (has[r]) {
@@ -1773,7 +1798,9 @@ export function runOnce(
   let onbSum = 0;
   let onbN = 0;
   /** Normal first delivery for the onboarding driver, in hours (its entered target is in working days). */
-  const onbNormalHours = (drivers[SONB - 1]!.value ?? 10) * (model.hoursPerWeek / 5);
+  const onbNormalHours = (drivers[SONB - 1]!.value ?? 10) * hoursPerWorkingDay(model);
+  /** Where each measured driver starts and is full: the workspace's settings, else the defaults. */
+  const lim = churnLimits(model);
   /** The market's churn factor, weighted by its driver (1 with no market or the driver off). Bit-for-bit the plain factor at weight 1. */
   const churnMarket = (t: number): number => {
     if (!market || !don[SMARKET]) return 1;
@@ -1841,7 +1868,7 @@ export function runOnce(
     if (!list) return 0;
     let press = 0;
     // (From the first tick after the rise: a tick on the month's first hour closes the month before.)
-    for (const r of list) if (t > r.t && t <= r.t + PRICE_WEIGHT_WEEKS * hpw && r.t >= rc.since) press += PRICE_PRESSURE_PER_UNIT * r.r;
+    for (const r of list) if (t > r.t && t <= r.t + lim.priceWeeks * hpw && r.t >= rc.since) press += PRICE_PRESSURE_PER_UNIT * r.r;
     return press;
   };
   const riseOn = Boolean(plan && plan.rises.size > 0 && [...plan.rises.values()].some((l) => l.length > 0));
@@ -2060,6 +2087,7 @@ export function runOnce(
       manager?: string;
       handHoldingHours?: Record<string, number>;
       leavesMonth?: number;
+      monthsActive?: number;
     },
     t: number,
     isRoster: boolean,
@@ -2086,6 +2114,7 @@ export function runOnce(
       churned: false,
       weeklyBill,
       since: t,
+      ageAtStart: isRoster && client.monthsActive !== undefined && Number.isFinite(client.monthsActive) && client.monthsActive >= 0 ? client.monthsActive * monthHours : -1,
       hourlyRate: 0,
       hourlyWeekly: 0,
       hourlySince: t,
@@ -2483,17 +2512,20 @@ export function runOnce(
     // The pressure each driver puts on this client: 0 when nothing is wrong, 1 doubles its churn at weight 1.
     ev[SLATE] = rc.sensitivity * ((100 - rc.health) / 100);
     // Without servicing processes there are no tasks, so these three stay 0 and aren't looked at.
-    if (servicing) ev[SRESP] = rc.adhocN > 0 ? responsePressure(rc.adhocBad / rc.adhocN) : 0;
+    if (servicing) ev[SRESP] = rc.adhocN > 0 ? responsePressure(rc.adhocBad / rc.adhocN, lim.responseFullShare) : 0;
     let early = 0;
     let delay = 0;
     if (!rc.roster) {
       const age = t - rc.since;
-      if (age <= EARLY_TENURE_WEEKS * hpw) early = 1;
+      if (age <= lim.earlyTenureWeeks * hpw) early = 1;
       delay = (rc.firstDone >= 0 ? rc.firstDone : t) - rc.since;
+    } else if (rc.ageAtStart >= 0 && t + rc.ageAtStart <= lim.earlyTenureWeeks * hpw) {
+      // A roster client with a start date (audit finding 16): early tenure while it is young; it had its first delivery before the run.
+      early = 1;
     }
-    if (servicing) ev[SONB] = early && rc.serviced ? onboardingPressure(delay, onbNormalHours) : 0;
+    if (servicing) ev[SONB] = early && !rc.roster && rc.serviced ? onboardingPressure(delay, onbNormalHours, lim.onboardingFullMultiple) : 0;
     ev[STENURE] = early ? tenureExtra : 0;
-    if (servicing) ev[SREWORK] = rc.visits > 0 ? reworkPressure(rc.reworks / rc.visits) : 0;
+    if (servicing) ev[SREWORK] = rc.visits > 0 ? reworkPressure(rc.reworks / rc.visits, lim.reworkFullShare) : 0;
     const team = rc.team;
     if (team.stamp !== tickNo) {
       team.stamp = tickNo;
@@ -2505,10 +2537,10 @@ export function runOnce(
         if (!team.away && awayAt(p, t)) team.away = true;
       }
     }
-    ev[SLOAD] = loadPressure(team.util);
-    ev[SHAND] = handoffRate + (team.away ? AWAY_PRESSURE : 0);
+    ev[SLOAD] = loadPressure(team.util, lim.loadThreshold, lim.loadFull);
+    ev[SHAND] = handoffRate + (team.away ? lim.awayPressure : 0);
     // Events the engine counts (and, in chance mode, lets hit the client): a busy team this tick, a slow first delivery still waiting.
-    runLoadHit = team.util > LOAD_THRESHOLD ? 1 : 0;
+    runLoadHit = team.util > lim.loadThreshold ? 1 : 0;
     if (runLoadHit && rc.hitUntil) extendMeasured(rc, SLOAD, t);
     if (servicing && !rc.roster && rc.serviced && !rc.onbHit && rc.firstDone < 0 && t - rc.since > onbNormalHours) {
       rc.onbHit = true;
@@ -2611,9 +2643,9 @@ export function runOnce(
       }
     }
     // Constant pressures this week: entered numbers, and a planned price rise in the weeks after it takes effect.
-    ev[SRESULTS] = resultsPressure(drivers[SRESULTS - 1]!.value ?? 8);
+    ev[SRESULTS] = resultsPressure(drivers[SRESULTS - 1]!.value ?? 8, lim.resultsNormal);
     const priceFrom = (drivers[SPRICE - 1]!.month - 1) * WEEKS_PER_MONTH * hpw;
-    pricePlanned = t >= priceFrom && t < priceFrom + PRICE_WEIGHT_WEEKS * hpw ? pricePressure(drivers[SPRICE - 1]!.value ?? 0) : 0;
+    pricePlanned = t >= priceFrom && t < priceFrom + lim.priceWeeks * hpw ? pricePressure(drivers[SPRICE - 1]!.value ?? 0) : 0;
     ev[SPRICE] = pricePlanned;
     // Which drivers are in chance mode this week (a channel can switch a driver over from a month), and their weekly chance of a hit.
     chTick = plan ? chM(Math.max(0, t - 1e-6)) : 0;
@@ -3656,7 +3688,7 @@ export function runOnce(
             }
             let risk = mon.atRisk.get(rc.svcKey);
             if (!risk) mon.atRisk.set(rc.svcKey, (risk = new Float64Array(nM)));
-            if (rc.health < AT_RISK_HEALTH) risk[m]!++;
+            if (rc.health < atRiskHealth) risk[m]!++;
           }
         } else {
           add("", active);
@@ -3684,15 +3716,27 @@ export function runOnce(
   if (servicing) for (const rc of rosterClients) settleMisses(rc, H, true);
 
   /**
-   * A person's cost a working hour: their own, or the mean of their roles' (what overtime and paid labour are costed at). With a
-   * role-cost channel, month `m`'s: the roles' costs times the channel's factor for the month.
+   * A person's cost a working hour: their own, or the mean of their roles' (what overtime and paid labour are costed at); their own,
+   * when it comes from a salary, times the employer on-costs (pay.ts; exactly 1 with none, for a typed rate and for a contractor). With a
+   * role-cost channel, month `m`'s: the roles' costs times the channel's factor for the month, and a person's own cost times the mean of
+   * their roles' factors (a pay change for a role reaches everyone in it, priced from a salary or a rate).
    */
   const rateOf = (p: PersonState, m = 0): number => {
-    if (p.person.cost !== undefined && p.person.cost !== null) return p.person.cost;
     const own = p.person.roles.filter((rid) => rid in model.roles);
-    if (plan && plan.roleCost.size) return own.length ? own.reduce((sum, rid) => sum + model.roles[rid]!.cost * (plan.roleCost.get(rid)?.[m] ?? 1), 0) / own.length : 0;
+    const channel = plan && plan.roleCost.size ? plan.roleCost : null;
+    if (p.person.cost !== undefined && p.person.cost !== null) {
+      const mine = channel ? own.filter((rid) => channel.has(rid)) : [];
+      const load = onCostFactor(model, p.person);
+      if (!mine.length) return p.person.cost * load;
+      return p.person.cost * (own.reduce((sum, rid) => sum + (channel!.get(rid)?.[m] ?? 1), 0) / own.length) * load;
+    }
+    if (channel) return own.length ? own.reduce((sum, rid) => sum + model.roles[rid]!.cost * (channel.get(rid)?.[m] ?? 1), 0) / own.length : 0;
     return own.length ? own.reduce((sum, rid) => sum + model.roles[rid]!.cost, 0) / own.length : 0;
   };
+  /** × an overtime hour's rate (pay.ts; 1: the normal rate). */
+  const otPay = overtimePayFactor(model);
+  /** People paid only for the hours they work (pay.ts): contractors, unless they are set to contracted hours. */
+  const byWorked = (p: PersonState): boolean => paidFor(p.person) === "worked";
   /** A person's contracted capacity (hours a week) in channel month `m`: their base capacity times the capacity channel's factor. */
   const capacityAt = (p: PersonState, m: number): number => {
     const f = capPlan?.byPerson.get(p.id);
@@ -3768,16 +3812,20 @@ export function runOnce(
         const rate0 = rateOf(p);
         const own1 = startsAt(p.person);
         const own2 = endsAt(p.person);
+        const worked = byWorked(p);
         const mine = spans.map(([a, b], m) => {
           const present = Math.max(0, Math.min(b, own2) - Math.max(a, own1));
           const rate = plan && plan.roleCost.size ? rateOf(p, m) : rate0;
-          overtimeCostM[m]! += ot[m]! * rate;
-          return ((avail ? paidAt(p, m) : capM(m)) * present * rate) / hpw;
+          overtimeCostM[m]! += ot[m]! * rate * otPay;
+          // Paid for hours worked: worked out below, once colleagues' client hours from someone's leave are shared out.
+          return worked ? 0 : ((avail ? paidAt(p, m) : capM(m)) * present * rate) / hpw;
         });
         labourByPerson[p.id] = mine;
-        for (let m = 0; m < nM; m++) labour[m]! += mine[m]!;
-        // Each person's cost is split evenly over their roles, as `roleCapacity` splits their hours.
-        for (const rid of own) for (let m = 0; m < nM; m++) labourByRole[rid]![m]! += mine[m]! / own.length;
+        if (!worked) {
+          for (let m = 0; m < nM; m++) labour[m]! += mine[m]!;
+          // Each person's cost is split evenly over their roles, as `roleCapacity` splits their hours.
+          for (const rid of own) for (let m = 0; m < nM; m++) labourByRole[rid]![m]! += mine[m]! / own.length;
+        }
       }
       for (const rid of own) {
         for (let m = 0; m < nM; m++) {
@@ -3807,6 +3855,22 @@ export function runOnce(
         }
       }
     });
+    // Paid for hours worked (pay.ts): the month's work less its overtime (costed as overtime), up to the hours they had that month
+    // (no paid leave), at the month's rate.
+    if (labour && labourByRole && labourByPerson) {
+      for (const p of people) {
+        if (!byWorked(p)) continue;
+        const own = p.person.roles.filter((rid) => rid in model.roles);
+        const rate0 = rateOf(p);
+        const mine = labourByPerson[p.id]!;
+        for (let m = 0; m < nM; m++) {
+          const hours = Math.min(Math.max(0, personWork[p.id]![m]! - personOvertime[p.id]![m]!), personCapacity[p.id]![m]!);
+          mine[m] = hours * (plan && plan.roleCost.size ? rateOf(p, m) : rate0);
+          labour[m]! += mine[m]!;
+          for (const rid of own) labourByRole[rid]![m]! += mine[m]! / own.length;
+        }
+      }
+    }
     // Work nobody in a role was there to do: client hours no one carried, and, in months the role has no hours at all,
     // the hands-on time of the items that reached its steps (each at the step's mean).
     const roleUncovered: Record<string, number[]> = {};
@@ -3951,11 +4015,23 @@ export function runOnce(
     for (const rid of ownRoles) roleOvertime[rid]! += ot / p.person.roles.length;
     if (ot > 0) {
       overtimeHours += ot;
-      // Overtime is costed at the person's rate (with a role-cost channel, the mean of the run's rates over their paid hours).
-      overtimeCost += ot * (paid && paid.payHours > 0 ? paid.cost / paid.payHours : rateOf(p));
+      // Overtime is costed at the person's rate (with a role-cost channel, the mean of the run's rates over their paid hours), times
+      // the overtime pay factor.
+      overtimeCost += ot * (paid && paid.payHours > 0 ? paid.cost / paid.payHours : rateOf(p)) * otPay;
     }
-    // Paid hours: contracted capacity while on the team. Leave is paid (it only reduces the hours available).
-    if (!model.payHidden) labourCost += paid ? paid.cost : cap * rateOf(p);
+    if (model.payHidden) continue;
+    if (byWorked(p)) {
+      // Paid for hours worked (pay.ts): the work less its overtime, up to their hours less leave, at their (mean) rate.
+      const lo = staffing ? Math.max(0, startsAt(p.person)) : 0;
+      const hi = staffing ? Math.min(H, endsAt(p.person)) : H;
+      const had = Math.max(0, cap - (c * (hi > lo ? awayHours(p, lo, hi) : 0)) / hpw);
+      // Client hours that fell in their leave are not worked (the monthly series gives them to colleagues).
+      const hours = Math.min(Math.max(0, p.busyHours + p.svcHours + ong - p.awayOngoingHours - ot), had);
+      labourCost += hours * (paid && paid.payHours > 0 ? paid.cost / paid.payHours : rateOf(p));
+    } else {
+      // Paid hours: contracted capacity while on the team. Leave is paid (it only reduces the hours available).
+      labourCost += paid ? paid.cost : cap * rateOf(p);
+    }
   }
   const revenueTotal = recurring + oneOff + hourly;
   let overheads = ((model.overheadMonthly ?? 0) * weeks * 12) / 52;
@@ -4021,7 +4097,7 @@ export function runOnce(
         ),
       };
     }
-    for (const rc of rosterClients) if (rc.health < AT_RISK_HEALTH) atRisk++;
+    for (const rc of rosterClients) if (rc.health < atRiskHealth) atRisk++;
   }
   /** The churn drivers' accounting for this replication: who the churn is blamed on, and what each cause measured. */
   function churnOut(): ChurnReplication {
@@ -4030,7 +4106,7 @@ export function runOnce(
     const valuePerson: (string | null)[] = new Array<string | null>(nSlots).fill(null);
     values[SLATE] = touched > 0 ? (allTouch.late + allTouch.missed) / touched : null;
     values[SRESP] = respN > 0 ? respSum / respN : null;
-    values[SONB] = onbN > 0 ? onbSum / onbN / (model.hoursPerWeek / 5) : null;
+    values[SONB] = onbN > 0 ? onbSum / onbN / hoursPerWorkingDay(model) : null;
     values[SREWORK] = visitsAll > 0 ? reworksAll / visitsAll : null;
     if (utilRead) {
       values[SLOAD] = busiest;
@@ -4313,6 +4389,7 @@ function kpis(model: EngineModel, runs: ReplicationResult[], cycle: number[]): K
 
 /** Each roster client across replications (docs/PRD.md §6.4 "Per client"). */
 function clientResults(model: EngineModel, runs: ReplicationResult[]): Record<string, ClientResult> {
+  const atRiskHealth = healthBands(model).atRisk;
   const out: Record<string, ClientResult> = {};
   const n = runs.length;
   for (const cid of Object.keys(runs[0]?.clients ?? {})) {
@@ -4329,7 +4406,7 @@ function clientResults(model: EngineModel, runs: ReplicationResult[]): Record<st
       touchpoints: { onTime: mean((c) => c.touchpoints.onTime), late: mean((c) => c.touchpoints.late), missed: mean((c) => c.touchpoints.missed) },
       churnMonthly: stat(reps.map((c) => c.churnMonthly)),
       churned: mean((c) => (c.churned ? 1 : 0)),
-      atRisk: mean((c) => (c.health[weeks - 1]! < AT_RISK_HEALTH ? 1 : 0)),
+      atRisk: mean((c) => (c.health[weeks - 1]! < atRiskHealth ? 1 : 0)),
     };
   }
   return out;
@@ -4733,12 +4810,16 @@ function monthlyResult(model: EngineModel, reps: MonthlyReplication[]): MonthlyR
   const series = (f: (r: MonthlyReplication, m: number) => number): Stat[] => months.map((_, m) => stat(reps.map((r) => f(r, m))));
   const rev = (r: MonthlyReplication, m: number) => r.revenueRecurring[m]! + r.revenueOneOff[m]! + r.revenueHourly[m]!;
   const first = reps[0]!;
+  // Paid hours × rate don't depend on the replication, except for people paid for the hours they work (pay.ts): then the mean.
+  const meanOf = (rows: number[][]): number[] => rows[0]!.map((_, m) => rows.reduce((a, row) => a + row[m]!, 0) / rows.length);
+  const meanRecord = (pick: (r: MonthlyReplication) => Record<string, number[]>): Record<string, number[]> =>
+    Object.fromEntries(Object.keys(pick(first)).map((id) => [id, meanOf(reps.map((r) => pick(r)[id]!))]));
+  const varies = reps.some((r) => r.labour && r.labour.some((v, m) => v !== first.labour![m]));
   const money: MonthlyResult["money"] = first.labour && first.labourByRole && first.labourByPerson
     ? {
-        // Paid hours × rate don't depend on the replication.
-        labour: first.labour,
-        labourByRole: first.labourByRole,
-        labourByPerson: first.labourByPerson,
+        labour: varies ? meanOf(reps.map((r) => r.labour!)) : first.labour,
+        labourByRole: varies ? meanRecord((r) => r.labourByRole!) : first.labourByRole,
+        labourByPerson: varies ? meanRecord((r) => r.labourByPerson!) : first.labourByPerson,
         overtimeCost: series((r, m) => r.overtimeCost![m]!),
         overheads: first.overheads,
         profit: series((r, m) => rev(r, m) - r.labour![m]! - r.overtimeCost![m]! - r.overheads[m]!),

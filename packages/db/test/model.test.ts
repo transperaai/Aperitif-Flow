@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { withoutStartTenure } from "./start-tenure";
 import { MAX_REWORK, NORTHBEAM_TEAM, northbeamModel, northbeamWithClientGroups, northbeamWithClients, northbeamWithServicing, simulate, type EngineModel } from "@transpera-flow/engine";
 import {
   ModelError,
@@ -95,6 +96,29 @@ function beforeServicesAndClients(): ProcessBundle {
 }
 
 describe("toEngineModel", () => {
+  describe("the working week (customisability audit 28 and 36)", () => {
+    const withSettings = (over: Record<string, unknown>): ProcessBundle => {
+      const b = northbeamBundle();
+      return { ...b, workspace: { ...b.workspace, settings: { ...b.workspace.settings, ...over } } };
+    };
+
+    it("working_days other than 5 becomes workingDaysPerWeek; 5, unset or junk leaves the model as today's", () => {
+      expect(toEngineModel(withSettings({ working_days: 4 }), { startDate: START }).workingDaysPerWeek).toBe(4);
+      const today = toEngineModel(northbeamBundle(), { startDate: START });
+      expect(today).not.toHaveProperty("workingDaysPerWeek");
+      for (const value of [5, null, 0, 9, "4"]) expect(toEngineModel(withSettings({ working_days: value }), { startDate: START }), String(value)).toEqual(today);
+    });
+
+    it("hours_per_week sets the week, and the capacity of everyone without their own hours", () => {
+      const m = toEngineModel(withSettings({ hours_per_week: 37.5 }), { startDate: START });
+      expect(m.hoursPerWeek).toBe(37.5);
+      const b = northbeamBundle();
+      const own = new Set(b.people.filter((p) => p.capacity_hours_week != null).map((p) => p.id));
+      const someone = b.people.find((p) => p.active && !own.has(p.id) && Number(p.fte) === 1);
+      if (someone) expect(m.people?.[someone.id]?.capacity).toBe(37.5);
+    });
+  });
+
   describe("overheads (sandbox phase 2)", () => {
     const withOverhead = (value: unknown, extra: Partial<ProcessBundle> = {}): ProcessBundle => {
       const b = northbeamBundle();
@@ -129,7 +153,8 @@ describe("toEngineModel", () => {
   });
 
   it("without its client groups, the named roster applies: exactly the engine's Northbeam with its roster and servicing", () => {
-    expect(withKeys(toEngineModel({ ...northbeamBundle(), clientGroups: [] }, { startDate: START }))).toEqual(northbeamWithServicing());
+    const named = { ...northbeamBundle(), clientGroups: [] };
+    expect(withKeys(withoutStartTenure(toEngineModel(named, { startDate: START }), named, START))).toEqual(northbeamWithServicing());
   });
 
   it("client groups replace the named roster, which stays stored but is not simulated", () => {
@@ -165,7 +190,7 @@ describe("toEngineModel", () => {
 
   it("without its servicing links, Northbeam resolves as before servicing: fallback load, no health-driven churn", () => {
     const b = { ...northbeamBundle(), clientGroups: [] };
-    const model = withKeys(toEngineModel({ ...b, servicingLinks: [], services: b.services.map((sv) => ({ ...sv, churn_health_sensitivity: 0 })) }, { startDate: START }));
+    const model = withKeys(withoutStartTenure(toEngineModel({ ...b, servicingLinks: [], services: b.services.map((sv) => ({ ...sv, churn_health_sensitivity: 0 })) }, { startDate: START }), b, START));
     const expected = northbeamWithClients();
     expected.services = Object.fromEntries(Object.entries(expected.services!).map(([id, sv]) => [id, { ...sv, churnSensitivity: 0 }]));
     expect(model).toEqual(expected);
@@ -424,6 +449,27 @@ describe("services", () => {
     });
     // Entering this process means entering at its entry step: the engine's default.
     expect(Object.values(model.services!).every((sv) => !("entry" in sv))).toBe(true);
+  });
+
+  it("a blank expected tenure is worked out from base churn (1 / churn, up to the longest stay, which is also the stay at no churn); an entered one is kept", () => {
+    const blankSv = (churn: number, maxStay?: number) => {
+      const b = patch(pipelineOnly(), seo, { tenure_months: null, churn_monthly_base: churn });
+      if (maxStay !== undefined) b.workspace = { ...b.workspace, settings: { ...b.workspace.settings, max_stay_months: maxStay } };
+      return toEngineModel(b, { startDate: START }).services![seo]!;
+    };
+    const blank = (churn: number, maxStay?: number) => blankSv(churn, maxStay).tenureMonths;
+    expect(blank(0.02)).toBeCloseTo(50, 12);
+    expect(blank(0.05)).toBeCloseTo(20, 12);
+    expect(blank(0)).toBe(60);
+    expect(blank(0.01)).toBe(60);
+    expect(blank(0.01, 120)).toBeCloseTo(100, 12);
+    expect(blank(0, 24)).toBe(24);
+    expect(blankSv(0.02).tenureFromChurn).toBe(true);
+    const entered = toEngineModel(pipelineOnly(), { startDate: START });
+    expect(entered.services![seo]!.tenureMonths).toBe(18);
+    expect(entered.services![seo]!.tenureFromChurn).toBeUndefined();
+    // No longest stay set: the model carries none, so the implicit retainer keeps 1 / churn as before.
+    expect(entered.maxStayMonths).toBeUndefined();
   });
 
   it("maps numeric columns that arrive as strings (Postgres numeric) and trims tags", () => {

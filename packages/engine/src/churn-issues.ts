@@ -8,7 +8,7 @@ import type { DetectedIssue } from "./issues";
 import type { EngineModel, EngineStep, SimulationResult } from "./model";
 import { fixedRating, resolveRatingConfig, type RatingConfig, type RatingConfigInput } from "./ratings";
 import { DEFAULT_COST_CONFIG, WEEKS_PER_MONTH, clientLossValue, formatMoney, noCost, type CostConfig } from "./cost";
-import { AT_RISK_HEALTH, clientChurnSensitivity, servicingLinks } from "./servicing";
+import { clientChurnSensitivity, healthBands, servicingLinks } from "./servicing";
 import { clientChurnMonthly, clientHealthSummary, groupServiceOf, withClientGroups } from "./clients";
 
 const LOCALE = "en-GB";
@@ -25,12 +25,13 @@ export function churnRiskIssues(source: EngineModel, result: SimulationResult, m
   const weeks = model.horizonWeeks;
   const stepById = new Map(model.steps.map((s) => [s.id, s]));
   const out: DetectedIssue[] = [];
+  const bands = healthBands(model);
 
   for (const cid of Object.keys(clients).sort(cmp)) {
     const c = clients[cid]!;
     const client = model.clients[cid];
     // Unnamed clients of a group are reported together below, not one by one.
-    if (!client || groupServiceOf(cid) !== null || !(c.health.mean < AT_RISK_HEALTH)) continue;
+    if (!client || groupServiceOf(cid) !== null || !(c.health.mean < bands.atRisk)) continue;
     const start = c.trajectory[0] ?? c.health.mean;
     const end = c.health.mean;
     const t = c.touchpoints;
@@ -58,8 +59,8 @@ export function churnRiskIssues(source: EngineModel, result: SimulationResult, m
     out.push({
       key: `churn_risk:client:${cid}`,
       type: "churn_risk",
-      // Not yet on the rating model (rules 9 and 10 replace it): the old bands, as ratings.
-      ...fixedRating(end < 30 || c.churned >= 0.5 ? "risk" : end < 40 ? "bad" : "good"),
+      // Not yet on the rating model (rules 9 and 10 replace it): the old bands, as ratings (30 and 40 with the at-risk line at 50; they move with it).
+      ...fixedRating(end < (bands.atRisk * 3) / 5 || c.churned >= 0.5 ? "risk" : end < (bands.atRisk * 4) / 5 ? "bad" : "good"),
       cost: (() => {
         // Only the churn above the client's base rate counts: that is what late and missed work adds (as for the deadlines cost).
         const value = clientLossValue(model, client, money.capMonths);
@@ -72,7 +73,7 @@ export function churnRiskIssues(source: EngineModel, result: SimulationResult, m
       })(),
       title: `${client.name}: health ${trend}, at risk of churning`,
       evidence:
-        `Simulated: health ${trend} over the ${num(weeks, 0)}-week run (range ${num(c.health.p10, 0)}–${num(c.health.p90, 0)}; below ${AT_RISK_HEALTH} is at risk). ` +
+        `Simulated: health ${trend} over the ${num(weeks, 0)}-week run (range ${num(c.health.p10, 0)}–${num(c.health.p90, 0)}; below ${num(bands.atRisk, 0)} is at risk). ` +
         (serviced
           ? `Servicing touchpoints per run: ${num(t.onTime)} on time, ${num(t.late)} late, ${num(t.missed)} missed. `
           : "None of its services has a servicing process, so nothing moves its health. ") +
@@ -102,7 +103,7 @@ export function churnRiskIssues(source: EngineModel, result: SimulationResult, m
 
   // Client groups: one issue per group rated Bad or Operational risk (rule 9), keyed by its service.
   for (const group of clientHealthSummary(model, result).groups) {
-    // Rule 9: a group rated Bad or Operational risk (health under 65) is a finding; Good and Great are not.
+    // Rule 9: a group rated Bad or Operational risk (health under the watch line, 65 by default) is a finding; Good and Great are not.
     if (group.rating === "great" || group.rating === "good") continue;
     const members = Object.keys(clients).filter((k) => groupServiceOf(k) === group.service);
     const t = { onTime: 0, late: 0, missed: 0 };
@@ -136,7 +137,7 @@ export function churnRiskIssues(source: EngineModel, result: SimulationResult, m
       })(),
       title: `${group.name} clients: health ${trend}, ${group.rating === "risk" ? "at risk of churning" : "slipping"}`,
       evidence:
-        `Simulated: the average health of the ${num(group.clients, 0)} ${group.name} clients ${trend} over the ${num(weeks, 0)}-week run (Bad below 65, Operational risk below ${AT_RISK_HEALTH}). ` +
+        `Simulated: the average health of the ${num(group.clients, 0)} ${group.name} clients ${trend} over the ${num(weeks, 0)}-week run (Bad below ${num(bands.watch, 0)}, Operational risk below ${num(bands.atRisk, 0)}). ` +
         (serviced
           ? `Servicing touchpoints per run, all of them: ${num(t.onTime)} on time, ${num(t.late)} late, ${num(t.missed)} missed. `
           : "None of its services has a servicing process, so nothing moves their health. ") +

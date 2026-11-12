@@ -118,17 +118,23 @@ describe("a tier's typed client count (Q13) and what Set up no longer shows (D45
     await some.page.close();
   });
 
-  it("D46 and D47: no Other services section and no client health benchmark; one muted line when there are other services", async () => {
+  it("services that aren't tiers and the client health benchmark are edited here (customisability audit 29 and 44)", async () => {
     const plain = await mount({ page: "clients", who: "owner" });
-    const text = await plain.page.locator("[data-setup=clients]").innerText();
-    expect(text).not.toMatch(/Other services|client health benchmark|Client health benchmark|Health benchmark/i);
-    expect(await plain.page.locator("#other-services").count()).toBe(0);
-    expect(await plain.page.locator("[data-other-services]").count()).toBe(0);
+    // Every service is a tier: the Other services card says so, and the benchmark has its two ends.
+    expect(await plain.page.locator("#other-services").innerText()).toMatch(/Every service is a tier/);
+    expect(await plain.page.locator("#client-health").count()).toBe(1);
+    expect(await plain.page.getByLabel("From", { exact: true }).count()).toBe(1);
+    expect(await plain.page.getByLabel("To", { exact: true }).count()).toBe(1);
     await plain.page.close();
     const other = await mount({ page: "clients", who: "owner", scenario: "other-services" });
-    expect(await other.page.locator("[data-other-services]").innerText()).toBe("This workspace also has 2 other services (projects or hourly work) that aren't tiers. They still count in the simulation.");
-    expect(await other.page.locator("#other-services").count()).toBe(0);
-    expect(await other.page.locator("[data-setup=clients]").innerText()).not.toMatch(/Website project|Hourly work/);
+    const card = other.page.locator("#other-services");
+    expect(await card.innerText()).toMatch(/Website project/);
+    expect(await card.innerText()).toMatch(/Hourly work/);
+    // Each opens into its fields, its counted clients and Remove; + Add service is there.
+    await card.locator("summary").first().click();
+    expect(await card.getByLabel("Price", { exact: true }).count()).toBeGreaterThan(0);
+    expect(await card.getByText("Counted clients nobody's portfolio holds yet").count()).toBeGreaterThan(0);
+    expect(await card.getByRole("button", { name: "Add service" }).count()).toBe(1);
     await other.page.close();
   });
 });
@@ -138,7 +144,7 @@ describe("Tiers & clients", { timeout: 120_000 }, () => {
     const { page, errors } = await mount({ page: "clients", who: "owner" });
     const headings = (title: string) => headTexts(page.locator(`[role=region]`, { has: page.getByRole("heading", { name: title }) }).first());
     const organic = await headings("Organic (SEO) tiers");
-    expect(organic).toEqual(["Tier", "Clients", "Fee a month", "Words", "Links", "Tech hours", "Meetings", "Chance of ad hoc %", "Requests if they ask", "Churn a month %", "More"]);
+    expect(organic).toEqual(["Tier", "Clients", "Fee a month", "Words", "Links", "Tech hours", "Meetings", "Chance of ad hoc %", "Requests if they ask", "Stay months", "More"]);
     const performance = await headings("Performance tiers");
     expect(performance).toContain("Channels");
     expect(performance).toContain("Builds");
@@ -200,6 +206,33 @@ describe("Tiers & clients", { timeout: 120_000 }, () => {
     expect(await size.getAttribute("placeholder")).toBe("the step's time");
     // The fee is its own (13000); with 0 it would show the tier's.
     expect(await row.getByLabel("Harbourline Group: Fee", { exact: true }).inputValue()).toBe("13000");
+    await page.close();
+  });
+
+  it("a named client's More has the department's other deliverables and an effort factor, blank showing the tier's (audit 31)", async () => {
+    const { page } = await mount({ page: "clients", who: "owner" });
+    const row = page.locator("tr[data-client='Harbourline Group']");
+    await row.getByRole("button", { name: "More", exact: true }).click();
+    const own = page.locator("[data-client-own-work='Harbourline Group']");
+    await own.waitFor();
+    // An Organic client: words, links and tech hours (channels, meetings and ad hoc are in the row already).
+    for (const label of ["Words a month", "Links a month", "Tech hours a month", "Effort factor"]) expect(await own.getByLabel(label, { exact: true }).count(), label).toBe(1);
+    expect(await own.getByLabel("Builds a month", { exact: true }).count()).toBe(0);
+    expect(await own.getByLabel("Effort factor", { exact: true }).getAttribute("placeholder")).toBe("1 (normal)");
+    await own.getByLabel("Effort factor", { exact: true }).fill("1.5");
+    await own.getByLabel("Effort factor", { exact: true }).blur();
+    await page.waitForFunction(() => (window.__serverActions ?? []).some((c) => JSON.stringify(c).includes("step_factor")));
+    expect(JSON.stringify(await calls(page))).toContain('"step_factor"');
+    await page.close();
+  });
+
+  it("each department picks its deliverables; unpicked, the name decides (audit 47)", async () => {
+    const { page } = await mount({ page: "clients", who: "owner" });
+    const kinds = page.locator("[data-department-kind] select");
+    expect(await kinds.count()).toBeGreaterThan(0);
+    const options = await kinds.first().locator("option").allInnerTexts();
+    expect(options[0]).toMatch(/^From the name: (Organic|Performance)$/);
+    expect(options.slice(1)).toEqual(["Organic", "Performance"]);
     await page.close();
   });
 
@@ -289,9 +322,11 @@ describe("People & roles", { timeout: 120_000 }, () => {
     // The shared teams card.
     expect(await page.locator("[data-shared-role] [data-rate-missing]").count()).toBe(2);
     expect(await page.locator("[data-shared-role]").first().innerText()).toContain("Rate not entered yet");
-    // D48 and D49: no DLER switch, no ramp-up setting, no Advanced card.
-    const text = await page.locator("[data-setup=people]").innerText();
-    expect(text).not.toMatch(/Ramp-up|ramp/i);
+    // D48: no DLER switch and no Advanced card. New starters (customisability audit 9, 33): months to hire and the ramp.
+    const starters = page.locator("#new-starters");
+    expect(await starters.getByLabel("Months to hire", { exact: true }).count()).toBe(1);
+    expect(await starters.getByLabel("New starter ramp", { exact: true }).count()).toBe(1);
+    expect(await starters.innerText()).toMatch(/Blank: 40, 60, 80 \(the default\)/);
     expect(await page.getByLabel(/Directors and managers count|includes leadership/i).count()).toBe(0);
     expect(await page.locator("[data-advanced], [data-to-confirm]").count()).toBe(0);
     expect(errors.filter((e) => !noise(e))).toEqual([]);
@@ -350,6 +385,8 @@ describe("People & roles", { timeout: 120_000 }, () => {
     expect(await seo.getByLabel("Utilisation threshold %", { exact: true }).inputValue()).toBe("85");
     expect(await seo.getByLabel("Unit of work").count()).toBe(0);
     expect(await seo.getByLabel("Leadership", { exact: true }).count()).toBe(1);
+    // The pooled client load (audit 43): every role has it.
+    expect(await seo.getByLabel("Hours per client a week", { exact: true }).inputValue()).toBe("0");
     await page.keyboard.press("Escape");
     await page.locator("[data-role-panel]").waitFor({ state: "detached" });
     await page.locator("[data-role='Content team']").click();

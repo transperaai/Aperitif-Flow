@@ -17,7 +17,7 @@ import {
   departmentRetainers,
   departmentTime,
   dler,
-  DLER_GOAL,
+  DEFAULT_DLER_GOAL,
   limitedBy,
   modelProcessOfStep,
   perEmployee,
@@ -55,9 +55,9 @@ export function busyLineNote(lines: readonly number[]): string | undefined {
 }
 
 /** The Capacity page's DLER rule: at or above the goal is good, below it is a warning. Null when there is no ratio to judge (hidden or no salaries). */
-export function dlerStatus(row: Pick<DlerRow, "ratio" | "hidden">): KpiStatus | null {
+export function dlerStatus(row: Pick<DlerRow, "ratio" | "hidden">, goal: number = DEFAULT_DLER_GOAL): KpiStatus | null {
   if (row.hidden || row.ratio === null) return null;
-  return row.ratio >= DLER_GOAL ? { tone: "good", words: `At or above the ${f1(DLER_GOAL)} goal` } : { tone: "warn", words: `Below the ${f1(DLER_GOAL)} goal` };
+  return row.ratio >= goal ? { tone: "good", words: `At or above the ${f1(goal)} goal` } : { tone: "warn", words: `Below the ${f1(goal)} goal` };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -239,20 +239,20 @@ export function StartChecklist({ setup, base }: { setup: CapacitySetup; base: st
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** DLER on a scale from 0, the bar in the status colour and a tick at the goal. */
-export function DlerScale({ ratio }: { ratio: number }) {
+export function DlerScale({ ratio, goal = DEFAULT_DLER_GOAL }: { ratio: number; goal?: number }) {
   const W = 220;
-  const top = Math.max(6, ratio * 1.15, DLER_GOAL * 1.25);
+  const top = Math.max(6, ratio * 1.15, goal * 1.25);
   const x = (v: number) => 4 + (Math.max(0, Math.min(v, top)) / top) * (W - 8);
-  const good = ratio >= DLER_GOAL;
-  const label = `DLER ${f1(ratio)} against a goal of ${f1(DLER_GOAL)}`;
+  const good = ratio >= goal;
+  const label = `DLER ${f1(ratio)} against a goal of ${f1(goal)}`;
   return (
     <svg viewBox={`0 0 ${W} 30`} className="mt-1 block h-auto w-full max-w-[220px]" role="img" aria-label={label} data-dler-scale>
       <title>{label}</title>
       <rect x={4} y={8} width={W - 8} height={8} rx={4} className="fill-panel-2" />
       <rect x={4} y={8} width={Math.max(0, x(ratio) - 4)} height={8} rx={4} className={good ? "fill-good" : "fill-warn"} />
-      <line x1={x(DLER_GOAL)} x2={x(DLER_GOAL)} y1={3} y2={21} className="stroke-fg" strokeWidth={2} />
-      <text x={x(DLER_GOAL)} y={29} textAnchor="middle" className="fill-fg-2 text-[9px]">
-        goal {f1(DLER_GOAL)}
+      <line x1={x(goal)} x2={x(goal)} y1={3} y2={21} className="stroke-fg" strokeWidth={2} />
+      <text x={x(goal)} y={29} textAnchor="middle" className="fill-fg-2 text-[9px]">
+        goal {f1(goal)}
       </text>
     </svg>
   );
@@ -277,11 +277,11 @@ export function WholeBusinessHero({ setup, base, extra }: { setup: CapacitySetup
   const w = useMemo(() => wholeBusiness(setup), [setup]);
   const mrr = useMemo(() => setup.departments.reduce((a, d) => a + departmentRetainers(setup, d.id), 0), [setup]);
   const money = (v: number) => formatWholeCurrency(v, setup.currency);
-  const status = dlerStatus(w.dler);
+  const status = dlerStatus(w.dler, setup.dlerGoal);
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fit,minmax(10rem,1fr))]" data-whole-business>
       <HeroKpi label="Clients" value={f0(w.unique)} sub={`${w.byDepartment.map((d) => `${f0(d.clients)} ${d.name}`).join(" + ")} − ${f0(w.both)} taking both`} />
-      <HeroKpi label={`MRR ÷ ${w.employees} people`} value={w.revenuePerEmployee === null ? "—" : money(w.revenuePerEmployee)} sub={`a month, from ${money(mrr)} MRR`} />
+      <HeroKpi label={`MRR ÷ ${employeesLabel(w.employees)}`} value={w.revenuePerEmployee === null ? "—" : money(w.revenuePerEmployee)} sub={`a month, from ${money(mrr)} MRR`} />
       <HeroKpi
         label="DLER"
         value={w.dler.hidden ? "Hidden" : w.dler.ratio === null ? "—" : f1(w.dler.ratio)}
@@ -293,7 +293,7 @@ export function WholeBusinessHero({ setup, base, extra }: { setup: CapacitySetup
             <SalariesMissing base={base} />
           ) : (
             <>
-              <DlerScale ratio={w.dler.ratio} />
+              <DlerScale ratio={w.dler.ratio} goal={setup.dlerGoal} />
               <span className="block">
                 MRR ÷ salaries, the average of {w.dler.people} {w.dler.people === 1 ? "person's" : "people's"} DLER
               </span>
@@ -325,10 +325,10 @@ function Tile({ label, value, sub, tone = null, className }: { label: string; va
 }
 
 /** The first sentence of the department tiles: who is below the DLER goal, and how many people are over their utilisation threshold. */
-export function departmentsAnswer(rows: readonly Pick<DepartmentFigure, "name" | "dler" | "run">[]): string {
-  const judged = rows.filter((r) => dlerStatus(r.dler));
-  const below = judged.filter((r) => dlerStatus(r.dler)!.tone === "warn").map((r) => r.name);
-  const goal = f1(DLER_GOAL);
+export function departmentsAnswer(rows: readonly Pick<DepartmentFigure, "name" | "dler" | "run">[], dlerGoal: number = DEFAULT_DLER_GOAL): string {
+  const judged = rows.filter((r) => dlerStatus(r.dler, dlerGoal));
+  const below = judged.filter((r) => dlerStatus(r.dler, dlerGoal)!.tone === "warn").map((r) => r.name);
+  const goal = f1(dlerGoal);
   const money = !judged.length
     ? ""
     : below.length === 0
@@ -342,19 +342,40 @@ export function departmentsAnswer(rows: readonly Pick<DepartmentFigure, "name" |
   return [money, people].filter(Boolean).join(" ");
 }
 
-const DEPARTMENTS_HOW = {
+/** "3 people", or "2.4 FTE" when part-timers make it a fraction. */
+export function employeesLabel(raw: number): string {
+  // FTE are summed in floating point (0.7 + 0.1 + 0.2 is 0.9999999999999999): round off the noise before asking for a whole number.
+  const fte = Math.round(raw * 1e6) / 1e6;
+  return Number.isInteger(fte) ? `${fte} ${fte === 1 ? "person" : "people"}` : `${formatNumber(fte, 1)} FTE`;
+}
+
+const departmentsHow = (goal: number) => ({
   works: (
     <>
-      Clients and MRR come from Set up; MRR ÷ people divides each department&apos;s MRR by everyone in it (contractors and leadership out). DLER is MRR ÷
-      salaries, the average of each client-facing person&apos;s, against a goal of {f1(DLER_GOAL)}. Who is over their utilisation threshold and the room
+      Clients and MRR come from Set up; MRR ÷ people divides each department&apos;s MRR by the full-time equivalents in it (contractors out; leadership
+      only when DLER counts it, in Settings). DLER is MRR ÷ salaries, the average of each client-facing person&apos;s, against a goal of {f1(goal)} (set in
+      Settings). Who is over their utilisation threshold and the room
       for more clients come from a simulation of today&apos;s clients; the room is a rough guide from the simulation, not a promise, and names what fills
       first.
     </>
   ),
   tells: "Which department needs you first: a DLER below the goal, people over their utilisation threshold, or little room for more clients.",
-};
+});
 
-export function DepartmentTiles({ figures, base, currency, className }: { figures: DepartmentFigures; base: string; currency: string; className?: string }) {
+export function DepartmentTiles({
+  figures,
+  base,
+  currency,
+  className,
+  dlerGoal = DEFAULT_DLER_GOAL,
+}: {
+  figures: DepartmentFigures;
+  base: string;
+  currency: string;
+  className?: string;
+  /** The workspace's DLER goal (`CapacitySetup.dlerGoal`). */
+  dlerGoal?: number;
+}) {
   const money = (v: number) => formatWholeCurrency(v, currency);
   const pending = (what: string) => (figures.failure ? "—" : <Skeleton className="mt-1 h-6 w-14" aria-busy="true" aria-label={`${what} is being worked out`} />);
   return (
@@ -364,9 +385,9 @@ export function DepartmentTiles({ figures, base, currency, className }: { figure
       level={2}
       title="Departments"
       className={className}
-      description={departmentsAnswer(figures.rows)}
+      description={departmentsAnswer(figures.rows, dlerGoal)}
       action={
-        <PanelActions how={DEPARTMENTS_HOW}>
+        <PanelActions how={departmentsHow(dlerGoal)}>
           <Link href={`${base}/capacity`} className="text-xs font-medium text-accent hover:underline" data-capacity-link>
             Capacity →
           </Link>
@@ -375,14 +396,14 @@ export function DepartmentTiles({ figures, base, currency, className }: { figure
     >
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(20rem,100%),1fr))] gap-x-10 gap-y-6" data-tier="departments">
         {figures.rows.map((d) => {
-          const status = dlerStatus(d.dler);
+          const status = dlerStatus(d.dler, dlerGoal);
           const run = d.run;
           return (
             <div key={d.id} className="flex min-w-0 flex-col gap-2" data-department={d.name}>
               <h4 className="border-b border-line pb-1.5 text-sm font-semibold">{d.name}</h4>
               <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                 <Tile label="Clients" value={f0(d.per.clients)} sub={`${f0(d.alsoTake.count)} also take ${d.alsoTake.other}`} />
-                <Tile label={`MRR ÷ ${d.per.employees} people`} value={d.per.revenuePerEmployee === null ? "—" : money(d.per.revenuePerEmployee)} sub="a month" />
+                <Tile label={`MRR ÷ ${employeesLabel(d.per.employees)}`} value={d.per.revenuePerEmployee === null ? "—" : money(d.per.revenuePerEmployee)} sub="a month" />
                 <Tile
                   label="DLER"
                   tone={status ? (status.tone === "good" ? "good" : "warn") : null}

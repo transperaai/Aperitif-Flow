@@ -109,9 +109,10 @@ describe("the free-play Sandbox", { timeout: 240_000 }, () => {
       // The map, the levers band and the results share the page's width; the map is the star (about two thirds of the window, at least 28rem).
       expect(Math.max(...layout.fullWidth) - Math.min(...layout.fullWidth)).toBeLessThanOrEqual(1);
       expect(layout.mapHeight).toBeGreaterThanOrEqual(448);
-      // Every group of levers shows; all five on one row from 1440px, wrapped on a phone (one column each).
-      expect(layout.groupsOpen).toBe(5);
-      expect(layout.groupRows).toBe(width >= 1440 ? 1 : 5);
+      // Every group of levers shows (Work and Costs with the other six); two rows at most from 1440px, wrapped on a phone (one column each).
+      expect(layout.groupsOpen).toBe(8);
+      if (width >= 1440) expect(layout.groupRows).toBeLessThanOrEqual(2);
+      else expect(layout.groupRows).toBe(8);
       expect(layout.scrollers).toBe(0);
       expect(layout.pageScrolls).toBe(true);
       expect(await text(page, "[data-levers-count]")).toBe("No changes");
@@ -121,7 +122,7 @@ describe("the free-play Sandbox", { timeout: 240_000 }, () => {
       expect(await text(page, "[data-play-summary]")).toMatch(/^(Worst month is [A-Z][a-z]{2} \d{4}|Nobody goes over).+ By [A-Z][a-z]{2} \d{4}: \d+ clients and .+ profit a month\. Move a lever/);
 
       // Every group of levers the brief lists, and Reset.
-      for (const g of ["market", "add", "lose", "price", "people"]) expect(await page.locator(`[data-lever-group="${g}"]`).count(), g).toBe(1);
+      for (const g of ["market", "add", "lose", "price", "people", "service"]) expect(await page.locator(`[data-lever-group="${g}"]`).count(), g).toBe(1);
       expect(await text(page, "[data-play-levers]")).toMatch(/Win new clients[\s\S]*Lose clients[\s\S]*Prices[\s\S]*People/);
       // The levers are business conditions only (D53): an automation is part of a process version, picked on the map.
       expect(await page.locator('[data-lever-group="automation"], [data-automation-switch], [data-changes-manage], [data-change-add]').count()).toBe(0);
@@ -236,7 +237,7 @@ describe("the free-play Sandbox", { timeout: 240_000 }, () => {
     await page.locator(`[data-version-popover="${id}"] [data-version-option="sol-${id}"]`).click();
     await page.keyboard.press("Escape");
     await page.locator('[data-lever="add:org"]').fill("2");
-    await page.locator('[data-lever="churn"] input').fill("20");
+    await page.locator('[data-lever="churn"] input[type=range]').fill("20");
     await settled(page);
     expect(await text(page, "[data-levers-count]")).toBe("2 changes");
     await page.locator("[data-levers-reset]").click();
@@ -255,7 +256,7 @@ describe("the free-play Sandbox", { timeout: 240_000 }, () => {
     const { page, errors } = await mount();
     await ready(page);
     await page.locator('[data-lever="add:org"]').fill("3");
-    await page.locator('[data-lever="leads"] input').fill("20");
+    await page.locator('[data-lever="leads"] input[type=range]').fill("20");
     await settled(page);
     expect(await page.locator('[data-lever="add:org"]').inputValue()).toBe("3");
     // Leaving the page unmounts it; coming back opens it fresh.
@@ -319,7 +320,7 @@ describe("the free-play Sandbox", { timeout: 240_000 }, () => {
     const { page, errors } = await mount();
     await ready(page);
     expect(await page.locator("[data-price-loss]").count()).toBe(0);
-    await page.locator('[data-lever="price"] input').fill("10");
+    await page.locator('[data-lever="price"] input[type=range]').fill("10");
     await page.locator('[data-lever="priceFrom"]').selectOption("1");
     await page.locator('[data-lever="priceReaction"]').selectOption("barely");
     await settled(page);
@@ -402,7 +403,7 @@ describe("the free-play Sandbox", { timeout: 240_000 }, () => {
         await page.locator("[data-version-popover] [data-version-option]").nth(1).click();
         if (shotPopover) await page.screenshot({ path: `${shots}/sandbox-popover-${scheme}-${width}.png`, fullPage: false });
         await page.keyboard.press("Escape");
-        await page.locator('[data-lever="price"] input').fill("8");
+        await page.locator('[data-lever="price"] input[type=range]').fill("8");
         await settled(page);
         await page.evaluate(() => document.fonts.ready);
         await page.screenshot({ path: `${shots}/sandbox-${scheme}-${width}.png`, fullPage: true });

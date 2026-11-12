@@ -12,6 +12,8 @@
 import {
   OVERRIDE_KINDS,
   RATING_RULE_IDS,
+  DEFAULT_RATING_CUTOFFS,
+  busyCutoffsAt,
   defaultRatingConfig,
   type Cutoffs,
   type OverrideKind,
@@ -19,6 +21,7 @@ import {
   type RatingOverride,
   type RatingRuleId,
 } from "./ratings";
+import { hoursPerWorkingDay } from "./model";
 
 /** Every rule in docs/analysis-rules.md, in its order. */
 export const ANALYSIS_RULE_IDS = [
@@ -375,12 +378,30 @@ export function isDefaultAnalysisSettings(settings: AnalysisSettings): boolean {
 }
 
 /**
- * The rating model's config for these settings. `hoursPerWeek` is the model's
- * working week, to turn the expected waits (hours) into working days.
+ * The busy cut-offs with `line` (the workspace's busy line, `busyLine`) as the middle one: the others keep their defaults and move
+ * only as far as they must to stay in order. At 0.85 these are the defaults.
  */
-export function toRatingConfig(settings: AnalysisSettings | null | undefined, hoursPerWeek: number): RatingConfig {
+export function busyCutoffs(line: number): Cutoffs {
+  const [lo, , hi] = DEFAULT_RATING_CUTOFFS.busy;
+  return [Math.min(lo, line), line, Math.max(hi, line)];
+}
+
+/**
+ * The rating model's config for these settings. `hoursPerWeek` is the model's
+ * working week (and its working days, 5 when omitted), to turn the expected waits (hours) into
+ * working days. `busy` is the workspace's busy line (`busyLine(model)`): the middle busy cut-off.
+ * When the settings give the busy rule's own inputs, those keep their distances from the middle
+ * (the busy bands Settings > Simulation edits) and move with the line.
+ */
+export function toRatingConfig(
+  settings: AnalysisSettings | null | undefined,
+  hoursPerWeek: number,
+  busy?: number,
+  workingDaysPerWeek?: number,
+): RatingConfig {
   const s = parseAnalysisSettings(settings).value;
   const config = defaultRatingConfig();
+  if (busy !== undefined && Number.isFinite(busy) && busy > 0) config.rules.busy.cutoffs = busyCutoffs(busy);
   for (const id of RATING_RULE_IDS) {
     const r = s.rules?.[id];
     if (!r) continue;
@@ -392,7 +413,9 @@ export function toRatingConfig(settings: AnalysisSettings | null | undefined, ho
       ...(o.inputs ? { cutoffs: to(o.inputs) } : {}),
       ...(o.expectedWaitHours !== undefined ? { expectedWaitHours: o.expectedWaitHours } : {}),
     }));
-    config.rules[id] = { enabled: r.enabled !== false, cutoffs: r.inputs ? to(r.inputs) : config.rules[id].cutoffs, overrides };
+    const stored = r.inputs ? to(r.inputs) : null;
+    const cutoffs = stored && id === "busy" && busy !== undefined && Number.isFinite(busy) && busy > 0 ? busyCutoffsAt(stored, busy) : (stored ?? config.rules[id].cutoffs);
+    config.rules[id] = { enabled: r.enabled !== false, cutoffs, overrides };
   }
   if (s.escalators?.badMonth === false) config.escalators.badMonth = false;
   if (s.escalators?.bottleneck === false) config.escalators.bottleneck = false;
@@ -401,7 +424,7 @@ export function toRatingConfig(settings: AnalysisSettings | null | undefined, ho
   const spof = resolveAnalysisRule(s, "spof");
   const money = resolveMoney(s);
   config.absence = { weeks: money.absenceWeeks, perYear: money.absencesPerYear, recoveryCutoffs: [spof.inputs[2]!, spof.inputs[2]!, spof.inputs[3]!] };
-  const hoursPerDay = hoursPerWeek / 5;
+  const hoursPerDay = hoursPerWorkingDay({ hoursPerWeek, workingDaysPerWeek });
   const w = s.money?.waitHours;
   if (hoursPerDay > 0 && w?.pipeline !== undefined) config.expectedWaitDays.pipeline = w.pipeline / hoursPerDay;
   if (hoursPerDay > 0 && w?.servicing !== undefined) config.expectedWaitDays.servicing = w.servicing / hoursPerDay;

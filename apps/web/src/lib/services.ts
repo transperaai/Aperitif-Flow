@@ -41,8 +41,9 @@ export const SERVICE_FIELDS = {
   // The fee range of a client won (sandbox phase 3, A5): blank is no range.
   price_low: (v) => v === null || between(0, MAX_PRICE)(v),
   price_high: (v) => v === null || between(0, MAX_PRICE)(v),
-  margin: between(0, 1),
-  tenure_months: between(0, MAX_TENURE_MONTHS),
+  // No `margin`: it feeds nothing (customisability audit 41 and 46), so no screen saves it. The column stays, and backups keep it.
+  // Blank: worked out from churn (1 ÷ base churn).
+  tenure_months: (v) => v === null || between(0, MAX_TENURE_MONTHS)(v),
   churn_monthly_base: between(0, 1),
   // How much poor client health raises churn (docs/PRD.md §6.3.5; issue #19).
   churn_health_sensitivity: between(0, 100),

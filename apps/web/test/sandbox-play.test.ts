@@ -13,12 +13,15 @@ import {
   winMix,
   PLAY_MONTHS,
   PRICE_REACTION,
+  PRICE_RISE_MONTHS,
+  playSliderRanges,
+  priceRiseMonths,
   type StoredStepChange,
   type PlayContext,
   type PlayState,
 } from "@transpera-flow/db";
 import { capacityModel, simulate, type EngineModel } from "@transpera-flow/engine";
-import { prepareScenario } from "@transpera-flow/db/sandbox";
+import { hoursToDate, preparePlay, prepareScenario } from "@transpera-flow/db/sandbox";
 import { DEMO_FORECAST_SOLUTION, DEMO_FORECAST_START, demoForecastBundle } from "@/lib/forecast/demo";
 
 // The free-play Sandbox's levers (capacity build P7, docs/plans/capacity/p7-sandbox-brief.md section 3): each prototype lever becomes the
@@ -197,6 +200,9 @@ describe("hires and the market", () => {
     const m = applyPlay({ ...model, people }, play({ hires: [{ role: "links", month: 3 }] }), ctx, new Set([id]));
     expect(m.people![id]!.ramp).toEqual([0.4, 0.6, 0.8]);
     expect(m.people!.diya?.ramp).toBeUndefined();
+    // "Up to speed": at full speed from day one (customisability audit 9).
+    const full = applyPlay({ ...model, people }, play({ hires: [{ role: "links", month: 3 }], hireRamp: "none" }), ctx, new Set([id]));
+    expect(full.people![id]!.ramp).toEqual([1]);
   });
 
   it("conditions apply from the month, with the workspace's own schedule before it", () => {
@@ -293,5 +299,184 @@ describe("the automations and augmentations a map version holds (D53)", () => {
     const last = prepared.segments[prepared.segments.length - 1]!.model.changes!;
     expect(last.map((x) => x.name)).toEqual(["Second"]);
     expect(last[0]!.startMonth).toBe(6);
+  });
+});
+
+describe("client health and churn sensitivity (customisability audit, findings 15 and 27)", () => {
+  it("a health rule moved is an X1 change for the whole run; null or absent keeps the workspace's", () => {
+    const c = playChanges(play({ health: { late_penalty: 10, missed_penalty: null, initial: 150 } }), ctx);
+    expect(c).toMatchObject([
+      { lever: "X1", target: "initial", op: "set", value: 100 },
+      { lever: "X1", target: "late_penalty", op: "set", value: 10 },
+    ]);
+    expect(c.every((x) => x.from === undefined)).toBe(true);
+    expect(playIsDefault(play({ health: { late_penalty: 10 } }))).toBe(false);
+    expect(playIsDefault(play({ health: { late_penalty: null } }))).toBe(true);
+  });
+
+  it("the runner sets the rule on the run's model", () => {
+    const bundle = demoForecastBundle();
+    const demoCtx: PlayContext = { ...ctx, startDate: DEMO_FORECAST_START };
+    const c = playChanges(play({ health: { late_penalty: 20, recover: 0 } }), demoCtx);
+    const prepared = prepareScenario(bundle, c.map((change) => ({ change, scenarioId: "play", scenarioName: "Free play", inherited: false })), [], 12, DEMO_FORECAST_START, { pair: false });
+    expect(prepared.error).toBeNull();
+    expect(prepared.problems).toEqual([]);
+    expect(prepared.segments[0]!.model.health).toMatchObject({ latePenalty: 20, recover: 0 });
+  });
+
+  it("churn sensitivity: every service's, times the change; 0 leaves the model as it is", () => {
+    expect(applyPlay(model, play({ sensitivity: 0 }), ctx)).toBe(model);
+    const m = applyPlay(model, play({ sensitivity: -50 }), ctx);
+    for (const [id, sv] of Object.entries(model.services!)) expect(m.services![id]!.churnSensitivity).toBeCloseTo((sv.churnSensitivity ?? 0) * 0.5, 6);
+    expect(playIsDefault(play({ sensitivity: 20 }))).toBe(false);
+  });
+
+  it("run through the engine: a harsher late penalty leaves clients less healthy", () => {
+    const bundle = demoForecastBundle();
+    const base = prepareScenario(bundle, [], [], 12, DEMO_FORECAST_START, { pair: false }).segments[0]!.model;
+    const harsh = { ...base, health: { ...base.health, latePenalty: 40, missedPenalty: 60 } };
+    const health = (m: EngineModel) => Object.values(simulate(m, 4, 1).clients ?? {}).reduce((a, c) => a + c.health.mean, 0);
+    expect(health(harsh)).toBeLessThanOrEqual(health(base));
+  });
+});
+
+// Customisability audit 26: lever months run to the end of the horizon, not just the first year.
+describe("lever months cover the whole horizon", () => {
+  const long: PlayContext = { ...ctx, months: 36 };
+
+  it("a hire in month 18 and a price rise in year 2 keep their months on a 36-month run", () => {
+    const c = playChanges(play({ hires: [{ role: "links", month: 18 }], price: 5, priceFrom: 14 }), long);
+    expect(c.find((x) => x.lever === "D1")!.from).toBe("2028-05");
+    expect(c.find((x) => x.lever === "B5")!.from).toBe("2028-01");
+    // Past the horizon, clamped to its last month; with no horizon, the first year as before.
+    expect(playChanges(play({ leads: 5, marketFrom: 99 }), long)[0]!.from).toBe("2029-10");
+    expect(playChanges(play({ hires: [{ role: "links", month: 18 }] }), ctx)[0]!.from).toBe("2027-10");
+  });
+
+  it("a market from month 15 runs to the end of the horizon, and a named client can leave in month 20", () => {
+    const m = applyPlay(model, play({ market: "downturn", marketFrom: 15 }), long);
+    expect(m.market!.months).toHaveLength(36);
+    expect(m.market!.months[14]!.leads).toBe(1);
+    expect(m.market!.months[15]!.leads).toBe(0.65);
+    const id = Object.keys(model.clients ?? {})[0];
+    if (id) expect(applyPlay(model, play({ lose: [{ id, month: 20 }] }), long).clients![id]!.leavesMonth).toBe(21);
+  });
+
+  it("wins can start after the first year", () => {
+    const [dept] = setup.departments;
+    const wins = winEntries(play({ add: { [dept!.id]: 1 }, addFrom: 20, addMonths: 2, addTier: "T1" }), long);
+    expect(wins.map((w) => w.month)).toEqual([21, 22]);
+  });
+});
+
+// Customisability audit 24: the sliders offer the lever registry's ranges, in steps of 1.
+describe("the sliders' ranges", () => {
+  it("come from the registry: leads, win rate, churn and prices -100% to +400%", () => {
+    const r = playSliderRanges();
+    expect(r.leads).toEqual({ min: -100, max: 400, step: 1 });
+    expect(r.win).toEqual({ min: -100, max: 400, step: 1 });
+    expect(r.churn).toEqual({ min: -100, max: 400, step: 1 });
+    expect(r.price).toEqual({ min: -100, max: 400, step: 1 });
+  });
+
+  it("doubling leads, +3% win rate and a 50% price rise become the registry's changes", () => {
+    const c = playChanges(play({ leads: 100, win: 3, price: 50 }), ctx);
+    expect(c).toMatchObject([
+      { lever: "A1", value: 2 },
+      { lever: "A3", value: 1.03 },
+      { lever: "B5", value: 0.5 },
+    ]);
+  });
+});
+
+// Customisability audit 7: a free-play price rise keeps the price churn driver's own chance and months from Settings.
+describe("a price rise and the price churn driver's own settings", () => {
+  const withDriver = (d: Partial<NonNullable<EngineModel["churnDrivers"]>[number]>): EngineModel => ({ ...model, churnDrivers: [{ id: "price", weight: 1, enabled: false, ...d }] });
+  const priceOf = (m: EngineModel) => m.churnDrivers!.find((d) => d.id === "price")!;
+
+  it("keeps the driver's months and chance, and falls back to a sure hit for 3 months", () => {
+    const own = priceOf(applyPlay(withDriver({ chance: 0.4, effectMonths: 6 }), play({ price: 10 }), ctx));
+    expect(own).toMatchObject({ enabled: true, chance: 0.4, effectMonths: 6 });
+    expect(own.effect).toBeCloseTo(0.5, 12);
+    const none = priceOf(applyPlay({ ...model, churnDrivers: [] }, play({ price: 10 }), ctx));
+    expect(none).toMatchObject({ enabled: true, chance: 1, effectMonths: PRICE_RISE_MONTHS });
+  });
+
+  it("'Lasts' replaces the months for the run only", () => {
+    expect(priceOf(applyPlay(withDriver({ effectMonths: 6 }), play({ price: 10, priceMonths: 2 }), ctx)).effectMonths).toBe(2);
+    expect(priceRiseMonths({}, { effectMonths: 6 })).toBe(6);
+    expect(priceRiseMonths({ priceMonths: null }, undefined)).toBe(PRICE_RISE_MONTHS);
+    expect(priceRiseMonths({ priceMonths: 30 }, { effectMonths: 6 })).toBe(6);
+  });
+});
+
+// Customisability audit 22/23/33: "Months to hire" in free play changes the advice, not the run's changes.
+describe("months to hire in free play", () => {
+  it("a free-play hire starts in the month picked for it, whatever the workspace's own months to hire", () => {
+    const base = demoForecastBundle();
+    const bundle = { ...base, workspace: { ...base.workspace, settings: { ...base.workspace.settings, hiring_delay_months: 3 } } };
+    const role = bundle.roles[0]!.id;
+    const demoCtx: PlayContext = { ...ctx, startDate: DEMO_FORECAST_START };
+    const p = play({ hires: [{ role, month: 3 }] });
+    const [id] = hireIds(p);
+    const hire = playChanges(p, demoCtx).find((c) => c.lever === "D1")!;
+    const picked = hoursToDate(DEMO_FORECAST_START, `${hire.from}-01`, bundle.workspace.settings.hours_per_week);
+    const prepared = preparePlay(bundle, p, demoCtx, []);
+    expect(prepared.error).toBeNull();
+    expect(prepared.segments[0]!.model.people![id!]!.from).toBe(picked);
+    // A saved scenario's hire still waits the workspace's months to hire.
+    const saved = prepareScenario(bundle, [{ change: hire, scenarioId: "s", scenarioName: "Saved", inherited: false }], [], 12, DEMO_FORECAST_START, { pair: false });
+    expect(saved.segments[0]!.model.people![hire.id]!.from).toBeGreaterThan(picked);
+  });
+
+  it("a chosen months to hire moves the levers off today's path but makes no registry change", () => {
+    expect(playIsDefault(play({ hiringDelay: 3 }))).toBe(false);
+    expect(playIsDefault(play({ hiringDelay: null }))).toBe(true);
+    expect(playChanges(play({ hiringDelay: 3 }), ctx)).toEqual([]);
+  });
+});
+
+describe("costs (customisability audit 4 and 6)", () => {
+  const roleIds = setup.roles.filter((r) => r.active !== false).map((r) => r.id);
+
+  it("overheads a month: add to today's or set, from a month (C2); 0 added or nothing set is no change", () => {
+    expect(playIsDefault(play({ overheads: 0 }))).toBe(true);
+    expect(playIsDefault(play({ overheads: null, overheadsOp: "set" }))).toBe(true);
+    expect(playChanges(play({ overheads: 0 }), ctx)).toEqual([]);
+    expect(playIsDefault(play({ overheads: 2000 }))).toBe(false);
+    expect(playChanges(play({ overheads: 2000, overheadsFrom: 3 }), ctx)).toMatchObject([{ lever: "C2", target: null, op: "add", value: 2000, from: "2027-02" }]);
+    expect(playChanges(play({ overheads: 0, overheadsOp: "set", overheadsFrom: 0 }), ctx)).toMatchObject([{ lever: "C2", op: "set", value: 0, from: "2026-11" }]);
+  });
+
+  it("pay change %: a multiple of role cost from a month (C1), for one role or one change per role for everyone", () => {
+    const all = playChanges(play({ pay: 10, payFrom: 6 }), ctx);
+    expect(all.map((c) => c.target)).toEqual(roleIds);
+    for (const c of all) expect(c).toMatchObject({ lever: "C1", op: "multiply", value: 1.1, from: "2027-05" });
+    expect(playChanges(play({ pay: -5, payRole: roleIds[0]! }), ctx)).toMatchObject([{ lever: "C1", target: roleIds[0], op: "multiply", value: 0.95 }]);
+    expect(playIsDefault(play({ pay: 3 }))).toBe(false);
+  });
+
+  it("never for someone who can't see pay", () => {
+    expect(playChanges(play({ pay: 10, overheads: 2000 }), { ...ctx, setup: { ...setup, payHidden: true } })).toEqual([]);
+  });
+
+  it("run: pay from a month scales labour from that month, even for a role that costs 0 an hour, and overheads add on", () => {
+    const bundle = demoForecastBundle();
+    const demoCtx: PlayContext = { ...ctx, startDate: DEMO_FORECAST_START, setup: { ...setup, roles: bundle.roles.map((r) => ({ ...setup.roles[0]!, id: r.id, name: r.name, active: true })) } };
+    const c = playChanges(play({ pay: 10, payFrom: 3, overheads: 2000, overheadsFrom: 3 }), demoCtx);
+    expect(c.filter((x) => x.lever === "C1")).toHaveLength(bundle.roles.length);
+    const eff = c.map((change) => ({ change, scenarioId: "play", scenarioName: "Free play", inherited: false }));
+    const prepared = prepareScenario(bundle, eff, [], 12, DEMO_FORECAST_START, { pair: false });
+    expect(prepared.error).toBeNull();
+    expect(prepared.problems).toEqual([]);
+    const changed = prepared.segments[0]!.model;
+    const base = prepareScenario(bundle, [], [], 12, DEMO_FORECAST_START, { pair: false }).segments[0]!.model;
+    const a = simulate(base, 2, 1, { monthly: true }).monthly!.money!;
+    const b = simulate(changed, 2, 1, { monthly: true }).monthly!.money!;
+    expect(a.labour[5]!).toBeGreaterThan(0);
+    expect(b.labour[1]).toBeCloseTo(a.labour[1]!, 6);
+    expect(b.labour[5]! / a.labour[5]!).toBeCloseTo(1.1, 6);
+    expect(b.overheads[5]! - a.overheads[5]!).toBeCloseTo(2000, 6);
+    expect(b.overheads[1]).toBeCloseTo(a.overheads[1]!, 6);
   });
 });

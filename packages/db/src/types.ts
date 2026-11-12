@@ -4,7 +4,7 @@
 // bottom fail the typecheck if they drift from it.
 
 import type { ProcessCategory } from "./process-category";
-import type { IssueType, ScenarioPatch, StoredSeverity } from "@transpera-flow/engine";
+import type { AnalysisSettings, IssueType, ScenarioPatch, StoredSeverity } from "@transpera-flow/engine";
 import type { Selectable } from "kysely";
 import type { DB } from "./db-types";
 import type { Viewer } from "./queries";
@@ -32,7 +32,19 @@ export type PricingModel = "retainer" | "one_off" | "hourly";
 export type DistParams = { cv?: number | null; min?: number | null; mode?: number | null; max?: number | null };
 
 export interface WorkspaceSettings {
+  /** The normal working week in hours, above 0 and at most 168 (set when the workspace is made, editable in Settings > Simulation). */
   hours_per_week: number;
+  /**
+   * Working days a week, 1 to 7: a working day is `hours_per_week / working_days` hours wherever days turn into hours (first
+   * delivery, expected waits, days in findings). Absent or null: 5. Checked by `workspaces_working_days`.
+   */
+  working_days?: number | null;
+  /**
+   * Months from deciding to hire to the new person starting, 0 to 24: the base the market's time-to-hire factor stretches, used for
+   * "start hiring by" on the Overview and in the Sandbox, and for when a Sandbox hire starts. Absent or null: 2
+   * (`DEFAULT_HIRING_DELAY_MONTHS`). Checked by `workspaces_hiring_delay_months`.
+   */
+  hiring_delay_months?: number | null;
   horizon_weeks: number;
   currency: string;
   /** Arrivals a week while the workspace has no lead sources; the other three are interim until services and clients land. */
@@ -48,6 +60,16 @@ export interface WorkspaceSettings {
    */
   overtime_cap?: number;
   /**
+   * x the normal hourly rate for an overtime hour, 0 to 5 (1.5: time and a half; 0: unpaid). Absent or null: 1, the normal rate.
+   * Checked by `workspaces_overtime_pay_factor`; the engine's `overtimePayFactor`. Pay: Settings shows it only to those who see pay.
+   */
+  overtime_pay_factor?: number | null;
+  /**
+   * Employer on-costs (super, payroll tax, insurance) as a share of employees' pay, 0 to 1; contractors have none. Absent or null:
+   * 0. Checked by `workspaces_employer_on_costs`; the engine's `employerOnCosts`. Pay: Settings shows it only to those who see pay.
+   */
+  employer_on_costs?: number | null;
+  /**
    * How servicing moves client health (docs/PRD.md §6.3.5; issue #19):
    * health added for a task done on time, taken off for a late one and for a
    * missed one, and the health of a client with none entered. Left out: the
@@ -57,6 +79,30 @@ export interface WorkspaceSettings {
   health_late_penalty?: number;
   health_missed_penalty?: number;
   health_initial?: number;
+  /**
+   * Client health bands, 0–100 (customisability audit, findings 34 and 38): healthy from, watch from, and at risk below. Left out: 75,
+   * 65 and 50. Saved with the health rules (`save_health_rules`); checked by `workspaces_health_bands`.
+   */
+  health_healthy_from?: number | null;
+  health_watch_from?: number | null;
+  health_at_risk?: number | null;
+  /**
+   * Where the measured churn drivers start and are full (customisability audit, findings 1 and 2), read into
+   * `EngineModel.churnLimits`. Left out: the engine's defaults. `utilisation_threshold` is the busy share above which a team is
+   * overloaded (0.85); `churn_load_full` where overload is full (1); the response and rework shares that are full pressure (0.5,
+   * 0.25); a first delivery this many times normal is full (2); months of early tenure (26 weeks); what an away team adds to
+   * handoffs (0.5); the results rating that adds nothing (8); months a price rise weighs (13 weeks). Saved with the health rules
+   * (`save_health_rules`), so editors can change them with the drivers; checked by `workspaces_churn_limits`.
+   */
+  utilisation_threshold?: number | null;
+  churn_load_full?: number | null;
+  churn_response_full_share?: number | null;
+  churn_rework_full_share?: number | null;
+  churn_onboarding_full_multiple?: number | null;
+  churn_early_tenure_months?: number | null;
+  churn_away_pressure?: number | null;
+  churn_results_normal?: number | null;
+  churn_price_months?: number | null;
   /**
    * The range of company client health that is normal for the business, 0–100
    * (for example 70 to 80 for a small agency). The People page shows the
@@ -93,6 +139,22 @@ export interface WorkspaceSettings {
    * Stored only. Checked by `workspaces_dler_includes_leadership`.
    */
   dler_includes_leadership?: boolean | null;
+  /**
+   * The longest stay, in months (1 to 600), that a stay worked out from churn may be: a service with no expected tenure stays
+   * 1 / churn months up to this, and this long at a churn of 0. Absent or null: `DEFAULT_MAX_STAY_MONTHS` (60) for services, and
+   * the implicit retainer keeps 1 / churn uncapped. Checked by `workspaces_max_stay_months`.
+   */
+  max_stay_months?: number | null;
+  /**
+   * The DLER the agency aims for (fees a month ÷ salaries a month), more than 0 and at most 50, e.g. 3 for 3:1. Every DLER on the
+   * Overview, Capacity and the Sandbox is judged against it. Absent or null: `DEFAULT_DLER_GOAL` (4.5). Checked by `workspaces_dler_goal`.
+   */
+  dler_goal?: number | null;
+  /**
+   * How far under their own utilisation threshold someone counts as at risk ("near"), as a share from 0 to 0.5 (0.1 is 10 points).
+   * Absent or null: `DEFAULT_AT_RISK_MARGIN` (0.1). Checked by `workspaces_at_risk_margin`.
+   */
+  at_risk_margin?: number | null;
 }
 
 /** One per-person time as `team_capacity` returns it (`step_id` null is the person's time on every step). */
@@ -129,6 +191,11 @@ export interface RoleRow {
    * fixtures and older snapshots still type-check.
    */
   salary_monthly?: number | null;
+  /**
+   * The role's utilisation threshold as a share (Settings: "Utilisation threshold"; default 0.85): at or over it the role counts as too
+   * busy, in the engine's ratings and forecast as on the Capacity page. Optional so fixtures that predate it still type-check.
+   */
+  line?: number;
 }
 
 export interface PersonRow {
@@ -348,8 +415,8 @@ export interface ServiceRow {
   price: number;
   /** Gross margin as a share of price (0–1). */
   margin: number;
-  /** Expected tenure of a retainer client, in months. */
-  tenure_months: number;
+  /** Expected tenure of a retainer client, in months. Null: worked out from churn (`tenureFromChurn`). */
+  tenure_months: number | null;
   /** Base monthly churn (0–1): at full health, the churn of a client on this service. */
   churn_monthly_base: number;
   /**
@@ -729,6 +796,11 @@ export interface ProcessPart {
 export interface ProcessBundle {
   /** Who loaded it (B1 2/3). Absent means "sees everyone" (demo fixtures, tests, the golden models). */
   viewer?: Viewer;
+  /**
+   * The workspace's analysis assumptions as stored (`liveAnalysisSettings` of `analysis_rules.settings`): what Settings edits (a lost
+   * client's value cap, the absence test, the busy bands). Every page rates a run with these. Absent or {}: the documented defaults.
+   */
+  analysisRules?: AnalysisSettings;
   /** Pay is hidden even though the viewer may see everyone (a share link, B3). */
   payHidden?: true;
   workspace: WorkspaceRow;
@@ -863,7 +935,7 @@ export interface CapacityInputs {
    * People's team time and ramp. Read straight from `people`, so a viewer who can't see people gets none (as pay is hidden):
    * everyone then has all their hours and no ramp.
    */
-  people: { id: string; reserved_share: number; ramp: number[] | null }[];
+  people: { id: string; reserved_share: number; ramp: number[] | null; label?: string | null; paid_for?: string | null }[];
   personTiers: { person_id: string; tier_id: string }[];
   portfolio: { person_id: string; service_id: string; client_count: number }[];
 }
@@ -1118,8 +1190,8 @@ export type _SchemaDriftChecks = [
   // settings is jsonb; WorkspaceSettings is its app-side shape.
   // provenance is loaded only where shown (optional here, required in the table).
   Assert<Matches<Omit<WorkspaceRow, "settings" | "provenance">, "workspaces">>,
-  // salary_monthly (and a person's label) are optional here (absent on fixtures).
-  Assert<Matches<Omit<RoleRow, "salary_monthly">, "roles">>,
+  // salary_monthly and line (and a person's label) are optional here (absent on fixtures).
+  Assert<Matches<Omit<RoleRow, "salary_monthly" | "line">, "roles">>,
   Assert<Matches<Required<Pick<RoleRow, "salary_monthly">>, "roles">>,
   Assert<Matches<Omit<PersonRow, "provenance" | "salary_monthly" | "label">, "people">>,
   Assert<Matches<Required<Pick<PersonRow, "salary_monthly" | "label">>, "people">>,

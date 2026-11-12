@@ -5,12 +5,13 @@
 // which it links to. It is its own run (30 replications month by month, about half a second in a worker for the
 // seeded Northbeam over 12 months), so it only starts once the section scrolls near the screen.
 
+import { workspaceBusyLine } from "@/lib/busy-line";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import type { ProcessBundle } from "@transpera-flow/db";
-import { RATING_LABELS, toRatingConfig } from "@transpera-flow/engine";
-import { ANALYSIS_DEFAULTS } from "@/lib/analysis/defaults";
+import { RATING_LABELS, busyCutoffsAt, toRatingConfig } from "@transpera-flow/engine";
+import { analysisRulesOf } from "@/lib/analysis/defaults";
 import { buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DEFAULT_FORECAST_MONTHS, forecastInsights, forecastModel, today } from "@/lib/forecast/forecast";
@@ -47,9 +48,16 @@ export function ForecastPanel({
   }, [near]);
   const sim = useSimulation(near ? built.model : null, 30, 1, { monthly: true, monthStarts: built.monthStarts });
   const result = near && sim.status === "done" ? sim.run.result : null;
-  const cutoffs = toRatingConfig(ANALYSIS_DEFAULTS, bundle.workspace.settings.hours_per_week).rules.busy.cutoffs;
+  const rules = analysisRulesOf(bundle);
+  const cutoffs = toRatingConfig(rules, bundle.workspace.settings.hours_per_week, workspaceBusyLine(bundle.workspace.settings)).rules.busy.cutoffs;
   const busyLine = cutoffs[1];
-  const alerts = useMemo(() => (built.model && result ? forecastInsights(built.model, result, ANALYSIS_DEFAULTS, start) : null), [built.model, result, start]);
+  // Each person against their own role's utilisation threshold, as the alerts rate them (customisability audit 11).
+  const rowCutoffs = (pid: string) => {
+    const rid = built.model?.people?.[pid]?.roles[0];
+    const line = rid ? built.model?.roles[rid]?.line : undefined;
+    return line ? busyCutoffsAt(cutoffs, line) : undefined;
+  };
+  const alerts = useMemo(() => (built.model && result ? forecastInsights(built.model, result, rules, start) : null), [built.model, result, rules, start]);
   const data = useMemo(() => (built.model && result ? timelineData(built.model, result, bundle, start) : null), [built.model, result, bundle, start]);
   if (!built.model) return null;
   const span = horizonLabel(months);
@@ -79,11 +87,11 @@ export function ForecastPanel({
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-muted-foreground">Nobody crosses the {Math.round(busyLine * 100)}% utilisation threshold in the next {span}.</p>
+          <p className="text-sm text-muted-foreground">Nobody crosses their role&apos;s utilisation threshold in the next {span}.</p>
         )}
         <TimelineLegend busyLine={busyLine} hasUncovered={data?.roles.some((r) => r.uncovered) ?? false} hasMarkers={(data?.markers.length ?? 0) > 0} hasMarket={(data?.market.length ?? 0) > 0} />
         {data ? (
-          <ForecastTimeline data={data} rows="people" cutoffs={cutoffs} label={`How busy each person is per month over the next ${span}, against the ${Math.round(busyLine * 100)}% utilisation threshold.`} />
+          <ForecastTimeline data={data} rows="people" cutoffs={cutoffs} rowCutoffs={rowCutoffs} label={`How busy each person is per month over the next ${span}, against their role's utilisation threshold.`} />
         ) : sim.status === "error" ? (
           <p className="text-sm text-muted-foreground">The forecast couldn&apos;t be worked out: {sim.error}</p>
         ) : (

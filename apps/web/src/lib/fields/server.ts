@@ -1,6 +1,7 @@
 import "server-only";
 import type { Json } from "@transpera-flow/db";
 import type { HealthSetting } from "@/lib/servicing";
+import type { ChurnLimitSetting } from "@/lib/churn-drivers";
 import { rpc } from "@transpera-flow/db/client";
 import { getDb } from "@/lib/auth/session";
 import type { SaveOutcome } from "./field-controller";
@@ -104,11 +105,11 @@ export async function saveField<T extends string | number | boolean | null | str
 }
 
 /**
- * Save one Client health rule (a `settings.<key>` of the workspace) if its stored value is still `base`. Agency admins may
- * (`save_health_rules`, a SECURITY DEFINER function that writes nothing but those four keys; `save_fields('workspaces')` is
- * owner-only). `value` is a number from 0 to 100, or null to restore the estimated default.
+ * Save one Client health rule, health band or churn-driver limit (a `settings.<key>` of the workspace) if its stored value is still `base`. Agency admins may
+ * (`save_health_rules`, a SECURITY DEFINER function that writes nothing but those keys, each in its range; `save_fields('workspaces')` is
+ * owner-only). `value` is a number in the key's range, or null to restore the default.
  */
-export async function saveHealthRule(workspaceId: string, key: HealthSetting, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+export async function saveHealthRule(workspaceId: string, key: HealthSetting | ChurnLimitSetting, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
   const db = await getDb();
   const out = await attempt(() => rpc(db, "save_health_rules", { ws: workspaceId, base: { [key]: base }, changes: { [key]: value } }));
   if ("error" in out) return errorOutcome(out.error);

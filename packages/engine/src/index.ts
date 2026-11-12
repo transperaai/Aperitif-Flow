@@ -2,10 +2,11 @@ export * from "./model";
 export { flattenModel, isNested, NestingError } from "./flatten";
 export { detectLoops, type Loop, type LoopKind } from "./loops";
 export { ENGINE_VERSION } from "./version";
-export { DEFAULT_AVAILABILITY_FLOOR, SEED_STRIDE, checkModel, initialState, ModelError, monthBounds, pct, pooledMonthlyFee, resolvePeople, runOnce, afterSaleSteps, simulate, stat, weeklyKeep, type SimulateOptions } from "./simulate";
+export { DEFAULT_AVAILABILITY_FLOOR, SEED_STRIDE, checkModel, initialState, ModelError, monthBounds, pct, DEFAULT_MAX_STAY_MONTHS, tenureFromChurn, pooledMonthlyFee, resolvePeople, runOnce, afterSaleSteps, simulate, stat, weeklyKeep, type SimulateOptions } from "./simulate";
 export { FORECAST_KEY_PREFIX, UNCOVERED_KEY, firstCrossing, forecastAlerts, isTooBusy, monthOfHour, type BusyCrossing, type Crossing, type ForecastAlertOptions } from "./forecast";
 export { checkDemand, demandFactor, isFlatDemand, WEEKS_PER_CALENDAR_MONTH } from "./demand";
 export * from "./market";
+export * from "./pay";
 export * from "./churn-drivers";
 export { activeChannels, capacityFactors, channelMonth, checkChannels, planChannels, withMaxRework, type ChannelPlan, type FeeRise } from "./channels";
 export { mulberry32 } from "./random";
@@ -58,11 +59,14 @@ export {
 export {
   AT_RISK_HEALTH,
   DEFAULT_CHURN_SENSITIVITY,
+  DEFAULT_HEALTH_BANDS,
   DEFAULT_HEALTH_RULES,
   churnProbability,
   clientChurnSensitivity,
   clientTasksPerWeek,
   hasServicing,
+  healthBands,
+  healthCutoffs,
   healthRules,
   modelHasServicing,
   recurrenceLabel,
@@ -284,6 +288,9 @@ export {
   rateValue,
   resolveRatingConfig,
   resolveRule,
+  busyCutoffsAt,
+  roleBusyCutoffs,
+  withRoleLines,
   storedOfRating,
   worseRating,
   type AbsenceSettings,
@@ -306,6 +313,7 @@ export {
 export {
   ANALYSIS_RULE_IDS,
   ANALYSIS_RULE_SPECS,
+  busyCutoffs,
   DEFAULT_MONEY,
   MONEY_LIMITS,
   inputsProblem,

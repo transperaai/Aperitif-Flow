@@ -14,9 +14,9 @@ import { BUSY_LIMIT, personRows, teamSummary } from "@/lib/people";
 // Client groups (issue #120): the settings' input checks, the benchmark, and what the People page works out from a run.
 
 describe("client group fields", () => {
-  it("knows the five fields", () => {
-    for (const f of ["client_count", "fee", "churn_monthly", "stay_months", "starting_health"]) expect(isClientGroupField(f)).toBe(true);
-    for (const f of ["service_id", "workspace_id", "id", "toString", "__proto__", 3, null]) expect(isClientGroupField(f)).toBe(false);
+  it("knows the group's own two fields; fee, churn and stay are the tier's, so the group takes no copy", () => {
+    for (const f of ["client_count", "starting_health"]) expect(isClientGroupField(f)).toBe(true);
+    for (const f of ["fee", "churn_monthly", "stay_months", "service_id", "workspace_id", "id", "toString", "__proto__", 3, null]) expect(isClientGroupField(f)).toBe(false);
   });
 
   it("accepts whole client counts only", () => {
@@ -25,25 +25,15 @@ describe("client group fields", () => {
     expect([-1, 1.5, 2001, NaN, "3", null].map(ok)).toEqual([false, false, false, false, false, false]);
   });
 
-  it("keeps churn a share, health 0 to 100, and fee and stay non-negative", () => {
-    expect([0, 0.015, 1].map(CLIENT_GROUP_FIELDS.churn_monthly)).toEqual([true, true, true]);
-    expect([-0.1, 1.1].map(CLIENT_GROUP_FIELDS.churn_monthly)).toEqual([false, false]);
+  it("keeps health 0 to 100", () => {
     expect([0, 80, 100].map(CLIENT_GROUP_FIELDS.starting_health)).toEqual([true, true, true]);
     expect([-1, 101].map(CLIENT_GROUP_FIELDS.starting_health)).toEqual([false, false]);
-    expect([0, 3600].map(CLIENT_GROUP_FIELDS.fee)).toEqual([true, true]);
-    expect(CLIENT_GROUP_FIELDS.fee(-5)).toBe(false);
-    expect([0, 22].map(CLIENT_GROUP_FIELDS.stay_months)).toEqual([true, true]);
-    expect(CLIENT_GROUP_FIELDS.stay_months(2000)).toBe(false);
   });
 
-  it("starts a new group from its service's price, churn and tenure, at health 80 with no clients", () => {
-    expect(newGroupDefaults({ price: 3500, churn_monthly_base: 0.03, tenure_months: 18 })).toEqual({
-      client_count: 0,
-      fee: 3500,
-      churn_monthly: 0.03,
-      stay_months: 18,
-      starting_health: 80,
-    });
+  it("starts a new group with no clients at the workspace's starting health, 80 unless set", () => {
+    expect(newGroupDefaults({})).toEqual({ client_count: 0, starting_health: 80 });
+    expect(newGroupDefaults({ health_initial: null })).toEqual({ client_count: 0, starting_health: 80 });
+    expect(newGroupDefaults({ health_initial: 62 })).toEqual({ client_count: 0, starting_health: 62 });
   });
 });
 

@@ -94,10 +94,10 @@ describe("the engine's model before and after a service becomes a tier", () => {
     const snapshot = JSON.parse(readFileSync(new URL("./snapshots/to-engine-model.json", import.meta.url), "utf8")) as Record<string, unknown>;
     const before = JSON.parse(JSON.stringify(toEngineModel((await loadProcessBySlug(db.dbAs({ sub: users.owner!.id, role: "authenticated", app_metadata: { agency_admin: true } }), "northbeam"))!.live, { startDate: START })));
     // The model read from the database equals the fixture's snapshot (ids are the seed's), but for the salary the first test gave Maya:
-    // salaries count in profit (D73), so her hours are priced at 9,000 a month over her 40 hours × 52/12 weeks.
+    // salaries count in profit (D73), so her hours are priced at 9,000 a month over her 40 hours × 52/12 weeks. A cost from a salary is marked, as only it takes employer on-costs.
     const maya = northbeamPersonIds["Maya Collins"]!;
     const expected = structuredClone(snapshot.northbeam) as { people: Record<string, Record<string, unknown>> };
-    expected.people[maya] = { ...expected.people[maya], cost: 9000 / (40 * (52 / 12)) };
+    expected.people[maya] = { ...expected.people[maya], cost: 9000 / (40 * (52 / 12)), costFromSalary: true };
     expect(before).toEqual(expected);
 
     // An existing service becomes a tier of a department (the way a workspace that already sells things gets its tiers). Since P2b that
