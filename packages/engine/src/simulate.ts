@@ -16,16 +16,13 @@ import { withAvailability, availabilityBase } from "./availability";
 import { capacityEntry, capacityStep, cleanChanges, type CapacityEntry, type CapacityStep } from "./capacity-time";
 import { activeChannels, capacityFactors, channelMonth, keyFactors, planChannels, withMaxRework, type FeeRise } from "./channels";
 import {
-  AWAY_PRESSURE,
-  EARLY_TENURE_WEEKS,
-  LOAD_THRESHOLD,
+  churnLimits,
   loadPressure,
   normaliseEvents,
   onboardingPressure,
   pricePressure,
   PRICE_EFFECT_PER,
   PRICE_PRESSURE_PER_UNIT,
-  PRICE_WEIGHT_WEEKS,
   resolveChurnDrivers,
   responsePressure,
   resultsPressure,
@@ -37,10 +34,10 @@ import {
 import { carriersFor, clientChurnMonthly, clientHandHolding, clientRoleLoads, managerRoles, rolePools, withClientGroups, type Carrier } from "./clients";
 import { effectiveDeliverables } from "./capacity-inputs";
 import {
-  AT_RISK_HEALTH,
   clampHealth,
   clientChurnSensitivity,
   clientTasksPerWeek,
+  healthBands,
   healthRules,
   poissonMeanGap,
   recurrenceInterval,
@@ -766,6 +763,8 @@ interface RosterClient {
   /** What it bills a week while active, and since when. */
   weeklyBill: number;
   since: number;
+  /** A roster client's age at the run's start (t = 0), in hours, from its start date (`EngineClient.monthsActive`); -1 when unknown or won in the run. */
+  ageAtStart: number;
   /**
    * A client won on an hourly service: its rate (service price × the market's price factor when won), the hours a week
    * of ongoing (fallback) client work its shape carries, since when they are billed, and its service's index. 0 for
@@ -980,6 +979,7 @@ export function runOnce(
 
   // Servicing (docs/PRD.md §6.3.5): only with a roster, whose clients generate the tasks.
   const rules = healthRules(model);
+  const atRiskHealth = healthBands(model).atRisk;
   const processes = model.servicingProcesses ?? {};
   const linksBySvc = services.map((sv) => (roster ? servicingLinks(model, sv.s) : []));
   const servicing = linksBySvc.some((links) => links.length > 0);
@@ -1774,6 +1774,8 @@ export function runOnce(
   let onbN = 0;
   /** Normal first delivery for the onboarding driver, in hours (its entered target is in working days). */
   const onbNormalHours = (drivers[SONB - 1]!.value ?? 10) * (model.hoursPerWeek / 5);
+  /** Where each measured driver starts and is full: the workspace's settings, else the defaults. */
+  const lim = churnLimits(model);
   /** The market's churn factor, weighted by its driver (1 with no market or the driver off). Bit-for-bit the plain factor at weight 1. */
   const churnMarket = (t: number): number => {
     if (!market || !don[SMARKET]) return 1;
@@ -1841,7 +1843,7 @@ export function runOnce(
     if (!list) return 0;
     let press = 0;
     // (From the first tick after the rise: a tick on the month's first hour closes the month before.)
-    for (const r of list) if (t > r.t && t <= r.t + PRICE_WEIGHT_WEEKS * hpw && r.t >= rc.since) press += PRICE_PRESSURE_PER_UNIT * r.r;
+    for (const r of list) if (t > r.t && t <= r.t + lim.priceWeeks * hpw && r.t >= rc.since) press += PRICE_PRESSURE_PER_UNIT * r.r;
     return press;
   };
   const riseOn = Boolean(plan && plan.rises.size > 0 && [...plan.rises.values()].some((l) => l.length > 0));
@@ -2060,6 +2062,7 @@ export function runOnce(
       manager?: string;
       handHoldingHours?: Record<string, number>;
       leavesMonth?: number;
+      monthsActive?: number;
     },
     t: number,
     isRoster: boolean,
@@ -2086,6 +2089,7 @@ export function runOnce(
       churned: false,
       weeklyBill,
       since: t,
+      ageAtStart: isRoster && client.monthsActive !== undefined && Number.isFinite(client.monthsActive) && client.monthsActive >= 0 ? client.monthsActive * monthHours : -1,
       hourlyRate: 0,
       hourlyWeekly: 0,
       hourlySince: t,
@@ -2483,17 +2487,20 @@ export function runOnce(
     // The pressure each driver puts on this client: 0 when nothing is wrong, 1 doubles its churn at weight 1.
     ev[SLATE] = rc.sensitivity * ((100 - rc.health) / 100);
     // Without servicing processes there are no tasks, so these three stay 0 and aren't looked at.
-    if (servicing) ev[SRESP] = rc.adhocN > 0 ? responsePressure(rc.adhocBad / rc.adhocN) : 0;
+    if (servicing) ev[SRESP] = rc.adhocN > 0 ? responsePressure(rc.adhocBad / rc.adhocN, lim.responseFullShare) : 0;
     let early = 0;
     let delay = 0;
     if (!rc.roster) {
       const age = t - rc.since;
-      if (age <= EARLY_TENURE_WEEKS * hpw) early = 1;
+      if (age <= lim.earlyTenureWeeks * hpw) early = 1;
       delay = (rc.firstDone >= 0 ? rc.firstDone : t) - rc.since;
+    } else if (rc.ageAtStart >= 0 && t + rc.ageAtStart <= lim.earlyTenureWeeks * hpw) {
+      // A roster client with a start date (audit finding 16): early tenure while it is young; it had its first delivery before the run.
+      early = 1;
     }
-    if (servicing) ev[SONB] = early && rc.serviced ? onboardingPressure(delay, onbNormalHours) : 0;
+    if (servicing) ev[SONB] = early && !rc.roster && rc.serviced ? onboardingPressure(delay, onbNormalHours, lim.onboardingFullMultiple) : 0;
     ev[STENURE] = early ? tenureExtra : 0;
-    if (servicing) ev[SREWORK] = rc.visits > 0 ? reworkPressure(rc.reworks / rc.visits) : 0;
+    if (servicing) ev[SREWORK] = rc.visits > 0 ? reworkPressure(rc.reworks / rc.visits, lim.reworkFullShare) : 0;
     const team = rc.team;
     if (team.stamp !== tickNo) {
       team.stamp = tickNo;
@@ -2505,10 +2512,10 @@ export function runOnce(
         if (!team.away && awayAt(p, t)) team.away = true;
       }
     }
-    ev[SLOAD] = loadPressure(team.util);
-    ev[SHAND] = handoffRate + (team.away ? AWAY_PRESSURE : 0);
+    ev[SLOAD] = loadPressure(team.util, lim.loadThreshold, lim.loadFull);
+    ev[SHAND] = handoffRate + (team.away ? lim.awayPressure : 0);
     // Events the engine counts (and, in chance mode, lets hit the client): a busy team this tick, a slow first delivery still waiting.
-    runLoadHit = team.util > LOAD_THRESHOLD ? 1 : 0;
+    runLoadHit = team.util > lim.loadThreshold ? 1 : 0;
     if (runLoadHit && rc.hitUntil) extendMeasured(rc, SLOAD, t);
     if (servicing && !rc.roster && rc.serviced && !rc.onbHit && rc.firstDone < 0 && t - rc.since > onbNormalHours) {
       rc.onbHit = true;
@@ -2611,9 +2618,9 @@ export function runOnce(
       }
     }
     // Constant pressures this week: entered numbers, and a planned price rise in the weeks after it takes effect.
-    ev[SRESULTS] = resultsPressure(drivers[SRESULTS - 1]!.value ?? 8);
+    ev[SRESULTS] = resultsPressure(drivers[SRESULTS - 1]!.value ?? 8, lim.resultsNormal);
     const priceFrom = (drivers[SPRICE - 1]!.month - 1) * WEEKS_PER_MONTH * hpw;
-    pricePlanned = t >= priceFrom && t < priceFrom + PRICE_WEIGHT_WEEKS * hpw ? pricePressure(drivers[SPRICE - 1]!.value ?? 0) : 0;
+    pricePlanned = t >= priceFrom && t < priceFrom + lim.priceWeeks * hpw ? pricePressure(drivers[SPRICE - 1]!.value ?? 0) : 0;
     ev[SPRICE] = pricePlanned;
     // Which drivers are in chance mode this week (a channel can switch a driver over from a month), and their weekly chance of a hit.
     chTick = plan ? chM(Math.max(0, t - 1e-6)) : 0;
@@ -3656,7 +3663,7 @@ export function runOnce(
             }
             let risk = mon.atRisk.get(rc.svcKey);
             if (!risk) mon.atRisk.set(rc.svcKey, (risk = new Float64Array(nM)));
-            if (rc.health < AT_RISK_HEALTH) risk[m]!++;
+            if (rc.health < atRiskHealth) risk[m]!++;
           }
         } else {
           add("", active);
@@ -4021,7 +4028,7 @@ export function runOnce(
         ),
       };
     }
-    for (const rc of rosterClients) if (rc.health < AT_RISK_HEALTH) atRisk++;
+    for (const rc of rosterClients) if (rc.health < atRiskHealth) atRisk++;
   }
   /** The churn drivers' accounting for this replication: who the churn is blamed on, and what each cause measured. */
   function churnOut(): ChurnReplication {
@@ -4313,6 +4320,7 @@ function kpis(model: EngineModel, runs: ReplicationResult[], cycle: number[]): K
 
 /** Each roster client across replications (docs/PRD.md §6.4 "Per client"). */
 function clientResults(model: EngineModel, runs: ReplicationResult[]): Record<string, ClientResult> {
+  const atRiskHealth = healthBands(model).atRisk;
   const out: Record<string, ClientResult> = {};
   const n = runs.length;
   for (const cid of Object.keys(runs[0]?.clients ?? {})) {
@@ -4329,7 +4337,7 @@ function clientResults(model: EngineModel, runs: ReplicationResult[]): Record<st
       touchpoints: { onTime: mean((c) => c.touchpoints.onTime), late: mean((c) => c.touchpoints.late), missed: mean((c) => c.touchpoints.missed) },
       churnMonthly: stat(reps.map((c) => c.churnMonthly)),
       churned: mean((c) => (c.churned ? 1 : 0)),
-      atRisk: mean((c) => (c.health[weeks - 1]! < AT_RISK_HEALTH ? 1 : 0)),
+      atRisk: mean((c) => (c.health[weeks - 1]! < atRiskHealth ? 1 : 0)),
     };
   }
   return out;

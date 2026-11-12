@@ -2,7 +2,7 @@
 // far with named people, services, end-step outcomes, seasonal demand, a client
 // roster, overtime, and client servicing with health and churn (docs/PRD.md §6).
 
-import type { ChurnCauses, ChurnReplication, DriverEvents, EngineChurnDriver } from "./churn-drivers";
+import type { ChurnCauses, ChurnLimits, ChurnReplication, DriverEvents, EngineChurnDriver } from "./churn-drivers";
 import type { EngineMarket } from "./market";
 import type { Loop } from "./loops";
 
@@ -294,6 +294,16 @@ export interface EngineHealthRules {
 }
 
 /**
+ * Client health bands (customisability audit, findings 34 and 38): health at or above `healthy` is Great, at or above `watch` Good, at
+ * or above `atRisk` Bad, and below `atRisk` the client is at risk. Each is 0 to 100; the defaults are 75, 65 and 50.
+ */
+export interface EngineHealthBands {
+  healthy?: number;
+  watch?: number;
+  atRisk?: number;
+}
+
+/**
  * A client on the roster (docs/PRD.md §5 `clients`, §6.2, decision D13).
  * Real clients seed the run; clients won during it are added as synthetic ones.
  */
@@ -305,8 +315,10 @@ export interface EngineClient {
   mrr: number;
   /**
    * Months it has been a client when the run starts, for what losing it is
-   * worth (the tenure it has left, docs/analysis-rules.md "Cost per month").
-   * Omitted: counted as new. It doesn't change the simulation.
+   * worth (the tenure it has left, docs/analysis-rules.md "Cost per month"),
+   * and for the early-tenure churn driver: a client younger than its window
+   * is in early tenure until it isn't. Omitted: counted as new for what
+   * losing it is worth, and never in early tenure (as before).
    */
   monthsActive?: number;
   /** Health 0–100 at the start of the run. Omitted: `EngineHealthRules.initial` (80). */
@@ -648,6 +660,11 @@ export interface EngineModel {
    */
   churnDrivers?: EngineChurnDriver[];
   /**
+   * Where each measured churn driver starts and is full (churn-drivers.ts `ChurnLimits`), from the workspace's settings. Omitted,
+   * or a number left out: the defaults, exactly as before this field existed.
+   */
+  churnLimits?: Partial<ChurnLimits>;
+  /**
    * Per-month values the engine reads while it runs (sandbox phase 3, channels.ts). Omitted, or every array neutral: the run
    * is exactly as before this field existed.
    */
@@ -659,6 +676,8 @@ export interface EngineModel {
   servicingProcesses?: Record<string, EngineServicingProcess>;
   /** How servicing moves client health. Omitted: `DEFAULT_HEALTH_RULES`. */
   health?: EngineHealthRules;
+  /** Where client health turns from healthy to watch to at risk. Omitted: `DEFAULT_HEALTH_BANDS` (75, 65, 50). */
+  healthBands?: EngineHealthBands;
   /**
    * Warm-up run before measuring, in weeks, discarded from every reported
    * metric. Omitted means automatic: 4 weeks, or 2x the P90 cycle time of a

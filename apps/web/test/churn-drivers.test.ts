@@ -50,10 +50,10 @@ describe("the ten drivers", () => {
       "Response time to ad-hoc requests",
       "Onboarding speed (won to first delivery)",
       "Rework or errors on deliverables",
-      "Account team overload (above 85% busy)",
+      "Account team overload",
       "Account manager changes",
       "Client results or satisfaction",
-      "Early tenure (first 6 months)",
+      "Early tenure",
       "Price changes",
       "Market conditions",
     ]);

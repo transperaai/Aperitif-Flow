@@ -7,8 +7,8 @@
 // shows each person's starting load without running anything).
 
 import type { EngineClient, EngineModel, EnginePerson, SimulationResult } from "./model";
-import { CLIENT_HEALTH_CUTOFFS, rateClientHealth, type Cutoffs, type Rating } from "./ratings";
-import { hasServicing } from "./servicing";
+import { rateClientHealth, type Cutoffs, type Rating } from "./ratings";
+import { hasServicing, healthCutoffs } from "./servicing";
 
 /** Weeks in a month for monthly loads, as elsewhere in the engine (4.33). */
 export const LOAD_WEEKS_PER_MONTH = 4.33;
@@ -318,7 +318,7 @@ export interface ClientHealthSummary {
  * (rule 9, docs/analysis-rules.md). Health is read at the horizon, averaged
  * over the replications; a client that churned keeps the health it left at.
  */
-export function clientHealthSummary(model: EngineModel, result: SimulationResult, cutoffs: Cutoffs = CLIENT_HEALTH_CUTOFFS): ClientHealthSummary {
+export function clientHealthSummary(model: EngineModel, result: SimulationResult, cutoffs: Cutoffs = healthCutoffs(model)): ClientHealthSummary {
   const m = withClientGroups(model);
   const rows = Object.entries(result.clients ?? {});
   let sum = 0;
