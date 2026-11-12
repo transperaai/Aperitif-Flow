@@ -7,7 +7,7 @@
 // no clock and no language model.
 
 import type { Delta, Comparison } from "./compare";
-import type { Stat } from "./model";
+import { hoursPerWorkingDay, type Stat } from "./model";
 
 const LOCALE = "en-GB";
 const MINUS = "−";
@@ -60,14 +60,16 @@ export interface CompareRow {
 export interface CompareTableOptions {
   horizonWeeks: number;
   hoursPerWeek: number;
+  /** Working days a week, to show cycle times in days (5 when omitted). */
+  workingDaysPerWeek?: number;
   /** ISO 4217 code for the money rows. */
   currency: string;
 }
 
 /** The compare view's KPI delta table, row by row. */
-export function compareTable(comparison: Comparison, { horizonWeeks, hoursPerWeek, currency }: CompareTableOptions): CompareRow[] {
+export function compareTable(comparison: Comparison, { horizonWeeks, hoursPerWeek, workingDaysPerWeek, currency }: CompareTableOptions): CompareRow[] {
   const whole = (v: number) => formatNumberText(v, 1);
-  const days = (h: number) => `${formatNumberText(h / (hoursPerWeek / 5), 1)} d`;
+  const days = (h: number) => `${formatNumberText(h / hoursPerWorkingDay({ hoursPerWeek, workingDaysPerWeek }), 1)} d`;
   const money = (v: number) => formatMoneyText(v, currency);
   const rows: { metric: CompareMetric; label: string; format: (v: number) => string; better: CompareRow["better"] }[] = [
     { metric: "won", label: `Wins / ${horizonWeeks} wks`, format: whole, better: "up" },

@@ -164,6 +164,16 @@ describe("what the engine measures", () => {
     expect(cause("onb").value).toBeGreaterThan(0);
   });
 
+  it("measures first delivery in working days of the model's own week (a 4-day week has longer days)", () => {
+    const five = simulate(groups(), 10, 1).churnCauses!.causes.find((c) => c.id === "onb")!;
+    const four = simulate({ ...groups(), workingDaysPerWeek: 4 }, 10, 1).churnCauses!.causes.find((c) => c.id === "onb")!;
+    expect(five.value).toBeGreaterThan(0);
+    // The same hours to first delivery, in 4 days a week of hoursPerWeek / 4 rather than 5 of hoursPerWeek / 5.
+    expect(four.value! / five.value!).toBeCloseTo(4 / 5, 1);
+    // Unset is the 5-day week, exactly as before the field existed.
+    expect(simulate({ ...groups(), workingDaysPerWeek: 5 }, 10, 1).churnCauses!.causes.find((c) => c.id === "onb")!.value).toBe(five.value);
+  });
+
   it("a switched-off driver is measured but takes no share", () => {
     const off = simulate(groups(), 10, 1).churnCauses!;
     const load = off.causes.find((c) => c.id === "load")!;

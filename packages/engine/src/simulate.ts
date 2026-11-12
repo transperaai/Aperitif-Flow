@@ -49,7 +49,7 @@ import {
 } from "./servicing";
 import { arrivalTimes as drawArrivals } from "./demand";
 import { activeMarket, type MarketFactors } from "./market";
-import { WEEKS_PER_MONTH } from "./model";
+import { WEEKS_PER_MONTH, hoursPerWorkingDay } from "./model";
 import { EventQueue } from "./event-queue";
 import { exp, log } from "./det-math";
 import { eligible } from "./eligibility";
@@ -1773,7 +1773,7 @@ export function runOnce(
   let onbSum = 0;
   let onbN = 0;
   /** Normal first delivery for the onboarding driver, in hours (its entered target is in working days). */
-  const onbNormalHours = (drivers[SONB - 1]!.value ?? 10) * (model.hoursPerWeek / 5);
+  const onbNormalHours = (drivers[SONB - 1]!.value ?? 10) * hoursPerWorkingDay(model);
   /** The market's churn factor, weighted by its driver (1 with no market or the driver off). Bit-for-bit the plain factor at weight 1. */
   const churnMarket = (t: number): number => {
     if (!market || !don[SMARKET]) return 1;
@@ -4030,7 +4030,7 @@ export function runOnce(
     const valuePerson: (string | null)[] = new Array<string | null>(nSlots).fill(null);
     values[SLATE] = touched > 0 ? (allTouch.late + allTouch.missed) / touched : null;
     values[SRESP] = respN > 0 ? respSum / respN : null;
-    values[SONB] = onbN > 0 ? onbSum / onbN / (model.hoursPerWeek / 5) : null;
+    values[SONB] = onbN > 0 ? onbSum / onbN / hoursPerWorkingDay(model) : null;
     values[SREWORK] = visitsAll > 0 ? reworksAll / visitsAll : null;
     if (utilRead) {
       values[SLOAD] = busiest;

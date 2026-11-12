@@ -19,6 +19,7 @@ import {
   type RatingOverride,
   type RatingRuleId,
 } from "./ratings";
+import { hoursPerWorkingDay } from "./model";
 
 /** Every rule in docs/analysis-rules.md, in its order. */
 export const ANALYSIS_RULE_IDS = [
@@ -376,9 +377,9 @@ export function isDefaultAnalysisSettings(settings: AnalysisSettings): boolean {
 
 /**
  * The rating model's config for these settings. `hoursPerWeek` is the model's
- * working week, to turn the expected waits (hours) into working days.
+ * working week (and its working days, 5 when omitted), to turn the expected waits (hours) into working days.
  */
-export function toRatingConfig(settings: AnalysisSettings | null | undefined, hoursPerWeek: number): RatingConfig {
+export function toRatingConfig(settings: AnalysisSettings | null | undefined, hoursPerWeek: number, workingDaysPerWeek?: number): RatingConfig {
   const s = parseAnalysisSettings(settings).value;
   const config = defaultRatingConfig();
   for (const id of RATING_RULE_IDS) {
@@ -401,7 +402,7 @@ export function toRatingConfig(settings: AnalysisSettings | null | undefined, ho
   const spof = resolveAnalysisRule(s, "spof");
   const money = resolveMoney(s);
   config.absence = { weeks: money.absenceWeeks, perYear: money.absencesPerYear, recoveryCutoffs: [spof.inputs[2]!, spof.inputs[2]!, spof.inputs[3]!] };
-  const hoursPerDay = hoursPerWeek / 5;
+  const hoursPerDay = hoursPerWorkingDay({ hoursPerWeek, workingDaysPerWeek });
   const w = s.money?.waitHours;
   if (hoursPerDay > 0 && w?.pipeline !== undefined) config.expectedWaitDays.pipeline = w.pipeline / hoursPerDay;
   if (hoursPerDay > 0 && w?.servicing !== undefined) config.expectedWaitDays.servicing = w.servicing / hoursPerDay;

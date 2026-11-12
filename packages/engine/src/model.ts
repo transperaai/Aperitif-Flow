@@ -12,6 +12,19 @@ import type { Loop } from "./loops";
  */
 export const WEEKS_PER_MONTH = 52 / 12;
 
+/** Working days a week when the workspace sets none (`EngineModel.workingDaysPerWeek`). */
+export const DEFAULT_WORKING_DAYS = 5;
+
+/** The working days a week to use: a stored number from 1 to 7, else the default 5. */
+export function workingDaysOf(days: number | null | undefined): number {
+  return typeof days === "number" && Number.isFinite(days) && days >= 1 && days <= 7 ? days : DEFAULT_WORKING_DAYS;
+}
+
+/** Hours in one working day: the week's hours over its working days (5 unless the model says otherwise). */
+export function hoursPerWorkingDay(model: { hoursPerWeek: number; workingDaysPerWeek?: number }): number {
+  return model.hoursPerWeek / workingDaysOf(model.workingDaysPerWeek);
+}
+
 /** Times are in working hours. */
 export interface EngineRole {
   name: string;
@@ -581,6 +594,11 @@ export interface EngineModel {
   overheadMonthly?: number;
   horizonWeeks: number;
   hoursPerWeek: number;
+  /**
+   * Working days in the week (the workspace's `working_days`, 1 to 7): a "working day" is `hoursPerWeek / workingDaysPerWeek` hours
+   * wherever days turn into hours (first-delivery days, expected waits, days shown in findings). Omitted: 5.
+   */
+  workingDaysPerWeek?: number;
   /**
    * Mean arrivals per week: qualified leads into this process (docs/PRD.md
    * §6.2: lead sources' volume × conversion, split by the services mix).

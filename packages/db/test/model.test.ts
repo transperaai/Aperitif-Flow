@@ -95,6 +95,29 @@ function beforeServicesAndClients(): ProcessBundle {
 }
 
 describe("toEngineModel", () => {
+  describe("the working week (customisability audit 28 and 36)", () => {
+    const withSettings = (over: Record<string, unknown>): ProcessBundle => {
+      const b = northbeamBundle();
+      return { ...b, workspace: { ...b.workspace, settings: { ...b.workspace.settings, ...over } } };
+    };
+
+    it("working_days other than 5 becomes workingDaysPerWeek; 5, unset or junk leaves the model as today's", () => {
+      expect(toEngineModel(withSettings({ working_days: 4 }), { startDate: START }).workingDaysPerWeek).toBe(4);
+      const today = toEngineModel(northbeamBundle(), { startDate: START });
+      expect(today).not.toHaveProperty("workingDaysPerWeek");
+      for (const value of [5, null, 0, 9, "4"]) expect(toEngineModel(withSettings({ working_days: value }), { startDate: START }), String(value)).toEqual(today);
+    });
+
+    it("hours_per_week sets the week, and the capacity of everyone without their own hours", () => {
+      const m = toEngineModel(withSettings({ hours_per_week: 37.5 }), { startDate: START });
+      expect(m.hoursPerWeek).toBe(37.5);
+      const b = northbeamBundle();
+      const own = new Set(b.people.filter((p) => p.capacity_hours_week != null).map((p) => p.id));
+      const someone = b.people.find((p) => p.active && !own.has(p.id) && Number(p.fte) === 1);
+      if (someone) expect(m.people?.[someone.id]?.capacity).toBe(37.5);
+    });
+  });
+
   describe("overheads (sandbox phase 2)", () => {
     const withOverhead = (value: unknown, extra: Partial<ProcessBundle> = {}): ProcessBundle => {
       const b = northbeamBundle();

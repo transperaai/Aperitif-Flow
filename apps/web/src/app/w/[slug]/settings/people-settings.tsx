@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { DEFAULT_AVAILABILITY_FLOOR } from "@transpera-flow/engine";
+import { DEFAULT_AVAILABILITY_FLOOR, DEFAULT_WORKING_DAYS } from "@transpera-flow/engine";
 import { ChecklistField, DateField, FieldRows, NumberField, TextField, ToggleField } from "@/components/fields";
 import { Help, HelpLabel } from "@/components/help";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,8 @@ import {
   removeLeave,
   saveAvailabilityFloor,
   saveCapacityFactorsEnabled,
+  saveHoursPerWeek,
+  saveWorkingDays,
   saveOvertimeCap,
   savePersonField,
   savePersonSet,
@@ -43,8 +45,40 @@ export function SimulationSettings({ data }: { data: WorkspaceSettingsData }) {
   const overtime = workspace.settings.overtime_cap ?? null;
   const ownersOnly = canManage ? undefined : "Only Agency admins can change this.";
   return (
-    <SettingsSection id="simulation" band title="Simulation" description="Limits on how the simulation treats people's time.">
+    <SettingsSection id="simulation" band title="Simulation" description="The working week, and limits on how the simulation treats people's time.">
       <FieldRows>
+        <NumberField
+          label="Normal working week"
+          value={workspace.settings.hours_per_week}
+          save={(base, next) => saveHoursPerWeek(workspace.id, base, next)}
+          unit="hours"
+          min={1}
+          max={168}
+          step={0.5}
+          disabled={!canManage}
+          hint={ownersOnly}
+          help={{
+            description: "The hours in a normal full-time week. Anyone without their own hours a week has this times their working time.",
+            example: "37.5: someone at 0.8 working time has 30 hours a week.",
+          }}
+        />
+        <NumberField
+          label="Working days a week"
+          value={workspace.settings.working_days ?? null}
+          save={(base, next) => saveWorkingDays(workspace.id, base, next)}
+          optional
+          unit="days"
+          min={1}
+          max={7}
+          step={0.5}
+          placeholder={`${DEFAULT_WORKING_DAYS} (default)`}
+          disabled={!canManage}
+          hint={ownersOnly ?? "Leave blank for a 5-day week."}
+          help={{
+            description: "How many days the normal week is spread over. A working day is the week's hours over these days, wherever days are turned into hours: first delivery, waits and days in findings.",
+            example: "A 4-day week of 32 hours: a working day is 8 hours, so 10 working days to first delivery is 80 hours.",
+          }}
+        />
         <ToggleField
           label="Per-person times"
           value={workspace.settings.capacity_factor_enabled === true}

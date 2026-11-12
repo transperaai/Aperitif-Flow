@@ -396,7 +396,7 @@ export function registerAnalysisTools(server: McpServer, ctx: ToolContext): void
           const currency = loaded.bundle.workspace.settings.currency;
           // The money settings (the cap on what a loss is worth, absences a year) are the defaults too (issue #108, D40).
           const money = { ...resolveMoney(rules.settings), currency };
-          const config = toRatingConfig(rules.settings, loaded.model.hoursPerWeek);
+          const config = toRatingConfig(rules.settings, loaded.model.hoursPerWeek, loaded.model.workingDaysPerWeek);
           // The absence test (rule 8) is its own pass, a few more replications per person who is the only one for a step.
           // Skip it when the filters would drop its facts anyway, and cap its time; say so when it didn't finish.
           const wantsAbsence = config.rules.spof.enabled && !client && (!args.type || args.type === "spof") && (!args.status || args.status === "open");

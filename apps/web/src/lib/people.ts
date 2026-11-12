@@ -35,7 +35,7 @@ export interface PersonBusy {
   leaveDays: number;
 }
 
-/** Working days in a week: the model's working day is `hoursPerWeek / 5` (WORKING_DAYS_PER_WEEK in packages/db/src/model.ts, not exported). */
+/** Leave is placed on the calendar as weekdays (Monday to Friday, `hoursPerWeek / 5` each, as packages/db/src/model.ts maps dates), so its days are counted the same way. */
 const WORKING_DAYS_PER_WEEK = 5;
 
 /** Working days of `person`'s leave inside the first `horizonHours` of the run; leave before the start or after the end doesn't count. */

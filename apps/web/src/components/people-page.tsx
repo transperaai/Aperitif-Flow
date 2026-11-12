@@ -124,7 +124,7 @@ export function PeoplePage({
   const detailOf = useMemo(() => (id: string) => (ranModel && run ? personDetail(ranModel, run.result, bundle, id, today) : null), [ranModel, run, bundle, today]);
   const away = useMemo(() => {
     if (!baseModel || !absence) return null;
-    const config = toRatingConfig(ANALYSIS_DEFAULTS, baseModel.hoursPerWeek);
+    const config = toRatingConfig(ANALYSIS_DEFAULTS, baseModel.hoursPerWeek, baseModel.workingDaysPerWeek);
     // A member sees only their own result, and no count of who else wasn't tested.
     const { tooShort, untested } = absenceCoverage(baseModel, absence, testWho ?? undefined);
     return {
@@ -235,7 +235,7 @@ function BenchmarkCard({ score, benchmark, setupHref }: { score: number | null; 
             {setupHref ? (
               <>
                 Add one in{" "}
-                <Link href={`${setupHref}/clients#clients-heading`} className="underline underline-offset-2">
+                <Link href={`${setupHref}#client-health-heading`} className="underline underline-offset-2">
                   Settings
                 </Link>{" "}
                 to see how your client health compares.

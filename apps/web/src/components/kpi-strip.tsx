@@ -27,7 +27,7 @@ interface Tile {
 export function KpiStrip({ model, currency, result, status, durationMs }: KpiStripProps) {
   const k = result?.kpi;
   const whole = (v: number) => formatNumber(v, 0);
-  const days = (h: number) => formatDays(h, model.hoursPerWeek);
+  const days = (h: number) => formatDays(h, model.hoursPerWeek, model.workingDaysPerWeek);
   const money = (v: number) => formatCurrency(v, currency);
   const bnId = result?.bnRole ?? null;
   const bn = bnId ? k?.roles[bnId] : undefined;

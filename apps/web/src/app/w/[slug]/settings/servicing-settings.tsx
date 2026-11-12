@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import type { RecurrenceJson, ServiceRow } from "@transpera-flow/db";
+import { hoursPerWorkingDay } from "@transpera-flow/engine";
 import { NumberField, SelectField } from "@/components/fields";
 import { Help } from "@/components/help";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,7 @@ export function ServicingLinks({ service: sv, data }: { service: ServiceRow; dat
   const servicing = data.processes.filter((p) => p.kind === "servicing");
   const name = new Map(data.processes.map((p) => [p.id, p.name]));
   const unlinked = servicing.filter((p) => !links.some((l) => l.process_id === p.id));
-  const hoursPerDay = data.workspace.settings.hours_per_week / 5;
+  const hoursPerDay = hoursPerWorkingDay({ hoursPerWeek: data.workspace.settings.hours_per_week, workingDaysPerWeek: data.workspace.settings.working_days ?? undefined });
   const disabled = !data.canEdit;
   // The choice the person made, kept only while it is still on offer: after a link or an unlink the list changes, and a stale id
   // (one just linked) would otherwise stay selected and link nothing.

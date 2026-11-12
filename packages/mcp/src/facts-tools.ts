@@ -61,7 +61,7 @@ export async function liveFacts(
   const loaded = await loadLiveModel(ctx, { workspace: ws.id, process: proc.id }, assumptions);
   assumptions.push(`Facts come from a run of the live model at ${REPS} replications, seed ${SEED}, with the documented default cut-offs.`);
   const run = simulate(loaded.model, REPS, SEED);
-  const config = toRatingConfig({}, loaded.model.hoursPerWeek);
+  const config = toRatingConfig({}, loaded.model.hoursPerWeek, loaded.model.workingDaysPerWeek);
   const money = { ...resolveMoney({}), currency: loaded.bundle.workspace.settings.currency };
   const absence = absenceTest(loaded.model, { seed: SEED, weeks: config.absence.weeks, timeBudgetMs: ABSENCE_BUDGET_MS });
   if (!absence.complete) assumptions.push(`The absence test ran out of time and tested ${absence.people.length} people; key-person facts cover only those.`);

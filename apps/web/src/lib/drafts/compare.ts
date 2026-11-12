@@ -31,8 +31,8 @@ function measures(currency: string): Measure[] {
   return [
     { label: "Wins", value: (r) => r.kpi.won.mean, format: (v) => formatNumber(v), higherIsBetter: true },
     { label: "Lost", value: (r) => r.kpi.lost.mean, format: (v) => formatNumber(v), higherIsBetter: false },
-    { label: "Cycle time", value: (r) => r.kpi.cycle.mean, format: (v, m) => formatDays(v, m.hoursPerWeek), higherIsBetter: false },
-    { label: "Cycle time P90", value: (r) => r.kpi.cycle.p90, format: (v, m) => formatDays(v, m.hoursPerWeek), higherIsBetter: false },
+    { label: "Cycle time", value: (r) => r.kpi.cycle.mean, format: (v, m) => formatDays(v, m.hoursPerWeek, m.workingDaysPerWeek), higherIsBetter: false },
+    { label: "Cycle time P90", value: (r) => r.kpi.cycle.p90, format: (v, m) => formatDays(v, m.hoursPerWeek, m.workingDaysPerWeek), higherIsBetter: false },
     { label: "New MRR", value: (r) => r.kpi.mrrAdded.mean, format: money, higherIsBetter: true },
     { label: "Cost per win", value: (r) => r.kpi.costPerWin.mean, format: money, higherIsBetter: false },
     { label: "WIP at the end", value: (r) => r.kpi.wipEnd.mean, format: (v) => formatNumber(v), higherIsBetter: false },

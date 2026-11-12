@@ -118,10 +118,11 @@ export function compareScenarios({ model, a, b, reps, seed, currency }: CompareI
     plural,
     horizonWeeks: model.horizonWeeks,
     hoursPerWeek: model.hoursPerWeek,
+    workingDaysPerWeek: model.workingDaysPerWeek,
     currency,
     roleNames,
   });
-  const table = compareTable(comparison, { horizonWeeks: model.horizonWeeks, hoursPerWeek: model.hoursPerWeek, currency });
+  const table = compareTable(comparison, { horizonWeeks: model.horizonWeeks, hoursPerWeek: model.hoursPerWeek, workingDaysPerWeek: model.workingDaysPerWeek, currency });
   const people = { ...runA.resolvedPeople, ...runB.resolvedPeople };
   const notes = [...sideA.issues, ...sideB.issues].map((i) => i.message);
   const name = (id: string | null) => (id ? { id, name: roleNames[id] ?? id } : null);
