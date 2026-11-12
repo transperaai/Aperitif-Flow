@@ -28,7 +28,7 @@ export {
   monthsBetween,
   type ModelOptions,
 } from "./model";
-export { loadAnalysisRules, saveAnalysisRules, type AnalysisRules, type SaveAnalysisRulesOutcome } from "./analysis-rules";
+export { liveAnalysisSettings, loadAnalysisRules, saveAnalysisRules, type AnalysisRules, type SaveAnalysisRulesOutcome } from "./analysis-rules";
 export * from "./process-category";
 export * from "./capacity-setup";
 export { effectiveMonthlySalary, hourlyCostFromSalary, WEEKS_PER_MONTH, type SalaryPerson } from "./salary";

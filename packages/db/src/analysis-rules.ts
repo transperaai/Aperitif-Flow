@@ -21,6 +21,21 @@ export async function loadAnalysisRules(db: Db, workspaceId: string): Promise<An
   return { settings: parseAnalysisSettings(data.settings).value, version: data.updated_at };
 }
 
+/**
+ * The part of a workspace's stored analysis settings the pages rate with: what Settings > Simulation edits (a lost client's value cap, the
+ * absence test's length and frequency, and rule 1's busy cut-offs). Anything else a workspace saved under the removed rules editor (other
+ * cut-offs, overrides, switches, escalators) stays stored but unread (D40: a setting nobody can reach doesn't change results).
+ */
+export function liveAnalysisSettings(settings: AnalysisSettings): AnalysisSettings {
+  const out: AnalysisSettings = {};
+  const busy = settings.rules?.busy?.inputs;
+  if (busy) out.rules = { busy: { inputs: [...busy] } };
+  const money: NonNullable<AnalysisSettings["money"]> = {};
+  for (const k of ["capMonths", "absenceWeeks", "absencesPerYear"] as const) if (settings.money?.[k] !== undefined) money[k] = settings.money[k];
+  if (Object.keys(money).length) out.money = money;
+  return out;
+}
+
 export type SaveAnalysisRulesOutcome =
   | { status: "saved"; rules: AnalysisRules }
   | { status: "invalid"; errors: string[] }

@@ -8,7 +8,7 @@ export const PLAY_HELP = {
   overloaded: {
     label: "Who's overloaded, and when",
     description:
-      "Every team, month by month, coloured by how busy it is against its utilisation threshold: green is under, amber is within 10 points, red is at or over. The utilisation threshold is how busy a role can be before it counts as full (85% by default, set per role under Set up → People & roles). The switch flips between this scene and today's path. It covers the next 12 months; the worst of them, the month with the most people over their own threshold, is named above it and outlined.",
+      "Every team, month by month, coloured by how busy it is against its utilisation threshold: green is under, amber is within the at-risk margin (10 points unless changed in Settings), red is at or over. The utilisation threshold is how busy a role can be before it counts as full (85% by default, set per role under Set up → People & roles). The switch flips between this scene and today's path. It covers the next 12 months; the worst of them, the month with the most people over their own threshold, is named above it and outlined.",
     example: "“Worst month: May 2027 · 4 people over their utilisation threshold. Strategists 2, PPC 2 · today's path: 2 in Apr 2027” means the scene makes the worst month worse, and a month later.",
   },
   clients: {

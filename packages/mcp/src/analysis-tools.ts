@@ -391,10 +391,10 @@ export function registerAnalysisTools(server: McpServer, ctx: ToolContext): void
           assumptions.push(`Detections come from a run of the live model at ${DEFAULT_REPS} replications, seed ${DEFAULT_SEED}.`);
           const run = simulate(loaded.model, DEFAULT_REPS, DEFAULT_SEED);
           const keys = new Set(issues.map((i) => i.detected_key).filter(Boolean));
-          // The documented defaults, as every page of the app rates with them since B17 (D40): the rules give facts.
-          const rules = { settings: {} };
+          // The workspace's analysis assumptions (Settings > Simulation), as every page of the app and get_facts rate with them.
+          const rules = { settings: loaded.bundle.analysisRules ?? {} };
           const currency = loaded.bundle.workspace.settings.currency;
-          // The money settings (the cap on what a loss is worth, absences a year) are the defaults too (issue #108, D40).
+          // The money settings (the cap on what a loss is worth, absences a year) come from the same assumptions.
           const money = { ...resolveMoney(rules.settings), currency };
           const config = toRatingConfig(rules.settings, loaded.model.hoursPerWeek, busyLine(loaded.model));
           // The absence test (rule 8) is its own pass, a few more replications per person who is the only one for a step.

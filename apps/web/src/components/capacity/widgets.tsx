@@ -2,7 +2,7 @@
 // bar (clients today against the most that fit), the before/after dumbbell and the stack bar. Plain markup with the app's colour tokens (light and dark).
 
 import type { ReactNode } from "react";
-import { riskOf } from "@transpera-flow/db";
+import { DEFAULT_AT_RISK_MARGIN, riskOf } from "@transpera-flow/db";
 import { formatNumber, formatPercent } from "@/lib/format";
 import { SectionCard } from "@/components/page-kit";
 import { categoricalColour } from "@/lib/chart-colours";
@@ -14,9 +14,9 @@ const at = (share: number) => `${Math.max(0, Math.min(100, (share * 100) / SCALE
 
 export type Tone = "ok" | "warn" | "bad";
 
-/** Under the utilisation threshold is fine, within `AT_RISK_MARGIN` (10 points) under is a warning, at or over is bad (`riskOf`). */
-export function toneOf(busy: number, line: number): Tone {
-  const risk = riskOf(busy, line);
+/** Under the utilisation threshold is fine, within the workspace's at-risk margin (10 points unless set) under is a warning, at or over is bad (`riskOf`). */
+export function toneOf(busy: number, line: number, margin: number = DEFAULT_AT_RISK_MARGIN): Tone {
+  const risk = riskOf(busy, line, margin);
   return risk === "over" ? "bad" : risk === "near" ? "warn" : "ok";
 }
 
@@ -31,8 +31,8 @@ export const TONE_TEXT: Record<Tone, string> = {
   bad: "text-crit",
 };
 
-export function BusyBar({ busy, line, low, high, label }: { busy: number; line: number; low?: number; high?: number; label?: string }) {
-  const tone = toneOf(busy, line);
+export function BusyBar({ busy, line, low, high, label, margin }: { busy: number; line: number; low?: number; high?: number; label?: string; margin?: number }) {
+  const tone = toneOf(busy, line, margin);
   const range = low !== undefined && high !== undefined ? `, range ${formatPercent(low)} to ${formatPercent(high)}` : "";
   return (
     <div
@@ -67,8 +67,8 @@ export function RoomBar({ clients, max, tone, label }: { clients: number; max: n
 }
 
 /** One person's busy share as a bar coloured by tone, with a black tick at their own utilisation threshold (0-130% scale). */
-export function ThresholdBar({ busy, line }: { busy: number; line: number }) {
-  const tone = toneOf(busy, line);
+export function ThresholdBar({ busy, line, margin }: { busy: number; line: number; margin?: number }) {
+  const tone = toneOf(busy, line, margin);
   return (
     <div className="relative h-3 rounded-full bg-panel-2" aria-hidden data-busy={Math.round(busy * 100)}>
       <i className={cn("absolute inset-y-0 left-0 rounded-full", TONE_BG[tone])} style={{ width: at(busy) }} />
@@ -78,8 +78,8 @@ export function ThresholdBar({ busy, line }: { busy: number; line: number }) {
 }
 
 /** Before (hollow dot) and after (solid dot) on the same 0-130% scale, with the line as a grey bar. */
-export function Dumbbell({ before, after, line }: { before: number; after: number; line: number }) {
-  const tone = toneOf(after, line);
+export function Dumbbell({ before, after, line, margin }: { before: number; after: number; line: number; margin?: number }) {
+  const tone = toneOf(after, line, margin);
   const lo = Math.min(before, after);
   const hi = Math.max(before, after);
   return (

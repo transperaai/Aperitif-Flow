@@ -34,7 +34,7 @@ import {
   type ScenarioRun,
   type TimeRows,
 } from "@transpera-flow/db/sandbox";
-import { busyLine, CHURN_DRIVER_SPECS, CUSTOM_DRIVER_PREFIX, ENGINE_VERSION, isTooBusy, toRatingConfig, type BuiltinChurnDriverId, type MonthlyResult, type Stat } from "@transpera-flow/engine";
+import { busyCutoffsAt, busyLine, CHURN_DRIVER_SPECS, CUSTOM_DRIVER_PREFIX, ENGINE_VERSION, isTooBusy, toRatingConfig, type BuiltinChurnDriverId, type MonthlyResult, type Stat } from "@transpera-flow/engine";
 import { matchNamed } from "./analysis";
 import type { ToolContext, WorkspaceRef } from "./context";
 import { ToolError } from "./result";
@@ -240,13 +240,18 @@ function timeOut(monthly: MonthlyResult, categories: ReturnType<typeof workspace
   };
 }
 
-function totalsOut(monthly: MonthlyResult, cutoffs: readonly [number, number, number]) {
+/** `cutoffs` is the workspace's busy rule; a role with a utilisation threshold of its own (`lines`) is held to that instead. */
+function totalsOut(monthly: MonthlyResult, cutoffs: readonly [number, number, number], lines: Readonly<Record<string, { line?: number }>> = {}) {
   const money = monthly.money;
+  const of = (id: string) => {
+    const line = lines[id]?.line;
+    return typeof line === "number" && line > 0 ? busyCutoffsAt(cutoffs, line) : cutoffs;
+  };
   return {
     revenue: total(monthly.revenue.total),
     profit: money ? total(money.profit) : null,
     clients_lost: total(monthly.clientsLost),
-    too_busy_months: Object.values(monthly.roles).reduce((n, series) => n + series.filter((m) => m !== null && isTooBusy(m.mean, cutoffs)).length, 0),
+    too_busy_months: Object.entries(monthly.roles).reduce((n, [id, series]) => n + series.filter((m) => m !== null && isTooBusy(m.mean, of(id))).length, 0),
   };
 }
 
@@ -305,11 +310,12 @@ export async function runSaved(ctx: ToolContext, ws: WorkspaceRef, args: SavedRu
 
   const monthly = run.result.monthly!;
   const hpw = run.model.hoursPerWeek;
-  const cutoffs = toRatingConfig({}, hpw, busyLine(run.model)).rules.busy.cutoffs;
   const { bundle } = inputs;
+  // The workspace's analysis assumptions (Settings > Simulation), as the Sandbox page and get_facts rate with them.
+  const cutoffs = toRatingConfig(bundle.analysisRules ?? {}, hpw, busyLine(run.model)).rules.busy.cutoffs;
   const roleNames = Object.fromEntries(Object.entries(run.model.roles).map(([id, r]) => [id, r.name]));
   const categories = workspacePurposes(bundle.workspace.settings as WorkspaceSettings);
-  const view = (r: ScenarioRun) => ({ series: seriesOf(r.result.monthly!), roles: rolesOut(r.result.monthly!, roleNames), totals: totalsOut(r.result.monthly!, cutoffs) });
+  const view = (r: ScenarioRun) => ({ series: seriesOf(r.result.monthly!), roles: rolesOut(r.result.monthly!, roleNames), totals: totalsOut(r.result.monthly!, cutoffs, r.model.roles) });
   const main = view(run);
   const base = baseline ? view(baseline) : null;
   const diffTotals =

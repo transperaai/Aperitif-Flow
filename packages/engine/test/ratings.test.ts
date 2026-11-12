@@ -10,6 +10,8 @@ import {
   rateValue,
   resolveRatingConfig,
   resolveRule,
+  busyCutoffsAt,
+  withRoleLines,
   storedOfRating,
   STORED_SEVERITIES,
   RATINGS,
@@ -281,5 +283,23 @@ describe("stored severities", () => {
   it("map one to one onto the ratings", () => {
     expect(STORED_SEVERITIES.map(ratingOfStored)).toEqual(["risk", "bad", "good", "great"]);
     for (const r of RATINGS) expect(ratingOfStored(storedOfRating(r))).toBe(r);
+  });
+});
+
+describe("each role's own utilisation threshold (customisability audit 11)", () => {
+  it("moves rule 1's cut-offs so the middle one is the role's line", () => {
+    expect(busyCutoffsAt([0.7, 0.85, 0.95], 0.85)).toEqual([0.7, 0.85, 0.95]);
+    const [a, b, c] = busyCutoffsAt([0.7, 0.85, 0.95], 0.75);
+    expect([a, b, c].map((v) => Math.round(v * 100) / 100)).toEqual([0.6, 0.75, 0.85]);
+    expect(busyCutoffsAt([0.7, 0.85, 0.95], 0.1)[0]).toBe(0);
+  });
+
+  it("is a role override for the role and its people; a person's own override still wins", () => {
+    const base = resolveRatingConfig({ rules: { busy: { overrides: [{ kind: "person", id: "p1", cutoffs: [0.5, 0.6, 0.7] }] } } });
+    const config = withRoleLines(base, { am: { line: 0.75 }, seo: {} });
+    expect(resolveRule(config, "busy", { roleId: "am" }).cutoffs[1]).toBe(0.75);
+    expect(resolveRule(config, "busy", { roleId: "seo" }).cutoffs).toEqual(DEFAULT_RATING_CUTOFFS.busy);
+    expect(resolveRule(config, "busy", { roleId: "am", personId: "p1" }).cutoffs).toEqual([0.5, 0.6, 0.7]);
+    expect(withRoleLines(base, {})).toBe(base);
   });
 });

@@ -31,7 +31,7 @@ import { preparePlay } from "@transpera-flow/db/sandbox";
 import { ENGINE_VERSION, toRatingConfig } from "@transpera-flow/engine";
 import { NO_SELECTION, ProcessCanvas } from "@/components/process-canvas";
 import { EmptyState } from "@/components/page-kit";
-import { ANALYSIS_DEFAULTS } from "@/lib/analysis/defaults";
+import { analysisRulesOf } from "@/lib/analysis/defaults";
 import { today as todayIso, DEFAULT_FORECAST_MONTHS } from "@/lib/forecast/forecast";
 import { timelineMonths } from "@/lib/forecast/timeline";
 import { horizonLabel } from "@/lib/horizon";
@@ -256,7 +256,7 @@ function PlayExport({ live, runs, play, ctx, solutions, start, canSeeMoney, mapM
   const [includeCosts, setIncludeCosts] = useState(true);
   const hpw = live.workspace.settings.hours_per_week;
   const busy = workspaceBusyLine(live.workspace.settings);
-  const cutoffs = useMemo(() => toRatingConfig(ANALYSIS_DEFAULTS, hpw, busy).rules.busy.cutoffs, [hpw, busy]);
+  const cutoffs = useMemo(() => toRatingConfig(analysisRulesOf(live), hpw, busy).rules.busy.cutoffs, [live, hpw, busy]);
   const changes = useMemo(() => playChanges(play, ctx).map((change) => ({ change, scenarioId: "play", scenarioName: "Free play", inherited: false })), [play, ctx]);
   const today = runs.today;
   const changed = runs.changed;

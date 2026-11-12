@@ -2,7 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { DEFAULT_AVAILABILITY_FLOOR } from "@transpera-flow/engine";
-import { ChecklistField, DateField, FieldRows, NumberField, TextField, ToggleField } from "@/components/fields";
+import { DEFAULT_AT_RISK_MARGIN, DEFAULT_DLER_GOAL } from "@transpera-flow/db";
+import { ChecklistField, DateField, FieldRows, NumberField, SelectField, TextField, ToggleField } from "@/components/fields";
+import { ASSUMPTION_LIMITS, assumptionValues, type AssumptionKey } from "@/lib/analysis/assumptions";
+import { HORIZON_MONTHS, horizonLabel, horizonWeeks, isHorizonMonths, monthsForWeeks } from "@/lib/horizon";
 import { Help, HelpLabel } from "@/components/help";
 import { Button } from "@/components/ui/button";
 import { useAddForm } from "@/components/settings/use-add-form";
@@ -19,14 +22,19 @@ import {
   addLeave,
   createPerson,
   removeLeave,
+  saveAnalysisAssumption,
+  saveAtRiskMargin,
   saveAvailabilityFloor,
   saveCapacityFactorsEnabled,
+  saveDlerGoal,
+  saveForecastLength,
   saveOvertimeCap,
   savePersonField,
   savePersonSet,
   type ActionResult,
   type PersonField,
 } from "./actions";
+import { saveDlerIncludesLeadership } from "./setup-actions";
 
 type Scalar = string | number | boolean | null;
 
@@ -37,14 +45,87 @@ const personSaver =
     savePersonField(personId, field, base, next) as Promise<SaveOutcome<T>>;
 
 
-export function SimulationSettings({ data }: { data: WorkspaceSettingsData }) {
+/** The analysis assumptions as Settings shows them (`assumptionValues` of the stored analysis settings, defaults filled in). */
+export type Assumptions = Record<AssumptionKey, number>;
+
+const numOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+export function SimulationSettings({ data, assumptions = assumptionValues({}) }: { data: WorkspaceSettingsData; assumptions?: Assumptions }) {
   const { workspace, canManage } = data;
   const floor = workspace.settings.availability_floor ?? null;
   const overtime = workspace.settings.overtime_cap ?? null;
   const ownersOnly = canManage ? undefined : "Only Agency admins can change this.";
+  const editorsOnly = data.canEdit ? undefined : "Only Agency admins can change this.";
+  const weeks = workspace.settings.horizon_weeks;
+  const months = monthsForWeeks(weeks);
+  const lengthOptions = [
+    ...HORIZON_MONTHS.map((m) => ({ value: String(m), label: horizonLabel(m) })),
+    ...(months === null ? [{ value: "custom", label: `${weeks} weeks (pick a length to change it)` }] : []),
+  ];
+  const assumption = (key: AssumptionKey) => (base: number | null, next: number | null) => saveAnalysisAssumption(workspace.id, key, base, next);
   return (
-    <SettingsSection id="simulation" band title="Simulation" description="Limits on how the simulation treats people's time.">
+    <SettingsSection id="simulation" band title="Simulation" description="Limits on how the simulation treats people's time, the goals the figures are judged against, and the assumptions behind them.">
       <FieldRows>
+        <SelectField
+          label="Default forecast length"
+          value={months === null ? "custom" : String(months)}
+          save={(base, next) => saveForecastLength(workspace.id, base !== null && isHorizonMonths(Number(base)) ? horizonWeeks(Number(base)) : weeks, next)}
+          options={lengthOptions}
+          disabled={!canManage}
+          hint={ownersOnly}
+          help={{
+            description: "How far ahead the Overview and the People page run when they open. You can still pick another length on each page.",
+            example: "12 months: the Overview's team load and hiring advice look a year ahead, as the Capacity page does.",
+          }}
+        />
+        <NumberField
+          label="DLER goal"
+          value={numOrNull(workspace.settings.dler_goal)}
+          save={(base, next) => saveDlerGoal(workspace.id, base, next)}
+          optional
+          min={0.1}
+          max={50}
+          step={0.1}
+          unit="× salaries"
+          placeholder={`${DEFAULT_DLER_GOAL} (default)`}
+          disabled={!canManage}
+          hint={ownersOnly ?? "Leave blank to use the default."}
+          help={{
+            description: "The DLER you aim for: what clients pay a month for every dollar of salary. The Overview, Capacity and the Sandbox mark each department at or below it.",
+            example: "3 for a 3:1 goal: someone on 8,000 a month should look after clients paying 24,000 a month.",
+          }}
+        />
+        <ToggleField
+          label="DLER counts leadership"
+          value={workspace.settings.dler_includes_leadership === true}
+          save={(base, next) => saveDlerIncludesLeadership(workspace.id, base, next)}
+          onLabel="On: directors and managers count"
+          offLabel="Off: directors and managers are left out"
+          disabled={!canManage}
+          hint={ownersOnly}
+          help={{
+            description: "Whether roles marked as leadership count in DLER and in MRR per person. Off leaves their salaries and their time out of both.",
+            example: "Off: a director who also manages two clients doesn't pull the department's DLER down.",
+          }}
+        />
+        <NumberField
+          label="At-risk margin"
+          value={numOrNull(workspace.settings.at_risk_margin)}
+          save={(base, next) => saveAtRiskMargin(workspace.id, base, next)}
+          optional
+          scale={100}
+          unit="points"
+          min={0}
+          max={50}
+          step={1}
+          placeholder={`${DEFAULT_AT_RISK_MARGIN * 100} (default)`}
+          disabled={!canManage}
+          hint={ownersOnly ?? "Leave blank to use the default."}
+          help={{
+            description: "How close under their role's utilisation threshold someone can be before they show as at risk (amber) on Capacity, the Overview and the Sandbox.",
+            example: "At 10, a role with an 85% threshold shows people from 75% busy as at risk.",
+          }}
+        />
         <ToggleField
           label="Per-person times"
           value={workspace.settings.capacity_factor_enabled === true}
@@ -93,6 +174,83 @@ export function SimulationSettings({ data }: { data: WorkspaceSettingsData }) {
           help={{
             description: "How much extra, beyond a normal week, people work to keep up when their client work is more than their week. The simulation counts the extra hours and their cost. Past this limit, people show as too busy and an Operational risk is raised.",
             example: "At 10%, someone with a 40-hour week can work up to 4 hours extra before they count as overloaded.",
+          }}
+        />
+        <NumberField
+          label="Busy warning starts"
+          value={assumptions.busyBelow}
+          save={assumption("busyBelow")}
+          scale={100}
+          unit="points under the threshold"
+          min={ASSUMPTION_LIMITS.busyBelow.min * 100}
+          max={ASSUMPTION_LIMITS.busyBelow.max * 100}
+          step={1}
+          disabled={!data.canEdit}
+          hint={editorsOnly}
+          help={{
+            description: "How far under a role's utilisation threshold the facts start calling someone busy. Each role's own threshold is the too-busy line.",
+            example: `At ${ASSUMPTION_LIMITS.busyBelow.default * 100}, a role with an 85% threshold is busy from 70%.`,
+          }}
+        />
+        <NumberField
+          label="Overloaded from"
+          value={assumptions.busyAbove}
+          save={assumption("busyAbove")}
+          scale={100}
+          unit="points over the threshold"
+          min={ASSUMPTION_LIMITS.busyAbove.min * 100}
+          max={ASSUMPTION_LIMITS.busyAbove.max * 100}
+          step={1}
+          disabled={!data.canEdit}
+          hint={editorsOnly}
+          help={{
+            description: "How far over a role's utilisation threshold someone counts as an operational risk, not just too busy.",
+            example: `At ${Math.round(ASSUMPTION_LIMITS.busyAbove.default * 100)}, a role with an 85% threshold is an operational risk from 95%.`,
+          }}
+        />
+        <NumberField
+          label="A lost client is worth up to"
+          value={assumptions.capMonths}
+          save={assumption("capMonths")}
+          unit="months of fees"
+          min={ASSUMPTION_LIMITS.capMonths.min}
+          max={ASSUMPTION_LIMITS.capMonths.max}
+          step={1}
+          disabled={!data.canEdit}
+          hint={editorsOnly}
+          help={{
+            description: "The most a lost deal or a client who leaves is counted as costing, in months of their fee. Used for the cost a month of each fact.",
+            example: "At 24, a client paying 3,000 a month who leaves with years to go counts as 72,000 lost.",
+          }}
+        />
+        <NumberField
+          label="Absence test: weeks away"
+          value={assumptions.absenceWeeks}
+          save={assumption("absenceWeeks")}
+          unit="weeks"
+          min={ASSUMPTION_LIMITS.absenceWeeks.min}
+          max={ASSUMPTION_LIMITS.absenceWeeks.max}
+          step={1}
+          disabled={!data.canEdit}
+          hint={editorsOnly}
+          help={{
+            description: "How long the \u201cIf someone is away\u201d test takes a person out, to see what only they can do.",
+            example: "4 weeks for a typical summer holiday.",
+          }}
+        />
+        <NumberField
+          label="Absences a year"
+          value={assumptions.absencesPerYear}
+          save={assumption("absencesPerYear")}
+          unit="a year"
+          min={ASSUMPTION_LIMITS.absencesPerYear.min}
+          max={ASSUMPTION_LIMITS.absencesPerYear.max}
+          step={1}
+          disabled={!data.canEdit}
+          hint={editorsOnly}
+          help={{
+            description: "How often such an absence happens in a year, for what it costs.",
+            example: "2: a long break in summer and one in winter.",
           }}
         />
       </FieldRows>

@@ -56,7 +56,7 @@ import { timelineData } from "@/lib/forecast/timeline";
 import { calendarMonthStarts } from "@transpera-flow/db/sandbox";
 import { hiringAdvice, hiringDelayAt } from "@transpera-flow/db";
 import { rerate, visibleFindings } from "@/lib/rules/edit";
-import { ANALYSIS_DEFAULTS } from "@/lib/analysis/defaults";
+import { analysisRulesOf } from "@/lib/analysis/defaults";
 import { useAbsenceTest } from "@/lib/sim/absence";
 import { useSimulation } from "@/lib/sim/use-simulation";
 import { useDemoSolutions } from "@/lib/solutions/demo";
@@ -228,8 +228,8 @@ export function Overview({
   const baseSim = useSimulation(haveBase ? null : base);
   const baseResult = sameModel ? horizonResult : shared && shared.model === base ? shared.result : current(baseSim.status === "done" ? baseSim.run.result : null, base);
 
-  // The facts (D40), from the run at the workspace's own length, rated with the documented defaults: evidence, never findings.
-  const rules = ANALYSIS_DEFAULTS;
+  // The facts (D40), from the run at the workspace's own length, rated with the workspace's analysis assumptions: evidence, never findings.
+  const rules = analysisRulesOf(live);
   const absence = useAbsenceTest(base && baseResult ? base : null, baseResult?.seed ?? 1, resolveMoney(rules).absenceWeeks);
   const gaps = useMemo(() => visibleFindings(rules, perceptionGapDetections(parts.flatMap((p) => p.steps))), [rules, parts]);
   // Who gets too busy, and when, over the horizon (B6): "Across the company".
@@ -368,7 +368,7 @@ export function Overview({
         >
           {teamLoad ? (
             teamLoad.roles.length ? (
-              <TeamLoad rows={teamLoad.roles} months={teamLoad.months} lines={roleLines} fallbackLine={cutoffs[1]} advice={advice} span={span} sandboxHref={forecastHref} how={false} />
+              <TeamLoad rows={teamLoad.roles} months={teamLoad.months} lines={roleLines} fallbackLine={cutoffs[1]} margin={capacity?.setup.atRiskMargin} advice={advice} span={span} sandboxHref={forecastHref} how={false} />
             ) : (
               <EmptyState>No role has any work in this run.</EmptyState>
             )
@@ -653,7 +653,7 @@ export function Overview({
             </div>
             {peopleReady && (
               <div data-chart="busiest" className="flex min-w-0 flex-col [&>*]:flex-1">
-                <BusiestPeople people={departmentFigures.people} failed={!!departmentFigures.failure} capacityHref={`${capacity!.base}/capacity`} />
+                <BusiestPeople people={departmentFigures.people} failed={!!departmentFigures.failure} capacityHref={`${capacity!.base}/capacity`} margin={capacity!.setup.atRiskMargin} />
               </div>
             )}
           {charts.map((c) => (
@@ -663,7 +663,7 @@ export function Overview({
           ))}
         </div>
 
-        {peopleReady && <DepartmentTiles figures={departmentFigures} base={capacity!.base} currency={capacity!.setup.currency} />}
+        {peopleReady && <DepartmentTiles figures={departmentFigures} base={capacity!.base} currency={capacity!.setup.currency} dlerGoal={capacity!.setup.dlerGoal} />}
       </div>
     </div>
   );

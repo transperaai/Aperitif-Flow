@@ -4,7 +4,7 @@
 // bottom fail the typecheck if they drift from it.
 
 import type { ProcessCategory } from "./process-category";
-import type { IssueType, ScenarioPatch, StoredSeverity } from "@transpera-flow/engine";
+import type { AnalysisSettings, IssueType, ScenarioPatch, StoredSeverity } from "@transpera-flow/engine";
 import type { Selectable } from "kysely";
 import type { DB } from "./db-types";
 import type { Viewer } from "./queries";
@@ -123,6 +123,16 @@ export interface WorkspaceSettings {
    * the implicit retainer keeps 1 / churn uncapped. Checked by `workspaces_max_stay_months`.
    */
   max_stay_months?: number | null;
+  /**
+   * The DLER the agency aims for (fees a month ÷ salaries a month), more than 0 and at most 50, e.g. 3 for 3:1. Every DLER on the
+   * Overview, Capacity and the Sandbox is judged against it. Absent or null: `DEFAULT_DLER_GOAL` (4.5). Checked by `workspaces_dler_goal`.
+   */
+  dler_goal?: number | null;
+  /**
+   * How far under their own utilisation threshold someone counts as at risk ("near"), as a share from 0 to 0.5 (0.1 is 10 points).
+   * Absent or null: `DEFAULT_AT_RISK_MARGIN` (0.1). Checked by `workspaces_at_risk_margin`.
+   */
+  at_risk_margin?: number | null;
 }
 
 /** One per-person time as `team_capacity` returns it (`step_id` null is the person's time on every step). */
@@ -159,6 +169,11 @@ export interface RoleRow {
    * fixtures and older snapshots still type-check.
    */
   salary_monthly?: number | null;
+  /**
+   * The role's utilisation threshold as a share (Settings: "Utilisation threshold"; default 0.85): at or over it the role counts as too
+   * busy, in the engine's ratings and forecast as on the Capacity page. Optional so fixtures that predate it still type-check.
+   */
+  line?: number;
 }
 
 export interface PersonRow {
@@ -759,6 +774,11 @@ export interface ProcessPart {
 export interface ProcessBundle {
   /** Who loaded it (B1 2/3). Absent means "sees everyone" (demo fixtures, tests, the golden models). */
   viewer?: Viewer;
+  /**
+   * The workspace's analysis assumptions as stored (`liveAnalysisSettings` of `analysis_rules.settings`): what Settings edits (a lost
+   * client's value cap, the absence test, the busy bands). Every page rates a run with these. Absent or {}: the documented defaults.
+   */
+  analysisRules?: AnalysisSettings;
   /** Pay is hidden even though the viewer may see everyone (a share link, B3). */
   payHidden?: true;
   workspace: WorkspaceRow;
@@ -1148,8 +1168,8 @@ export type _SchemaDriftChecks = [
   // settings is jsonb; WorkspaceSettings is its app-side shape.
   // provenance is loaded only where shown (optional here, required in the table).
   Assert<Matches<Omit<WorkspaceRow, "settings" | "provenance">, "workspaces">>,
-  // salary_monthly (and a person's label) are optional here (absent on fixtures).
-  Assert<Matches<Omit<RoleRow, "salary_monthly">, "roles">>,
+  // salary_monthly and line (and a person's label) are optional here (absent on fixtures).
+  Assert<Matches<Omit<RoleRow, "salary_monthly" | "line">, "roles">>,
   Assert<Matches<Required<Pick<RoleRow, "salary_monthly">>, "roles">>,
   Assert<Matches<Omit<PersonRow, "provenance" | "salary_monthly" | "label">, "people">>,
   Assert<Matches<Required<Pick<PersonRow, "salary_monthly" | "label">>, "people">>,

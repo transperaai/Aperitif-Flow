@@ -7,7 +7,7 @@
 // stacked bars by purpose, with what moved). On today's path there is no change and no dashed copy. Goal seek and "What matters most" stay hidden (D33).
 
 import { useMemo, useState, type ReactNode } from "react";
-import { DLER_GOAL, DEFAULT_PURPOSES, type CapacitySetup, type PurposeCategory } from "@transpera-flow/db";
+import { DEFAULT_PURPOSES, type CapacitySetup, type PurposeCategory } from "@transpera-flow/db";
 import { Help } from "@/components/help";
 import { EmptyState, SectionCard } from "@/components/page-kit";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -122,7 +122,7 @@ export function PlayResults({
   const lostThen = t.lostToPrice;
   // Is the change worth it: MRR added over the horizon, month by month, against today's path.
   const mrrAdded = changed.outcome.retainers.reduce((sum, v, i) => sum + v - (today.outcome.retainers[i] ?? 0), 0);
-  const atGoal = (lines: { values: (number | null)[] }[]) => lines.filter((l) => (l.values[last] ?? 0) >= DLER_GOAL).length;
+  const atGoal = (lines: { values: (number | null)[] }[]) => lines.filter((l) => (l.values[last] ?? 0) >= setup.dlerGoal).length;
 
   // Where the time goes.
   const order = [...sceneSlices, ...todaySlices].map((s) => s.id).filter((id, i, all) => all.indexOf(id) === i);
@@ -206,8 +206,8 @@ export function PlayResults({
               data-play-kpi="dler"
               label={`DLER by ${atEnd}`}
               value={dlerNow == null ? "n/a" : formatNumber(dlerNow, 1)}
-              edge={dlerNow == null ? undefined : dlerNow >= DLER_GOAL ? "good" : "warn"}
-              sub={moved && dlerThen != null ? `From ${formatNumber(dlerThen, 1)} today · goal ${formatNumber(DLER_GOAL, 1)}` : `Goal ${formatNumber(DLER_GOAL, 1)}`}
+              edge={dlerNow == null ? undefined : dlerNow >= setup.dlerGoal ? "good" : "warn"}
+              sub={moved && dlerThen != null ? `From ${formatNumber(dlerThen, 1)} today · goal ${formatNumber(setup.dlerGoal, 1)}` : `Goal ${formatNumber(setup.dlerGoal, 1)}`}
             />
           )}
         </KpiStrip>
@@ -274,10 +274,10 @@ export function PlayResults({
                 DLER {dlerNow == null ? "n/a" : formatNumber(dlerNow, 1)} {by}
                 {moved && dlerThen != null && <Change> ({formatNumber(dlerThen, 1)} today)</Change>}
               </Header>
-              <PlayChart title="DLER by department" months={monthNames} series={pair(c.dler, t.dler)} format={(v) => formatNumber(v, 1)} goal={{ value: DLER_GOAL, label: `Goal ${formatNumber(DLER_GOAL, 1)}` }} />
+              <PlayChart title="DLER by department" months={monthNames} series={pair(c.dler, t.dler)} format={(v) => formatNumber(v, 1)} goal={{ value: setup.dlerGoal, label: `Goal ${formatNumber(setup.dlerGoal, 1)}` }} />
               {moved && (
                 <Payoff data-payoff="dler">
-                  Departments at the {formatNumber(DLER_GOAL, 1)} goal at {n} months: <b>{atGoal(c.dler)} of {c.dler.length}</b> ({atGoal(t.dler)} on today&apos;s path).
+                  Departments at the {formatNumber(setup.dlerGoal, 1)} goal at {n} months: <b>{atGoal(c.dler)} of {c.dler.length}</b> ({atGoal(t.dler)} on today&apos;s path).
                 </Payoff>
               )}
             </>
@@ -300,7 +300,7 @@ export function PlayResults({
         contentClassName="gap-3"
       >
         <WorstLine worst={worst} other={worstOther} months={months.long} otherLabel={showToday ? "this scene" : "today's path"} />
-        <Heatmap rows={rows} months={monthNames.slice(0, heatN)} view={moved ? view : "today"} worst={worst?.month ?? null} />
+        <Heatmap rows={rows} months={monthNames.slice(0, heatN)} view={moved ? view : "today"} worst={worst?.month ?? null} margin={setup.atRiskMargin} />
         <p className="sr-only" data-heat-shows>
           Showing {heatLabel}, the next {heatN} months
         </p>

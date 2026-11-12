@@ -157,7 +157,7 @@ const person = (id: string, role_ids: string[], extra: Partial<SetupPerson> = {}
 });
 const setupOf = (roles: SetupRole[], people: SetupPerson[], extra: Partial<CapacitySetup> = {}): CapacitySetup => ({
   workspaceId: "ws", currency: "USD", departments: [{ id: DEPT, name: "Organic (SEO)", sort: 0 }], tiers: [], services: [], groups: [], clients: [], roles, people,
-  portfolio: [], rampDefault: [0.4, 0.6, 0.8], rampDefaultProvenance: null, dlerIncludesLeadership: false, dlerProvenance: null, maxStayStored: null, maxStayMonths: 60, canEdit: true, payHidden: false, ...extra,
+  portfolio: [], rampDefault: [0.4, 0.6, 0.8], rampDefaultProvenance: null, dlerIncludesLeadership: false, dlerProvenance: null, maxStayStored: null, maxStayMonths: 60, dlerGoal: 4.5, atRiskMargin: 0.1, canEdit: true, payHidden: false, ...extra,
 });
 
 describe("personSalary in Set up", () => {

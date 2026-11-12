@@ -57,11 +57,11 @@ const posts = (page: Page) => page.evaluate(() => [...window.workerPosts]);
 const count = (list: string[], file: string) => list.filter((f) => f === file).length;
 
 describe("the Overview page's runs", () => {
-  it("simulates the horizon again when it changes, between 1, 3 and 6 months only", async () => {
+  it("simulates the horizon again when it changes, between 1, 3, 6 and 12 months only", async () => {
     const { page, errors } = await mount();
     await page.waitForFunction(() => /Playing 3 months/.test(document.querySelector("[data-horizon-note]")?.textContent ?? ""), null, { timeout: 90_000 });
-    // Q1 item 9: 1, 3 and 6 months, and a way on to the Sandbox.
-    expect(await page.getByRole("group", { name: "Time horizon" }).getByRole("button").allInnerTexts()).toEqual(["1m", "3m", "6m"]);
+    // Q1 item 9: 1, 3, 6 and 12 months (customisability audit 50), and a way on to the Sandbox.
+    expect(await page.getByRole("group", { name: "Time horizon" }).getByRole("button").allInnerTexts()).toEqual(["1m", "3m", "6m", "12m"]);
     expect(await page.locator("[data-sandbox-link]").innerText()).toBe("Simulate further in the Sandbox");
     // Item 7/8: History opens the company map's history page directly, and looks like Export (outline, small).
     expect(await page.locator("[data-company-history]").getAttribute("href")).toBe("/w/x/p/company/history");

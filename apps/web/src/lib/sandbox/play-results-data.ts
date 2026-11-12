@@ -1,15 +1,15 @@
 // The Sandbox's result charts, worked out from two runs (D54): the team-by-month heatmap's rows, the purposes that moved, and the signed numbers
 // the chart headers carry. Pure: no React. The busy cut-offs are the Capacity page's (`toneOf`), the purposes come from P4's `timeRows`.
 
-import type { PlayTeamLine, PurposeCategory } from "@transpera-flow/db";
+import { DEFAULT_AT_RISK_MARGIN, type PlayTeamLine, type PurposeCategory } from "@transpera-flow/db";
 import { timeRows, type TimeRow } from "@transpera-flow/db/sandbox";
 import type { MonthlyResult } from "@transpera-flow/engine";
 
 export type BusyTone = "ok" | "warn" | "bad";
 
-/** The Capacity page's cut-offs: at or over the line is bad, within 10 points under it is a warning. */
-export function busyTone(busy: number, line: number): BusyTone {
-  return busy >= line ? "bad" : busy >= line - 0.1 ? "warn" : "ok";
+/** The Capacity page's cut-offs: at or over the line is bad, within the workspace's at-risk margin (10 points unless set) under it is a warning. */
+export function busyTone(busy: number, line: number, margin: number = DEFAULT_AT_RISK_MARGIN): BusyTone {
+  return busy >= line ? "bad" : busy >= line - margin - 1e-9 ? "warn" : "ok";
 }
 
 export interface HeatRow {

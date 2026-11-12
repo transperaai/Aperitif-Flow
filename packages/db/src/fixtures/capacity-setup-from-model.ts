@@ -11,7 +11,7 @@ const ROLE_DEPT: Record<string, "org" | "perf"> = { dir_org: "org", mgr_org: "or
 const CLIENT_FACING = new Set(["dir_org", "mgr_org", "dir_perf", "pmm"]);
 const RULE: Record<string, number> = { dir_org: 10, mgr_org: 10, dir_perf: 6, pmm: 15 };
 
-export function capacitySetupFromModel(model: EngineModel, options: { payHidden?: boolean; dlerIncludesLeadership?: boolean; canEdit?: boolean } = {}): CapacitySetup {
+export function capacitySetupFromModel(model: EngineModel, options: { payHidden?: boolean; dlerIncludesLeadership?: boolean; canEdit?: boolean; dlerGoal?: number; atRiskMargin?: number } = {}): CapacitySetup {
   const hidden = options.payHidden === true;
   const departments = [
     { id: "org", name: "Organic (SEO)", sort: 1 },
@@ -127,6 +127,8 @@ export function capacitySetupFromModel(model: EngineModel, options: { payHidden?
     dlerProvenance: null,
     maxStayStored: null,
     maxStayMonths: 60,
+    dlerGoal: options.dlerGoal ?? 4.5,
+    atRiskMargin: options.atRiskMargin ?? 0.1,
     canEdit: options.canEdit ?? true,
     payHidden: hidden,
   };

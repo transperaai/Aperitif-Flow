@@ -42,6 +42,8 @@ export interface PlayCharts {
 
 export interface PlayOutcome extends PlaySeries {
   charts: PlayCharts;
+  /** Each department's retainers in the run's first month, in `setup.departments` order: today's path's are the levers' path's anchor. */
+  retainerAnchor: number[];
 }
 
 const mean = (s: { mean: number } | null | undefined): number => (s ? s.mean : 0);
@@ -83,7 +85,18 @@ export function setupInMonth(setup: CapacitySetup, play: Pick<PlayState, "leaver
  * The verdict's series and the charts' lines for one run. `model` is the model the run used (its people, for a hire's name); `result` has the monthly
  * series. Months are the run's months.
  */
-export function playSeries(setup: CapacitySetup, play: Pick<PlayState, "leavers" | "hires">, model: EngineModel, result: SimulationResult, hiringDelay = DEFAULT_HIRING_DELAY_MONTHS): PlayOutcome {
+export function playSeries(
+  setup: CapacitySetup,
+  play: Pick<PlayState, "leavers" | "hires">,
+  model: EngineModel,
+  result: SimulationResult,
+  hiringDelay = DEFAULT_HIRING_DELAY_MONTHS,
+  /**
+   * Each department's retainers in the first month of TODAY's path (`PlayOutcome.retainerAnchor` of today's outcome), in `setup.departments`
+   * order: the levers' path's DLER moves from today's by its own retainers against these. Omitted: this run's own first month (today's path).
+   */
+  anchor?: readonly number[],
+): PlayOutcome {
   const monthly = result.monthly;
   if (!monthly) throw new Error("playSeries: the run has no monthly series");
   const n = monthly.months.length;
@@ -116,8 +129,18 @@ export function playSeries(setup: CapacitySetup, play: Pick<PlayState, "leavers"
     }),
   }));
 
-  // DLER (D40): P5's `dler`, the average of each client-facing person's DLER, on the people there that month and the engine's retainers.
-  const dlers = range.map((m) => dler(setupInMonth(setup, play, m), Object.fromEntries(setup.departments.map((d, i) => [d.id, deptRetainers[i]!.values[m]!]))));
+  // DLER (D40): P5's `dler`, the average of each client-facing person's DLER, on the people there that month. A department's fees in month m are
+  // today's (what the Overview and Capacity count) moved by the engine's change in that department's retainers since the first month, so with no
+  // lever moved the first month's DLER is the Overview's (customisability audit 18). Hires take the department's average share.
+  const today = dler(setup).departments;
+  const newcomers = new Set(play.hires.map((_, i) => playChangeId("D1", i)));
+  const retainerAnchor = deptRetainers.map((d) => d.values[0] ?? 0);
+  const poolOf = (i: number, m: number) => {
+    const first = anchor?.[i] ?? retainerAnchor[i]!;
+    const growth = first > 0 ? deptRetainers[i]!.values[m]! / first : 1;
+    return (today[i]?.retainers ?? 0) * growth;
+  };
+  const dlers = range.map((m) => dler(setupInMonth(setup, play, m), Object.fromEntries(setup.departments.map((d, i) => [d.id, poolOf(i, m)])), newcomers));
   const dlerWhole = dlers.map((x) => x.whole.ratio);
   const dlerDepts: PlayLine[] = setup.departments.map((d) => ({
     id: d.id,
@@ -156,5 +179,7 @@ export function playSeries(setup: CapacitySetup, play: Pick<PlayState, "leavers"
     advice,
     people,
     charts: { clients: deptClients, retainers, dler: dlerDepts, dlerWhole, teams, won: range.map((m) => mean(monthly.clientsWon[m])), lost: range.map((m) => mean(monthly.clientsLost[m])), lostToPrice },
+
+    retainerAnchor,
   };
 }

@@ -49,7 +49,7 @@ function Departments({ setup, model }: { setup: CapacitySetup; model: EngineMode
       <section className="flex flex-col gap-4" data-overview-section="money">
         <DepartmentAlerts failure={figures.failure} />
         <WholeBusinessHero setup={setup} base="/w/example" />
-        <DepartmentTiles figures={figures} base="/w/example" currency={setup.currency} />
+        <DepartmentTiles figures={figures} base="/w/example" currency={setup.currency} dlerGoal={setup.dlerGoal} />
       </section>
       <section className="grid gap-6 lg:grid-cols-2" data-overview-section="people">
         <BusiestPeople people={figures.people} failed={!!figures.failure} capacityHref="/w/example/capacity" />

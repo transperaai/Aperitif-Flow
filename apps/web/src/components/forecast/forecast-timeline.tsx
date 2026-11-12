@@ -157,6 +157,7 @@ export function ForecastTimeline({
   data,
   rows,
   cutoffs,
+  rowCutoffs,
   label,
   plan,
 }: {
@@ -165,12 +166,15 @@ export function ForecastTimeline({
   rows: "roles" | "people";
   /** Rule 1's cut-offs (Good, Bad, Operational risk): the dashed line is where "Too busy" (Bad) starts. */
   cutoffs: Cutoffs;
+  /** A row's own cut-offs (its role's utilisation threshold as the line); omitted, or undefined for a row: `cutoffs`. */
+  rowCutoffs?: (rowId: string) => Cutoffs | undefined;
   /** What the chart shows, for a screen reader. */
   label: string;
   /** The plan lane, with its markers (B7). Absent: the timeline is as it was. */
   plan?: PlanLane;
 }) {
   const busyLine = cutoffs[1];
+  const cutoffsOf = (id: string): Cutoffs => rowCutoffs?.(id) ?? cutoffs;
   const [ref, measured] = useElementWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const [tipAt, setTipAt] = useState<{ x: number; y: number } | null>(null);
@@ -453,7 +457,7 @@ export function ForecastTimeline({
             <g key={row.id} data-row={row.id}>
               {rowLabel(r, rowTop(r), row.name, peakOf(row, data.months))}
               <line x1={m.l} x2={m.l + plotW} y1={rowBase(r)} y2={rowBase(r)} stroke="var(--line-2)" strokeWidth={1} />
-              <line x1={m.l} x2={m.l + plotW} y1={y(busyLine)} y2={y(busyLine)} stroke="var(--fg-3)" strokeDasharray="4 3" strokeWidth={1} />
+              <line x1={m.l} x2={m.l + plotW} y1={y(cutoffsOf(row.id)[1])} y2={y(cutoffsOf(row.id)[1])} stroke="var(--fg-3)" strokeDasharray="4 3" strokeWidth={1} />
               {row.uncovered?.map((h, i) =>
                 h !== null ? (
                   <g key={`uncovered-${i}`} data-uncovered={i}>
@@ -465,7 +469,7 @@ export function ForecastTimeline({
               <path d={bandPath(row.series.map((s) => (s ? { lo: s.p10, hi: s.p90 } : null)), y)} fill="var(--cat-1)" fillOpacity={0.14} />
               <path d={linePath(means, y)} fill="none" stroke="var(--cat-1)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
               {row.series.map((s, i) => {
-                const tone = s ? toneOf(s.mean, cutoffs) : null;
+                const tone = s ? toneOf(s.mean, cutoffsOf(row.id)) : null;
                 return tone ? <circle key={i} cx={x(i)} cy={y(s!.mean)} r={3.5} fill={tone} stroke="var(--panel)" strokeWidth={2} /> : null;
               })}
               {last && (
@@ -599,7 +603,7 @@ export function ForecastTimeline({
                       <>
                         <b className="font-semibold">{formatPercent(s.mean)}</b>
                         <span className="text-muted-foreground"> ({formatPercent(s.p10)}–{formatPercent(s.p90)})</span>
-                        {isTooBusy(s.mean, cutoffs) ? " too busy" : ""}
+                        {isTooBusy(s.mean, cutoffsOf(row.id)) ? " too busy" : ""}
                       </>
                     ) : undone !== null ? (
                       <b className="font-semibold">no one, {formatNumber(undone, 0)} h/wk undone</b>
@@ -630,16 +634,16 @@ export function ForecastTimeline({
           {announce}
         </div>
       ) : null}
-      <TimelineTable data={data} busy={busy} cutoffs={cutoffs} plan={plan} />
+      <TimelineTable data={data} busy={busy} cutoffsOf={cutoffsOf} plan={plan} />
     </div>
   );
 }
 
 /** The same numbers as a table, for a screen reader. */
-function TimelineTable({ data, busy, cutoffs, plan }: { data: TimelineData; busy: TimelineRow[]; cutoffs: Cutoffs; plan?: PlanLane }) {
+function TimelineTable({ data, busy, cutoffsOf, plan }: { data: TimelineData; busy: TimelineRow[]; cutoffsOf: (rowId: string) => Cutoffs; plan?: PlanLane }) {
   // Which month each plan marker falls in, for its "This scenario" column.
   const planMonth = (mk: PlanLaneMarker) => monthIndexOfDate(mk.date, plan!.startDate, plan!.bounds, plan!.hoursPerWeek);
-  const cell = (s: MonthBusy | null, undone: number | null) =>
+  const cell = (s: MonthBusy | null, undone: number | null, cutoffs: Cutoffs) =>
     s
       ? `${formatPercent(s.mean)} (${formatPercent(s.p10)} to ${formatPercent(s.p90)})${isTooBusy(s.mean, cutoffs) ? ", too busy" : ""}${undone !== null ? `, ${formatNumber(undone, 0)} hours a week with no one to do them` : ""}`
       : undone !== null
@@ -673,7 +677,7 @@ function TimelineTable({ data, busy, cutoffs, plan }: { data: TimelineData; busy
             <tr key={mo.index}>
               <th scope="row">{mo.label}</th>
               {busy.map((r) => (
-                <td key={r.id}>{cell(r.series[i] ?? null, r.uncovered?.[i] ?? null)}</td>
+                <td key={r.id}>{cell(r.series[i] ?? null, r.uncovered?.[i] ?? null, cutoffsOf(r.id))}</td>
               ))}
               {data.clients.map((c) => (
                 <td key={c.id || "all"}>{count(c.series[i]!)}</td>

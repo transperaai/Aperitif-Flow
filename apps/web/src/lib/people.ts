@@ -4,6 +4,7 @@ import type { ProcessBundle } from "@transpera-flow/db";
 import {
   absenceCandidates,
   absenceRating,
+  busyLine,
   resolvePeople,
   type AbsenceTest,
   type EngineModel,
@@ -14,8 +15,9 @@ import {
 } from "@transpera-flow/engine";
 
 /**
- * The default busy line: a person whose utilisation is above it in a bad month (the 90th percentile) counts as too busy. A workspace's
- * own line is `busyLine(model)` (settings.utilisation_threshold), which `teamSummary` takes; this is only its default.
+ * The default busy line. Someone whose first role has a utilisation threshold of its own (`EngineRole.line`) is held to it, as the
+ * engine's ratings and the Capacity page hold them; everyone else to the workspace's line, `busyLine(model)`
+ * (settings.utilisation_threshold), which is this unless the workspace set one.
  */
 export const BUSY_LIMIT = 0.85;
 
@@ -26,6 +28,8 @@ export interface PersonBusy {
   role: string;
   /** Full-time equivalent from the person's record; null when the model made the person up from a role's head-count. */
   fte: number | null;
+  /** Their first role's utilisation threshold (the workspace's `busyLine(model)` when it has none): at or above it they count as too busy. */
+  line: number;
   /** Average utilisation over the runs, 0 to 1 and a bit above with overtime. */
   average: number;
   /** A bad month: the 90th percentile over the runs. */
@@ -57,6 +61,7 @@ function byRoleThenName(roleOrder: readonly string[]) {
 export function personRows(model: EngineModel, result: SimulationResult, fteById: ReadonlyMap<string, number>): PersonBusy[] {
   const roleOrder = Object.keys(model.roles);
   const horizonHours = model.horizonWeeks * model.hoursPerWeek;
+  const workspaceLine = busyLine(model);
   return Object.entries(result.resolvedPeople)
     .flatMap(([id, p]) => {
       const band = result.kpi.people[id];
@@ -70,6 +75,7 @@ export function personRows(model: EngineModel, result: SimulationResult, fteById
             name: p.name,
             role: p.roles.map((rid) => model.roles[rid]?.name).filter(Boolean).join(", "),
             fte: fteById.get(id) ?? null,
+            line: model.roles[p.roles[0] ?? ""]?.line ?? workspaceLine,
             average: band.util.mean,
             p90: band.util.p90,
             clientWork: band.ongoing.mean + band.servicing.mean,
@@ -88,19 +94,16 @@ export interface TeamSummary {
   people: number;
   /** Total full-time equivalents of the people who have one on record; null when none do. */
   fte: number | null;
-  /** People whose bad month (P90) is above the busy line. */
+  /** People whose bad month (P90) is above their own busy line. */
   busyInBadMonth: number;
-  /** The busy line counted against (the workspace's, `busyLine(model)`). */
-  line: number;
 }
 
-export function teamSummary(rows: readonly PersonBusy[], line: number = BUSY_LIMIT): TeamSummary {
+export function teamSummary(rows: readonly PersonBusy[]): TeamSummary {
   const withFte = rows.filter((r) => r.fte !== null);
   return {
     people: rows.length,
     fte: withFte.length ? withFte.reduce((a, r) => a + r.fte!, 0) : null,
-    busyInBadMonth: rows.filter((r) => r.p90 > line).length,
-    line,
+    busyInBadMonth: rows.filter((r) => r.p90 > r.line).length,
   };
 }
 
