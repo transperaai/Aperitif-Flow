@@ -10,7 +10,7 @@ import type { CitingRow } from "./evidence";
 import { uiStatus, type StoredIssueStatus } from "./issue-status";
 import { hideAiIssueKey } from "./person-labels";
 import { partitionSteps } from "./retired";
-import { loadAnalysisRules } from "./analysis-rules";
+import { liveAnalysisSettings, loadAnalysisRules } from "./analysis-rules";
 import { companyBundle } from "./company-run";
 import type { RunRow } from "./runs";
 import type { ScenarioPatch } from "@transpera-flow/engine";
@@ -372,7 +372,7 @@ export async function loadProcessBundle(
     revision: revision as ProcessRevisionRow,
     roles,
     // Left out when nothing is stored, so the bundle is as it was.
-    ...(Object.keys(analysis.settings).length ? { analysisRules: analysis.settings } : {}),
+    ...(Object.keys(liveAnalysisSettings(analysis.settings)).length ? { analysisRules: liveAnalysisSettings(analysis.settings) } : {}),
     steps: inUse,
     retired,
     edges: edges as unknown as EdgeRow[],

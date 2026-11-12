@@ -655,3 +655,6 @@ it. To check on Neon:
       `run_scenario` over the connector stamps `api_tokens.sim_window_count`.
 - [ ] Production must have `APP_DATABASE_URL` (the `authenticator` login) set and different from `DATABASE_URL`: `lib/auth/env.ts`
       now throws in production (NODE_ENV or VERCEL_ENV production, so Preview too) when it isn't.
+- [ ] `20270203003000_goal_and_margin_settings.sql` adds the `workspaces_dler_goal` and `workspaces_at_risk_margin` checks and
+      validates them at once (no workspace holds either key yet). Verified on plain Postgres 16 only: run its preflight
+      (`select count(*) from public.workspaces where settings ? 'dler_goal' or settings ? 'at_risk_margin';`, expect 0) on Neon first.

@@ -734,8 +734,8 @@ export interface ProcessBundle {
   /** Who loaded it (B1 2/3). Absent means "sees everyone" (demo fixtures, tests, the golden models). */
   viewer?: Viewer;
   /**
-   * The workspace's analysis rules as stored (`analysis_rules.settings`, parsed): the assumptions Settings edits (a lost client's value cap,
-   * the absence test, the busy bands). Every page rates a run with these. Absent or {}: the documented defaults.
+   * The workspace's analysis assumptions as stored (`liveAnalysisSettings` of `analysis_rules.settings`): what Settings edits (a lost
+   * client's value cap, the absence test, the busy bands). Every page rates a run with these. Absent or {}: the documented defaults.
    */
   analysisRules?: AnalysisSettings;
   /** Pay is hidden even though the viewer may see everyone (a share link, B3). */
