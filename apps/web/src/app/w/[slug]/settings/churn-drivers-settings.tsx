@@ -216,7 +216,7 @@ export function ChurnDriversSettings({
       throw err;
     }
   }, [bundle]);
-  const key = `${pressureKey(states)}|${JSON.stringify(limits)}`;
+  const key = pressureKey(states);
   const [measured, setMeasured] = useState({ key, states });
   useEffect(() => {
     if (key === measured.key) return;
@@ -503,7 +503,7 @@ function DriverRow({
           {sourceLabel(d)} · now: {valueNow(d, cause, model, viewer)}
         </span>
         {d.builtin !== "tenure" && d.builtin !== "market" && (
-          <ChanceControls d={d} cause={cause} canEdit={canEdit} onChange={onChange} />
+          <ChanceControls d={d} cause={cause} canEdit={canEdit} onChange={onChange} priceWeeks={churnLimitsOf(limits as WorkspaceSettings)?.priceWeeks} />
         )}
         {(valueHelp || !d.builtin) && (
           <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
@@ -743,7 +743,7 @@ function NumberBox({
  * How a cause is counted (sandbox phase 3, B4): by its weight, or as events (a chance a month and an effect while a hit lasts).
  * Switching to events pre-fills the chance and effect that give about the churn the weight gave in the last run.
  */
-function ChanceControls({ d, cause, canEdit, onChange }: { d: DriverState; cause: ChurnCauses["causes"][number] | undefined; canEdit: boolean; onChange: (patch: DriverPatch) => void }) {
+function ChanceControls({ d, cause, canEdit, onChange, priceWeeks }: { d: DriverState; cause: ChurnCauses["causes"][number] | undefined; canEdit: boolean; onChange: (patch: DriverPatch) => void; /** How long a price rise weighs (the workspace's setting), for the price driver's matching effect. */ priceWeeks?: number }) {
   const events = d.effect !== null;
   const isPrice = d.builtin === "price";
   const measured = d.builtin !== null && CHURN_DRIVER_SPECS[d.builtin].events === "measured";
@@ -754,7 +754,7 @@ function ChanceControls({ d, cause, canEdit, onChange }: { d: DriverState; cause
       return onChange({ chance: null, effect: null, effectMonths: null });
     }
     if (cause) {
-      const eq = equivalentEvents({ id: engineIdOf(d), custom: d.builtin === null, pressure: cause.pressure, chance: cause.chance, value: d.value }, d.weight);
+      const eq = equivalentEvents({ id: engineIdOf(d), custom: d.builtin === null, pressure: cause.pressure, chance: cause.chance, value: d.value }, d.weight, undefined, priceWeeks);
       onChange({ chance: eq.chance === null ? null : Math.round(eq.chance * 1e4) / 100, effect: Math.round(eq.effect * 1e4) / 100, effectMonths: eq.months });
       // A measured cause with nothing measured can't carry the weight's churn as a chance: say so rather than pre-filling an effect that does nothing.
       setNote(measured && !(cause.chance && cause.chance > 0) && cause.pressure > 0 ? CHANCE_HELP.noHits : CHANCE_HELP.same);
