@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { withoutStartTenure } from "./start-tenure";
 import { MAX_REWORK, NORTHBEAM_TEAM, northbeamModel, northbeamWithClientGroups, northbeamWithClients, northbeamWithServicing, simulate, type EngineModel } from "@transpera-flow/engine";
 import {
   ModelError,
@@ -129,7 +130,8 @@ describe("toEngineModel", () => {
   });
 
   it("without its client groups, the named roster applies: exactly the engine's Northbeam with its roster and servicing", () => {
-    expect(withKeys(toEngineModel({ ...northbeamBundle(), clientGroups: [] }, { startDate: START }))).toEqual(northbeamWithServicing());
+    const named = { ...northbeamBundle(), clientGroups: [] };
+    expect(withKeys(withoutStartTenure(toEngineModel(named, { startDate: START }), named, START))).toEqual(northbeamWithServicing());
   });
 
   it("client groups replace the named roster, which stays stored but is not simulated", () => {
@@ -165,7 +167,7 @@ describe("toEngineModel", () => {
 
   it("without its servicing links, Northbeam resolves as before servicing: fallback load, no health-driven churn", () => {
     const b = { ...northbeamBundle(), clientGroups: [] };
-    const model = withKeys(toEngineModel({ ...b, servicingLinks: [], services: b.services.map((sv) => ({ ...sv, churn_health_sensitivity: 0 })) }, { startDate: START }));
+    const model = withKeys(withoutStartTenure(toEngineModel({ ...b, servicingLinks: [], services: b.services.map((sv) => ({ ...sv, churn_health_sensitivity: 0 })) }, { startDate: START }), b, START));
     const expected = northbeamWithClients();
     expected.services = Object.fromEntries(Object.entries(expected.services!).map(([id, sv]) => [id, { ...sv, churnSensitivity: 0 }]));
     expect(model).toEqual(expected);

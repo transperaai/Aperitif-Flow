@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { simulate } from "@transpera-flow/engine";
-import { northbeamBundle, northbeamClientIds, northbeamPersonIds, northbeamRoleIds, northbeamServiceIds, toEngineModel, type ClientRow, type ProcessBundle } from "../src";
+import { monthsBetween, northbeamBundle, northbeamClientIds, northbeamPersonIds, northbeamRoleIds, northbeamServiceIds, toEngineModel, type ClientRow, type ProcessBundle } from "../src";
 
 // Clients added by hand (issue #182, B19; PRD D42) and the simulation. The rule:
 //   * once any service has clients counted in its client group, the groups are what is simulated, and the named clients are a
@@ -88,6 +88,8 @@ describe("with no clients counted, the active named clients are simulated", () =
       name: "Hand Made Ltd",
       services: [northbeamServiceIds.seo],
       mrr: 4200,
+      // Its start date (2026-09-01) counts: about a month a client when the run starts (finding 16).
+      monthsActive: monthsBetween("2026-09-01", START),
       assignments: { [northbeamRoleIds.seo!]: northbeamPersonIds["Sam Patel"] },
     });
   });
