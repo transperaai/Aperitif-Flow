@@ -53,6 +53,16 @@ export interface EnginePerson {
   /** Cost per hour, for overtime cost; omitted means the mean of their roles' costs. */
   cost?: number;
   /**
+   * A contractor (Set up's label): no employer on-costs on their pay (`employerOnCosts`), and paid for the hours they work unless
+   * `paidFor` says otherwise (pay.ts). Omitted: an employee, as everyone was before this field existed.
+   */
+  contractor?: boolean;
+  /**
+   * What they are paid for (pay.ts): "contracted" hours while on the team, leave included, or only the hours "worked", up to their
+   * contracted hours, with no paid leave. Omitted: "worked" for a contractor, "contracted" for everyone else.
+   */
+  paidFor?: "contracted" | "worked";
+  /**
    * A planned hire's first hour, in simulation hours from t = 0 (the forecast, issue #35). Before it they take no
    * work and carry no share of the clients' work: their role's pool is the others. Omitted: there from the start.
    */
@@ -579,6 +589,16 @@ export interface EngineModel {
   payHidden?: boolean;
   /** Fixed costs a month (rent, tools), per 52/12-week month. Omitted or 0: none. Not pay, so kept when `payHidden`. */
   overheadMonthly?: number;
+  /**
+   * × the normal hourly rate for an overtime hour (pay.ts): 1.5 is time and a half, 0 is unpaid. Omitted: 1, as before this field
+   * existed.
+   */
+  overtimePayFactor?: number;
+  /**
+   * Employer on-costs (super, payroll tax, insurance) as a share of an employee's pay, 0 to 1 (pay.ts): labour and overtime cost of
+   * everyone but contractors × (1 + this). Omitted: 0, as before this field existed.
+   */
+  employerOnCosts?: number;
   horizonWeeks: number;
   hoursPerWeek: number;
   /**

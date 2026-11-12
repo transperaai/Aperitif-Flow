@@ -17,7 +17,7 @@
 // it as scenario patches (`fix`), which the app can run and compare.
 
 import { eligible, type AbsenceFinding, type AbsenceTest } from "./absence";
-import type { EngineModel, EngineStep, SimulationResult } from "./model";
+import type { EngineModel, EnginePerson, EngineStep, SimulationResult } from "./model";
 import { pct as percentile } from "./simulate";
 import { checkSuccessMeasures, NO_SUCCESS_MEASURES, type SuccessMeasureSource } from "./success";
 import { churnCauseIssues, churnRiskIssues } from "./churn-issues";
@@ -38,6 +38,7 @@ import {
   type IssueCost,
 } from "./cost";
 import { overtimeIssues } from "./overtime-issues";
+import { onCostFactor, overtimePayFactor, paidFor } from "./pay";
 import {
   compareRatingsDesc,
   escalationNote,
@@ -227,7 +228,7 @@ export function detectIssues(
   const busyCost = (roleId: string | null, overtimeHoursWeek: number, rate: number | null, ownOvertime: boolean): IssueCost => {
     // A null rate is a person's pay, hidden from this caller: the cost needs it only when overtime is added here.
     if (rate === null && !ownOvertime && overtimeHoursWeek > 0) return payHiddenCost();
-    const overtime = ownOvertime ? 0 : overtimeHoursWeek * (rate ?? 0) * WEEKS_PER_MONTH;
+    const overtime = ownOvertime ? 0 : overtimeHoursWeek * (rate ?? 0) * overtimePayFactor(model) * WEEKS_PER_MONTH;
     const note = ownOvertime && overtimeHoursWeek > 0 ? " Overtime is costed in its own insight, so it isn't counted here." : "";
     const extraWins = roleId !== null && roleId in shadow ? (Math.max(0, shadow[roleId]!) * WEEKS_PER_MONTH) / WEEKS_PER_QUARTER : null;
     if (extraWins === null) {
@@ -250,7 +251,11 @@ export function detectIssues(
         (overtime > 0 ? `, plus ${fmt(overtime)} of overtime at cost rates.` : `.${note}`),
     };
   };
-  const roleCost = (roleId: string | null) => (roleId ? (model.roles[roleId]?.cost ?? 0) : 0);
+  // An hour of a role or a person, with employer on-costs (pay.ts; a contractor has none).
+  const roleCost = (roleId: string | null) => (roleId ? (model.roles[roleId]?.cost ?? 0) * onCostFactor(model, undefined) : 0);
+  /** A person's hour: their own cost or their roles' mean, with their on-costs (none for a contractor). */
+  const personRate = (p: EnginePerson): number =>
+    (p.cost ?? (p.roles.length ? p.roles.reduce((sum, rid) => sum + (model.roles[rid]?.cost ?? 0), 0) / p.roles.length : 0)) * onCostFactor(model, p);
   const stepLosses = new Map<string, number>();
   /** What losing one item at a step is worth: deal value × the chance it would still have signed (cost.ts). */
   const stepLoss = (s: EngineStep) => {
@@ -369,7 +374,7 @@ export function detectIssues(
       key: `capacity:person:${pid}`,
       type: "capacity",
       ...ratingFields(outcome),
-      cost: busyCost(main, r.overtimeHours, named && model.payHidden ? null : p.cost ?? (p.roles.length ? p.roles.reduce((sum, rid) => sum + roleCost(rid), 0) / p.roles.length : 0), overtimeCovered(main, named ? pid : null)),
+      cost: busyCost(main, r.overtimeHours, named && model.payHidden ? null : personRate(p), overtimeCovered(main, named ? pid : null)),
       title: alone ? `${who}: client work alone exceeds capacity${overCap}` : `${who} at ${pct(r.util)} utilisation`,
       evidence: (
         `Simulated: ${num(r.ongoingHours + r.servicingHours)} h/wk client work + ${num(r.pipelineHours)} h/wk pipeline work against ` +
@@ -498,7 +503,8 @@ export function detectIssues(
           ...ratingFields(outcome),
           cost: (() => {
             if (model.payHidden && s.person && people[s.person]) return payHiddenCost();
-            const rate = s.person ? (people[s.person]?.cost ?? roleCost(roleOf(s))) : roleCost(roleOf(s));
+            const who = s.person ? people[s.person] : undefined;
+            const rate = who?.cost !== undefined ? who.cost * onCostFactor(model, who) : roleCost(roleOf(s));
             const hours = ((st.reworks * s.work) / model.horizonWeeks) * WEEKS_PER_MONTH;
             return {
               perMonth: hours * rate,
@@ -751,10 +757,12 @@ export function detectIssues(
       cost: (() => {
         const person = subject.personId ? people[subject.personId] : undefined;
         if (model.payHidden && person) return payHiddenCost();
-        const rate = person
-          ? (person.cost ?? (person.roles.length ? person.roles.reduce((sum, rid) => sum + roleCost(rid), 0) / person.roles.length : 0))
-          : roleCost(subject.roleId);
         const hours = free * WEEKS_PER_MONTH;
+        // Someone paid for the hours they work (pay.ts) costs nothing while idle.
+        if (person && paidFor(person) === "worked") return { perMonth: 0, hoursPerMonth: hours, method: `Paid for the hours they work, so about ${num(hours)} idle hours a month cost nothing.` };
+        const rate = person
+          ? personRate(person)
+          : roleCost(subject.roleId);
         return { perMonth: hours * rate, hoursPerMonth: hours, method: `Idle hours at cost rates: about ${num(hours)} h a month at ${fmt(rate)} an hour.` };
       })(),
       title: `${subject.name} has about ${num(free, 0)} h a week free`,
