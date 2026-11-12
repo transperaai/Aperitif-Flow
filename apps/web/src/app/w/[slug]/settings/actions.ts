@@ -10,7 +10,7 @@ import {
   CLIENT_GROUP_FIELDS,
   isBenchmarkBound,
   isClientGroupField,
-  newGroupDefaults,
+  NEW_GROUP_DEFAULTS,
   type ClientGroupField,
 } from "@/lib/client-groups";
 import { isTagList, parseNewService, parseServiceField, type ServiceField } from "@/lib/services";
@@ -226,9 +226,9 @@ export async function saveServiceFallback(
 }
 
 /**
- * One number of a service's client group (issue #120): how many clients, their fee, normal churn, typical stay or
- * starting health. A service with no group yet gets one on its first edit, starting from the service's own price,
- * churn and tenure.
+ * One number of a service's client group (issue #120): how many clients nobody's portfolio holds, or their starting health. A
+ * service with no group yet gets one on its first edit. The fee, churn and stay of a tier's counted clients are the tier's own
+ * (services), so no copy of them is written here.
  */
 export async function saveClientGroupField(
   workspaceId: string,
@@ -250,7 +250,7 @@ export async function saveClientGroupField(
   if (existing) return saveField("client_groups", { service_id: serviceId }, field, base, value);
   const service = await db
     .selectFrom("services")
-    .select(["price", "churn_monthly_base", "tenure_months"])
+    .select(["id"])
     .where("id", "=", serviceId)
     .where("workspace_id", "=", workspaceId)
     .executeTakeFirst()
@@ -259,7 +259,7 @@ export async function saveClientGroupField(
   try {
     await db
       .insertInto("client_groups")
-      .values({ workspace_id: workspaceId, service_id: serviceId, ...newGroupDefaults(service), [field]: value })
+      .values({ workspace_id: workspaceId, service_id: serviceId, ...NEW_GROUP_DEFAULTS, [field]: value })
       .execute();
   } catch (e) {
     const code = pgCode(e);

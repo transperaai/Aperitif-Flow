@@ -9,15 +9,12 @@ const whole = (min: number, max: number): Check => (v) => between(min, max)(v) &
 
 /** Upper bounds that catch typos, inside what the database stores. */
 export const MAX_GROUP_COUNT = 2000;
-const MAX_FEE = 1e8;
-const MAX_STAY_MONTHS = 1200;
-
-/** Client group columns saved one at a time, and what each accepts. */
+/**
+ * Client group columns saved one at a time, and what each accepts. Only the numbers that are the group's own: a tier's fee, churn and
+ * stay are the tier's (services.price, churn_monthly_base, tenure_months), edited in the tier table, so the group keeps no copy of them.
+ */
 export const CLIENT_GROUP_FIELDS = {
   client_count: whole(0, MAX_GROUP_COUNT),
-  fee: between(0, MAX_FEE),
-  churn_monthly: between(0, 1),
-  stay_months: between(0, MAX_STAY_MONTHS),
   starting_health: between(0, 100),
 } as const satisfies Record<string, Check>;
 
@@ -28,16 +25,8 @@ export const isClientGroupField = (v: unknown): v is ClientGroupField => typeof 
 /** A benchmark bound for company client health: 0 to 100, or null to clear it. */
 export const isBenchmarkBound = (v: unknown): v is number | null => v === null || between(0, 100)(v);
 
-/** Where a group's numbers start when one is first set up for a service: its price, its base churn and its tenure. */
-export function newGroupDefaults(service: { price: number; churn_monthly_base: number; tenure_months: number }): Record<ClientGroupField, number> {
-  return {
-    client_count: 0,
-    fee: Number(service.price),
-    churn_monthly: Number(service.churn_monthly_base),
-    stay_months: Number(service.tenure_months),
-    starting_health: 80,
-  };
-}
+/** Where a group's own numbers start when one is first set up for a service (the table's defaults): no clients, health 80. */
+export const NEW_GROUP_DEFAULTS: Readonly<Record<ClientGroupField, number>> = { client_count: 0, starting_health: 80 };
 
 export interface Benchmark {
   low: number;

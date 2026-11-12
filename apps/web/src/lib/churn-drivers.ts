@@ -60,7 +60,7 @@ export const CONTROL_HELP = {
     example: "41% means about 4 in 10 of the clients who leave, leave because of this.",
   },
   normal: {
-    description: "The clients who would leave anyway, even when everything is going well. It's the Normal churn you set for each service in Settings, under Services and client groups.",
+    description: "The clients who would leave anyway, even when everything is going well. It's the churn a month you set for each tier in Settings, under Tiers & clients.",
     example: "If late work explains 40% and nothing else matters, normal churn is the other 60%.",
   },
   projected: {

@@ -126,7 +126,9 @@ describe("counted clients and portfolios", () => {
     const b = tiered({ portfolio: [{ person_id: P1, service_id: S1, client_count: 3 }, { person_id: P2, service_id: S1, client_count: 2 }, { person_id: P1, service_id: S2, client_count: 4 }] });
     const m = model({ ...b, clientGroups: [group(S1, 5)] });
     expect(m.clientMix).toBe("groups-add");
-    expect(m.clientGroups![S1]).toEqual({ count: 10, fee: 4500, churnMonthly: 0.02, stayMonths: 40, health: 75 });
+    // A tier's fee, churn and stay are the tier's own (services), not the group row's copies: the row gives the count and health.
+    const sv1 = base.services.find((s) => s.id === S1)!;
+    expect(m.clientGroups![S1]).toEqual({ count: 10, fee: Number(sv1.price), churnMonthly: Number(sv1.churn_monthly_base), stayMonths: Number(sv1.tenure_months), health: 75 });
     // S2 has no group row: its count is the portfolio, and its fee, churn and tenure are the service's own.
     const sv2 = base.services.find((s) => s.id === S2)!;
     expect(m.clientGroups![S2]).toEqual({ count: 4, fee: Number(sv2.price), churnMonthly: Number(sv2.churn_monthly_base), stayMonths: Number(sv2.tenure_months), health: 80 });
@@ -151,8 +153,9 @@ describe("counted clients and portfolios", () => {
   it("a typed total overrides the group's counted clients, which are what the remainder replaces", () => {
     const m = model({ ...tiered({ services: [svc(S1, T1, { client_total: namedOnS1 + 7 }), svc(S2, T2), svc(S3, null)] }), clientGroups: [group(S1, 5)] });
     expect(m.clientGroups![S1]!.count).toBe(7);
-    // The group's own fee, churn and tenure still apply.
-    expect(m.clientGroups![S1]).toMatchObject({ fee: 4500, churnMonthly: 0.02, stayMonths: 40, health: 75 });
+    // The group's health applies; fee, churn and tenure are the tier's.
+    const sv1 = base.services.find((s) => s.id === S1)!;
+    expect(m.clientGroups![S1]).toMatchObject({ fee: Number(sv1.price), churnMonthly: Number(sv1.churn_monthly_base), stayMonths: Number(sv1.tenure_months), health: 75 });
   });
 
   it("'over': named + portfolios more than the total uses the portfolios as they are, with no negative remainder", () => {
@@ -164,6 +167,14 @@ describe("counted clients and portfolios", () => {
   it("a typed total with no portfolio or group still makes a group of the remainder", () => {
     const m = model(tiered({ services: [svc(S1, T1, { client_total: namedOnS1 + 9 }), svc(S2, T2), svc(S3, null)] }));
     expect(m.clientGroups![S1]!.count).toBe(9);
+  });
+
+  it("editing the tier's price, churn or tenure moves its counted clients; the group row's copies don't", () => {
+    const b = { ...tiered(), clientGroups: [group(S1, 5)] };
+    const edited = { ...b, services: b.services.map((s) => (s.id === S1 ? { ...s, price: 9100, churn_monthly_base: 0.07, tenure_months: 22 } : s)) };
+    expect(model(edited).clientGroups![S1]).toMatchObject({ count: 5, fee: 9100, churnMonthly: 0.07, stayMonths: 22, health: 75 });
+    // A service that is not a tier keeps its group row's own numbers.
+    expect(model({ ...b, clientGroups: [group(S1, 5), group(S3, 2)] }).clientGroups![S3]).toMatchObject({ count: 2, fee: 4500, churnMonthly: 0.02, stayMonths: 40 });
   });
 
   it("an unset total (absent or null) leaves the model exactly as it was", () => {
