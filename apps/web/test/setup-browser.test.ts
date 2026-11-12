@@ -138,7 +138,7 @@ describe("Tiers & clients", { timeout: 120_000 }, () => {
     const { page, errors } = await mount({ page: "clients", who: "owner" });
     const headings = (title: string) => headTexts(page.locator(`[role=region]`, { has: page.getByRole("heading", { name: title }) }).first());
     const organic = await headings("Organic (SEO) tiers");
-    expect(organic).toEqual(["Tier", "Clients", "Fee a month", "Words", "Links", "Tech hours", "Meetings", "Chance of ad hoc %", "Requests if they ask", "Churn a month %", "More"]);
+    expect(organic).toEqual(["Tier", "Clients", "Fee a month", "Words", "Links", "Tech hours", "Meetings", "Chance of ad hoc %", "Requests if they ask", "More"]);
     const performance = await headings("Performance tiers");
     expect(performance).toContain("Channels");
     expect(performance).toContain("Builds");

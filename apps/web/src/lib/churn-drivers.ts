@@ -36,7 +36,7 @@ export const DRIVER_HELP: Record<BuiltinChurnDriverId, HelpCopy> = {
   load: { description: "The team looking after the client is too busy to give them proper attention.", example: "The strategist is busy 92% of the time, above the 85% utilisation threshold." },
   handoff: { description: "A client gets a new account manager.", example: "About 1 in 3 clients changes account manager each year." },
   results: { description: "Whether clients are happy with their results. You enter this.", example: "Clients rate their results 7 out of 10." },
-  tenure: { description: "New clients leave more easily than long-standing ones.", example: "In their first 6 months, clients are 1.6 times as likely to leave." },
+  tenure: { description: "New clients leave more easily than long-standing ones.", example: "In their first 6 months (or however long you set), clients are 1.6 times as likely to leave." },
   price: { description: "Raising prices makes some clients leave.", example: "A 10% price rise in March." },
   market: { description: "When times are tough, clients cut spending. It counts only when the Sandbox's Market lever sets a market other than today's.", example: "Pick a downturn from month 7 in the Sandbox, and more clients leave." },
 };
@@ -60,7 +60,7 @@ export const CONTROL_HELP = {
     example: "41% means about 4 in 10 of the clients who leave, leave because of this.",
   },
   normal: {
-    description: "The clients who would leave anyway, even when everything is going well. It's the Normal churn you set for each service in Settings, under Services and client groups.",
+    description: "The clients who would leave anyway, even when everything is going well. It's the normal churn you set for each tier above, under Normal churn by tier.",
     example: "If late work explains 40% and nothing else matters, normal churn is the other 60%.",
   },
   projected: {
@@ -101,24 +101,149 @@ export const VALUE_HELP: Partial<Record<BuiltinChurnDriverId, HelpCopy & { label
     label: "Average rating",
     unit: "out of 10",
     step: 0.1,
-    description: "How happy clients are with their results, out of 10. A rating of 8 or more adds no churn; each point below adds a little.",
+    description: "How happy clients are with their results, out of 10. A rating at or above the normal rating (8 unless you set it) adds no churn; each point below adds a little.",
     example: "7 out of 10 means clients are fairly happy but not delighted.",
   },
   tenure: {
-    label: "Likelihood in months 1 to 6",
+    label: "Likelihood while new",
     unit: "times as likely",
     step: 0.1,
-    description: "How many times more likely a new client is to leave during their first 6 months than later on.",
+    description: "How many times more likely a new client is to leave while it is new (the first 6 months, unless you set Early tenure lasts) than later on.",
     example: "1.6 means they are 60% more likely to leave.",
   },
   price: {
     label: "Planned price rise",
     unit: "%",
     step: 1,
-    description: "How much you plan to put your prices up, in percent. Some clients leave after a rise; this counts for about 3 months. Leave it at 0 if there's no change planned.",
+    description: "How much you plan to put your prices up, in percent. Some clients leave after a rise; it counts for the months set in A rise counts for (3 unless you set it). Leave it at 0 if there's no change planned.",
     example: "A 10% rise makes about 20% more clients leave for 3 months.",
   },
 };
+
+/**
+ * Where each measured driver starts and where it is full (customisability audit, findings 1 and 2): workspace settings keys, saved
+ * with the health rules (`save_health_rules`, the same ranges). `scale` turns the stored number into the one shown (100: a share as a
+ * percentage); `min` and `max` are the stored range; `fallback` is the engine's default, as shown. Blank uses the default.
+ */
+export const CHURN_LIMIT_SETTINGS = {
+  utilisation_threshold: {
+    driver: "load",
+    label: "Overloaded above",
+    unit: "% busy",
+    scale: 100,
+    min: 0.05,
+    max: 1.5,
+    step: 1,
+    fallback: 85,
+    description: "How busy the team looking after a client can be before the client starts to notice. Above this, the overload driver adds churn. It is also the workspace's utilisation threshold.",
+    example: "85: a strategist busy 90% of the time adds a little churn; one busy 80% adds none.",
+  },
+  churn_load_full: {
+    driver: "load",
+    label: "Full pressure at",
+    unit: "% busy",
+    scale: 100,
+    min: 0.05,
+    max: 2,
+    step: 1,
+    fallback: 100,
+    description: "How busy the team has to be for overload to count in full (at weight 1, it doubles that client's churn). Between the two numbers it rises in a straight line.",
+    example: "100: a team busy 100% of the time or more counts in full.",
+  },
+  churn_response_full_share: {
+    driver: "resp",
+    label: "Full pressure at",
+    unit: "% of requests late",
+    scale: 100,
+    min: 0.01,
+    max: 1,
+    step: 1,
+    fallback: 50,
+    description: "The share of a client's ad-hoc requests answered late or not at all that counts in full. Fewer late counts for less.",
+    example: "50: when half a client's requests are late, the driver counts in full.",
+  },
+  churn_rework_full_share: {
+    driver: "rework",
+    label: "Full pressure at",
+    unit: "% of work redone",
+    scale: 100,
+    min: 0.01,
+    max: 1,
+    step: 1,
+    fallback: 25,
+    description: "The share of a client's servicing work that has to be done again for rework to count in full.",
+    example: "25: one piece in four redone counts in full.",
+  },
+  churn_onboarding_full_multiple: {
+    driver: "onb",
+    label: "Full pressure at",
+    unit: "times the normal wait",
+    scale: 1,
+    min: 1.1,
+    max: 20,
+    step: 0.1,
+    fallback: 2,
+    description: "How many times the normal first delivery a new client has to wait for slow onboarding to count in full.",
+    example: "2: with a normal 10 days, a client who waits 20 days counts in full.",
+  },
+  churn_early_tenure_months: {
+    driver: "tenure",
+    label: "Early tenure lasts",
+    unit: "months",
+    scale: 1,
+    min: 0,
+    max: 60,
+    step: 1,
+    fallback: 6,
+    description: "How long a new client counts as new. A named client's start date counts: one that started last month is still new.",
+    example: "3: clients are more likely to leave in their first 3 months.",
+  },
+  churn_away_pressure: {
+    driver: "handoff",
+    label: "Team away adds",
+    unit: "% churn",
+    scale: 100,
+    min: 0,
+    max: 5,
+    step: 5,
+    fallback: 50,
+    description: "How much extra churn a client gets while the people who look after it are away (at weight 1).",
+    example: "50: while its account manager is on leave, a client is 50% more likely to leave.",
+  },
+  churn_results_normal: {
+    driver: "results",
+    label: "Normal rating",
+    unit: "out of 10",
+    scale: 1,
+    min: 0,
+    max: 10,
+    step: 0.5,
+    fallback: 8,
+    description: "The rating at or above which clients' results add no churn. Each point below it adds a little.",
+    example: "8: clients rating 7 out of 10 add a little churn; at 8 or more they add none.",
+  },
+  churn_price_months: {
+    driver: "price",
+    label: "A rise counts for",
+    unit: "months",
+    scale: 1,
+    min: 1,
+    max: 24,
+    step: 1,
+    fallback: 3,
+    description: "How long clients remember a price rise: it adds churn for this many months after it starts.",
+    example: "3: a rise in March adds churn in March, April and May.",
+  },
+} as const satisfies Record<string, HelpCopy & { driver: BuiltinChurnDriverId; label: string; unit: string; scale: number; min: number; max: number; step: number; fallback: number }>;
+export type ChurnLimitSetting = keyof typeof CHURN_LIMIT_SETTINGS;
+export const CHURN_LIMIT_KEYS = Object.keys(CHURN_LIMIT_SETTINGS) as ChurnLimitSetting[];
+
+/** The limits a driver has, in the order shown. */
+export const limitsOf = (driver: BuiltinChurnDriverId | null): ChurnLimitSetting[] => (driver ? CHURN_LIMIT_KEYS.filter((k) => CHURN_LIMIT_SETTINGS[k].driver === driver) : []);
+
+/** A stored limit, if it is a number in its range; null otherwise (and for null: the default). */
+export const isChurnLimitValue = (key: ChurnLimitSetting, v: unknown): v is number | null =>
+  v === null || (typeof v === "number" && Number.isFinite(v) && v >= CHURN_LIMIT_SETTINGS[key].min && v <= CHURN_LIMIT_SETTINGS[key].max);
 
 /** Chance mode's controls and what they mean (sandbox phase 3, B4). */
 export const CHANCE_HELP = {
@@ -266,7 +391,7 @@ export function valueNow(d: DriverState, cause: ChurnCause | undefined, model: P
     case "results":
       return `${num(d.value ?? 0)} / 10 average`;
     case "tenure":
-      return `×${num(d.value ?? 1)} in months 1 to 6`;
+      return `×${num(d.value ?? 1)} while new`;
     case "price":
       return d.value ? `${num(d.value)}% rise from month ${d.month ?? 1}` : "no change planned";
     case "market":

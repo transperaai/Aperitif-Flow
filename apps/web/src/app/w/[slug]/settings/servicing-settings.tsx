@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { SettingsSection } from "./section";
 import type { WorkspaceSettingsData } from "@/lib/data";
-import { DRIVER_CHOICES, HEALTH_SETTINGS, TIER_RECURRENCE_START, recurrenceFromValue, recurrenceOptions, type HealthSetting } from "@/lib/servicing";
+import { DRIVER_CHOICES, HEALTH_BAND_SETTINGS, HEALTH_RULE_SETTINGS, HEALTH_SETTINGS, TIER_RECURRENCE_START, recurrenceFromValue, recurrenceOptions, type HealthSetting } from "@/lib/servicing";
 import { linkServicingProcess, saveHealthSetting, saveServicingRecurrence, saveServicingSla, unlinkServicingProcess } from "./servicing-actions";
 
 
@@ -218,17 +218,44 @@ const HEALTH_HELP: Record<HealthSetting, { description: string; example: string 
     description: "How many health points a client loses when work isn't done at all within twice its deadline. It should be more than the late penalty.",
     example: "At 12, a report that is never done takes a client from 70 to 58.",
   },
+  health_healthy_from: {
+    description: "The health at or above which a client group is rated Great. The People page counts clients at or above Watch from as healthy.",
+    example: "At 75, a group averaging 78 is Great.",
+  },
+  health_watch_from: {
+    description: "The health at or above which a client group is rated Good. Below it, and down to At risk below, clients need watching.",
+    example: "At 65, a client at 60 is one to watch.",
+  },
+  health_at_risk: {
+    description: "The health below which a client counts as at risk of leaving: in the at-risk counts, the churn findings and the agency list.",
+    example: "At 50, a client whose health falls to 45 is at risk. Set it to 60 if your own score treats 60 as at risk.",
+  },
 };
 
-/** How servicing moves client health (docs/PRD.md §6.3.5): blank uses the estimated defaults. */
+/**
+ * How servicing moves client health (docs/PRD.md §6.3.5), and the bands that rate it (findings 34 and 38): blank uses the estimated
+ * defaults. Shown on Settings, Churn drivers, under the drivers: late work moves health, and health moves churn.
+ */
 export function HealthSettings({ data }: { data: WorkspaceSettingsData }) {
-  const { workspace, canEdit } = data;
+  const { workspace } = data;
   const settings = workspace.settings as unknown as Record<string, number | undefined>;
+  const bands = {
+    atRisk: settings.health_at_risk ?? HEALTH_SETTINGS.health_at_risk.fallback,
+  };
   return (
-    <SettingsSection id="health" title="Client health" description={<>How servicing tasks move a client&apos;s health (0–100). Monthly churn = the service&apos;s base churn × (1 + sensitivity ×
-          (100 − health) / 100); below 50 a client is at risk. Blank uses the estimated default.</>}>
+    <SettingsSection id="health" title="Client health" description={<>How servicing tasks move a client&apos;s health (0–100), and where it counts as healthy, to watch or at risk. Monthly churn = the tier&apos;s normal churn × (1 + sensitivity ×
+          (100 − health) / 100); below {bands.atRisk} a client is at risk. Blank uses the estimated default.</>}>
+      <HealthFields data={data} keys={HEALTH_RULE_SETTINGS} settings={settings} />
+      <HealthFields data={data} keys={HEALTH_BAND_SETTINGS} settings={settings} />
+    </SettingsSection>
+  );
+}
+
+function HealthFields({ data, keys, settings }: { data: WorkspaceSettingsData; keys: readonly HealthSetting[]; settings: Record<string, number | undefined> }) {
+  const { workspace, canEdit } = data;
+  return (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {(Object.keys(HEALTH_SETTINGS) as HealthSetting[]).map((key) => {
+        {keys.map((key) => {
           const rule = HEALTH_SETTINGS[key];
           const value = settings[key];
           return (
@@ -250,6 +277,5 @@ export function HealthSettings({ data }: { data: WorkspaceSettingsData }) {
           );
         })}
       </div>
-    </SettingsSection>
   );
 }
