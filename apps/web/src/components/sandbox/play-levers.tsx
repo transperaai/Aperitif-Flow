@@ -367,6 +367,20 @@ export function PlayLevers({
               </Button>
             )}
           </div>
+          {play.hires.length > 0 && (
+            <label className={FIELD}>
+              Hires get up to speed
+              <NativeSelect
+                value={play.hireRamp ?? "workspace"}
+                onChange={(e) => set({ hireRamp: e.target.value === "none" ? "none" : undefined })}
+                data-lever="hireRamp"
+                aria-label="How the hires get up to speed"
+              >
+                <option value="workspace">Over the new starter ramp (Settings)</option>
+                <option value="none">At full speed from day one</option>
+              </NativeSelect>
+            </label>
+          )}
           <label className={FIELD}>
             Months to hire
             <NativeSelect

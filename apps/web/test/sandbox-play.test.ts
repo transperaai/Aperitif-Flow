@@ -198,6 +198,9 @@ describe("hires and the market", () => {
     const m = applyPlay({ ...model, people }, play({ hires: [{ role: "links", month: 3 }] }), ctx, new Set([id]));
     expect(m.people![id]!.ramp).toEqual([0.4, 0.6, 0.8]);
     expect(m.people!.diya?.ramp).toBeUndefined();
+    // "Up to speed": at full speed from day one (customisability audit 9).
+    const full = applyPlay({ ...model, people }, play({ hires: [{ role: "links", month: 3 }], hireRamp: "none" }), ctx, new Set([id]));
+    expect(full.people![id]!.ramp).toEqual([1]);
   });
 
   it("conditions apply from the month, with the workspace's own schedule before it", () => {

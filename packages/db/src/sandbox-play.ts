@@ -14,7 +14,7 @@
 //        Win new clients                            `wonClients` (engine optional field: clients that skip the sales steps), least-busy placement
 //        A named client leaves in a month           `EngineClient.leavesMonth`
 //        Clients react to a price rise (D36)        the price churn driver in chance mode: effect = the tier's `price_rise_churn` x 0.5 / 1 / 2
-//        A hire's ramp                              `EnginePerson.ramp` = the workspace default
+//        A hire's ramp                              `EnginePerson.ramp` = the workspace default, or full speed from the start ("Up to speed")
 //
 // Months in a `PlayState` are 0-based indexes of the months of the run (0 is the first; `PlayContext.months` long, 12 when not given); the
 // engine's `startMonth`, `month` and `leavesMonth` are 1-based.
@@ -62,6 +62,8 @@ export interface PlayState {
   priceMonths?: number | null;
   /** Months to hire for "start hiring by" (0 to 24); omitted or null: the workspace's own (Settings > People & roles), else 2. */
   hiringDelay?: number | null;
+  /** How the levers' hires get up to speed: "none" is full speed from their first day; omitted, the workspace's new starter ramp. */
+  hireRamp?: "workspace" | "none";
   leavers: { person: string; month: number }[];
   hires: { role: string; month: number }[];
   /** Named clients (client ids) who leave in a month. */
@@ -347,7 +349,7 @@ export function applyPlay(model: EngineModel, play: PlayState, ctx: PlayContext,
   }
   if (planPeople.size && m.people) {
     const people = { ...m.people };
-    for (const id of planPeople) if (people[id] && people[id]!.ramp === undefined) people[id] = { ...people[id]!, ramp: [...ctx.setup.rampDefault] };
+    for (const id of planPeople) if (people[id] && people[id]!.ramp === undefined) people[id] = { ...people[id]!, ramp: play.hireRamp === "none" ? [1] : [...ctx.setup.rampDefault] };
     m = { ...m, people };
   }
   return m;
