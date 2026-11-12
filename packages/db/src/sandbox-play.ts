@@ -8,6 +8,7 @@
 //        Churn %                                    B3 (base churn, a multiple, whole run)
 //        Prices, change % by tier, from a month     B5 (price rise) per service of the tier
 //        Someone leaves in a month                  D2        Hire a role from a month   D1 (one FTE)
+//        Client health rules (findings 15 and 27)    X1 (a health rule, set, whole run) per rule moved
 //        Map version of a process from a month      E6 (a solution goes live from a month; spliced, so a switch part-way through a run works). The
 //                                                   version's own step changes (automations and augmentations, D53) start in that month (`prepareScenario`).
 //   2. `applyPlay` does what the registry has no lever for, as edits to each run's model (`EngineModel`):
@@ -15,6 +16,7 @@
 //        A named client leaves in a month           `EngineClient.leavesMonth`
 //        Clients react to a price rise (D36)        the price churn driver in chance mode: effect = the tier's `price_rise_churn` x 0.5 / 1 / 2
 //        A hire's ramp                              `EnginePerson.ramp` = the workspace default
+//        How much health moves churn (finding 15)    every service's `churnSensitivity` x (1 + the change), whole run
 //
 // Months in a `PlayState` are 0-based indexes of the twelve months of the run (0 is the first); the engine's `startMonth`, `month` and `leavesMonth` are 1-based.
 
@@ -37,6 +39,14 @@ export const PRICE_REACTION: Record<PriceReaction, { label: string; factor: numb
 };
 
 export type PlayMarket = "today" | MarketPresetKey;
+
+/** The Client health rules a free-play run can change (X1's targets): starting health, on time, late and missed. */
+export const PLAY_HEALTH_RULES = ["initial", "recover", "late_penalty", "missed_penalty"] as const;
+export type PlayHealthRule = (typeof PLAY_HEALTH_RULES)[number];
+/** A health rule's lever range: 0 to 100 health points, in whole points. */
+export const PLAY_HEALTH_RANGE = { min: 0, max: 100, step: 1 } as const;
+/** "How much health moves churn": a percent change to every service's churn sensitivity, -100% (health doesn't matter) to +200%. */
+export const PLAY_SENSITIVITY_RANGE = { min: -100, max: 200, step: 10 } as const;
 
 export interface PlayState {
   /** Market conditions from `marketFrom`; "today" leaves the workspace's own schedule. */
@@ -63,6 +73,10 @@ export interface PlayState {
   lose: { id: string; month: number }[];
   /** Map versions: process id -> a solution of that process live from a month. A process not listed runs today's map. */
   versions: Record<string, { solution: string; month: number }>;
+  /** Client health rules for the whole run: a number replaces the workspace's; absent or null keeps it. */
+  health?: Partial<Record<PlayHealthRule, number | null>>;
+  /** Percent change to how much health moves churn (every service's churn sensitivity), whole run; absent or 0 keeps it. */
+  sensitivity?: number;
 }
 
 export function defaultPlay(): PlayState {
@@ -92,8 +106,18 @@ export function playIsDefault(p: PlayState): boolean {
   const d = defaultPlay();
   return (
     p.market === d.market && !p.leads && !p.win && !p.churn && !Object.values(p.add).some((n) => n > 0) && !p.price && !p.leavers.length && !p.hires.length && !p.lose.length &&
-    !Object.keys(p.versions).length
+    !Object.keys(p.versions).length && !healthMoved(p).length && !(Number(p.sensitivity) || 0)
   );
+}
+
+/** The health rules a play sets (a finite number in range), in `PLAY_HEALTH_RULES` order. */
+export function healthMoved(p: Pick<PlayState, "health">): [PlayHealthRule, number][] {
+  const out: [PlayHealthRule, number][] = [];
+  for (const k of PLAY_HEALTH_RULES) {
+    const v = p.health?.[k];
+    if (typeof v === "number" && Number.isFinite(v)) out.push([k, Math.min(PLAY_HEALTH_RANGE.max, Math.max(PLAY_HEALTH_RANGE.min, v))]);
+  }
+  return out;
 }
 
 /** What the levers need to know about the workspace. */
@@ -241,6 +265,7 @@ export function playChanges(play: PlayState, ctx: Pick<PlayContext, "startDate" 
   play.leavers.forEach((l, i) => out.push({ id: playChangeId("D2", i), lever: "D2", target: l.person, op: "set", value: 0, from: at(l.month) }));
   play.hires.forEach((h, i) => out.push({ id: playChangeId("D1", i), lever: "D1", target: h.role, op: "set", value: 1, from: at(h.month) }));
   Object.entries(play.versions).forEach(([, v], i) => out.push({ id: playChangeId("E6", i), lever: "E6", target: v.solution, op: "set", value: 1, from: at(v.month) }));
+  healthMoved(play).forEach(([rule, value], i) => out.push({ id: playChangeId("X1", i), lever: "X1", target: rule, op: "set", value }));
   return out;
 }
 
@@ -282,6 +307,13 @@ export function applyPlay(model: EngineModel, play: PlayState, ctx: PlayContext,
     if (at >= 0) drivers[at] = entry;
     else drivers.push(entry);
     m = { ...m, churnDrivers: drivers };
+  }
+  const sensitivity = Math.min(PLAY_SENSITIVITY_RANGE.max, Math.max(PLAY_SENSITIVITY_RANGE.min, Number(play.sensitivity) || 0));
+  if (sensitivity && m.services) {
+    const factor = 1 + sensitivity / 100;
+    const services = { ...m.services };
+    for (const [id, sv] of Object.entries(services)) services[id] = { ...sv, churnSensitivity: round((sv.churnSensitivity ?? 0) * factor) };
+    m = { ...m, services };
   }
   if (planPeople.size && m.people) {
     const people = { ...m.people };

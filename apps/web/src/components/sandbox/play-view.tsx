@@ -7,6 +7,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { healthRules } from "@transpera-flow/engine";
 import { defaultPlay, monthKey, monthShort, playIsDefault, type CapacitySetup, type PlayState, type PurposeCategory } from "@transpera-flow/db";
 import type { PreparedPlay } from "@transpera-flow/db/sandbox";
 import { Help } from "@/components/help";
@@ -79,6 +80,13 @@ export function PlayView(props: PlayViewProps) {
   const leverMonths = useMemo(() => (horizon === 12 ? months : playMonths(startDate)), [horizon, months, startDate]);
   const moved = !playIsDefault(play) || mapKey !== null;
   const expectedWins = runs.today ? runs.today.run.result.kpi.won.mean / horizon : null;
+  // The workspace's own health rules, for the Client service levers' placeholders.
+  const todayModel = today.segments[0]?.model;
+  const healthToday = useMemo(() => {
+    if (!todayModel) return undefined;
+    const r = healthRules(todayModel);
+    return { initial: r.initial, recover: r.recover, late_penalty: r.latePenalty, missed_penalty: r.missedPenalty };
+  }, [todayModel]);
   const busy = runs.status === "running";
 
   // One page that scrolls as a whole: a one-row toolbar, then the company map (the star, full width), the levers band and the results, top to bottom,
@@ -130,6 +138,7 @@ export function PlayView(props: PlayViewProps) {
             setup={setup}
             months={leverMonths}
             expectedWinsPerMonth={expectedWins}
+            healthToday={healthToday}
             note={
               props.base && (
                 <p className="text-xs text-muted-foreground">

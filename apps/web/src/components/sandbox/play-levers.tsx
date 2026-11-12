@@ -2,12 +2,24 @@
 
 // The free-play Sandbox's levers, one full-width band under the company map (capacity build P7, brief "The short version"; the prototype's `.levers`).
 // Every change is a new `PlayState`: the page re-runs, debounced, and nothing is saved. Market, Win new clients, Lose clients, Prices (with "Clients
-// react", D36) and People sit side by side as columns (all five on one row from about 1440px, wrapping on smaller screens), divided by hairlines; every
+// react", D36), People and Client service (health rules and how much health moves churn) sit side by side as columns (all six on one row from about 1440px, wrapping on smaller screens), divided by hairlines; every
 // group shows. The band's header counts the changes and resets them. The levers are business conditions only: an automation or augmentation is part
 // of a process version, picked on the company map (D53).
 
 import { MARKET_PRESETS, type MarketPresetKey } from "@transpera-flow/engine";
-import { PRICE_REACTION, defaultPlay, type CapacitySetup, type PlayMarket, type PlayState, type PriceReaction } from "@transpera-flow/db";
+import {
+  PLAY_HEALTH_RANGE,
+  PLAY_HEALTH_RULES,
+  PLAY_SENSITIVITY_RANGE,
+  PRICE_REACTION,
+  defaultPlay,
+  healthMoved,
+  type CapacitySetup,
+  type PlayHealthRule,
+  type PlayMarket,
+  type PlayState,
+  type PriceReaction,
+} from "@transpera-flow/db";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -45,9 +57,19 @@ export function leverChanges(p: PlayState): number {
     (p.price ? 1 : 0) +
     p.leavers.length +
     p.hires.length +
-    p.lose.length
+    p.lose.length +
+    healthMoved(p).length +
+    (Number(p.sensitivity) ? 1 : 0)
   );
 }
+
+/** The Client service group's health rules, as the levers word them. */
+const HEALTH_LEVERS: Record<PlayHealthRule, { label: string; title: string }> = {
+  initial: { label: "Starting health", title: "Health a new client starts at, out of 100" },
+  recover: { label: "Task on time", title: "Health a client gains for each task done on time" },
+  late_penalty: { label: "Task late", title: "Health a client loses for each late task" },
+  missed_penalty: { label: "Task missed", title: "Health a client loses for each missed task" },
+};
 
 function Slider({ id, label, value, min, max, step, unit, onChange }: { id: string; label: string; value: number; min: number; max: number; step: number; unit: string; onChange: (v: number) => void }) {
   return (
@@ -87,6 +109,7 @@ export function PlayLevers({
   months,
   expectedWinsPerMonth,
   note,
+  healthToday,
 }: {
   play: PlayState;
   setPlay: (next: PlayState) => void;
@@ -96,6 +119,8 @@ export function PlayLevers({
   expectedWinsPerMonth: number | null;
   /** Under the columns: where the baselines are set. */
   note?: React.ReactNode;
+  /** The workspace's own health rules (today's run), shown in the Client service fields until one is changed. */
+  healthToday?: Record<PlayHealthRule, number>;
 }) {
   const set = (p: Partial<PlayState>) => setPlay({ ...play, ...p });
   const people = setup.people.filter((p) => p.active);
@@ -119,7 +144,7 @@ export function PlayLevers({
           Reset
         </Button>
       </div>
-      <div className="-mt-px -ml-px grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(15rem,100%),1fr))]" data-lever-columns>
+      <div className="-mt-px -ml-px grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(13rem,100%),1fr))]" data-lever-columns>
         <Group title="Market" id="market">
           <div className="grid grid-cols-2 gap-2">
             <label className={FIELD}>
@@ -308,6 +333,46 @@ export function PlayLevers({
             )}
           </div>
           <p className="text-xs text-muted-foreground">New hires take about {setup.rampDefault.length} months to reach full speed (the ramp in Settings, under People & roles).</p>
+        </Group>
+
+        <Group title="Client service" id="service">
+          <div className="grid grid-cols-2 gap-2">
+            {PLAY_HEALTH_RULES.map((k) => {
+              const v = play.health?.[k];
+              return (
+                <label key={k} className={FIELD} title={HEALTH_LEVERS[k].title}>
+                  {HEALTH_LEVERS[k].label}
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    min={PLAY_HEALTH_RANGE.min}
+                    max={PLAY_HEALTH_RANGE.max}
+                    step={PLAY_HEALTH_RANGE.step}
+                    value={typeof v === "number" ? v : ""}
+                    placeholder={healthToday ? formatNumber(healthToday[k], 0) : undefined}
+                    onChange={(e) => {
+                      const text = e.target.value.trim();
+                      const n = text === "" ? null : Number(text);
+                      set({ health: { ...play.health, [k]: n !== null && Number.isFinite(n) ? n : null } });
+                    }}
+                    data-lever={`health-${k}`}
+                    aria-label={HEALTH_LEVERS[k].title}
+                  />
+                </label>
+              );
+            })}
+          </div>
+          <Slider
+            id="sensitivity"
+            label="How much health moves churn"
+            value={Number(play.sensitivity) || 0}
+            min={PLAY_SENSITIVITY_RANGE.min}
+            max={PLAY_SENSITIVITY_RANGE.max}
+            step={PLAY_SENSITIVITY_RANGE.step}
+            unit="%"
+            onChange={(v) => set({ sensitivity: v })}
+          />
+          <p className="text-xs text-muted-foreground">Blank keeps your own rules from Settings, under Churn drivers. -100% means health doesn&apos;t change churn at all.</p>
         </Group>
       </div>
       {note && <div className="border-t border-line px-4 py-2">{note}</div>}

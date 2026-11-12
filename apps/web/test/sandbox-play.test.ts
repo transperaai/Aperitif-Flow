@@ -293,3 +293,41 @@ describe("the automations and augmentations a map version holds (D53)", () => {
     expect(last[0]!.startMonth).toBe(6);
   });
 });
+
+describe("client health and churn sensitivity (customisability audit, findings 15 and 27)", () => {
+  it("a health rule moved is an X1 change for the whole run; null or absent keeps the workspace's", () => {
+    const c = playChanges(play({ health: { late_penalty: 10, missed_penalty: null, initial: 150 } }), ctx);
+    expect(c).toMatchObject([
+      { lever: "X1", target: "initial", op: "set", value: 100 },
+      { lever: "X1", target: "late_penalty", op: "set", value: 10 },
+    ]);
+    expect(c.every((x) => x.from === undefined)).toBe(true);
+    expect(playIsDefault(play({ health: { late_penalty: 10 } }))).toBe(false);
+    expect(playIsDefault(play({ health: { late_penalty: null } }))).toBe(true);
+  });
+
+  it("the runner sets the rule on the run's model", () => {
+    const bundle = demoForecastBundle();
+    const demoCtx: PlayContext = { ...ctx, startDate: DEMO_FORECAST_START };
+    const c = playChanges(play({ health: { late_penalty: 20, recover: 0 } }), demoCtx);
+    const prepared = prepareScenario(bundle, c.map((change) => ({ change, scenarioId: "play", scenarioName: "Free play", inherited: false })), [], 12, DEMO_FORECAST_START, { pair: false });
+    expect(prepared.error).toBeNull();
+    expect(prepared.problems).toEqual([]);
+    expect(prepared.segments[0]!.model.health).toMatchObject({ latePenalty: 20, recover: 0 });
+  });
+
+  it("churn sensitivity: every service's, times the change; 0 leaves the model as it is", () => {
+    expect(applyPlay(model, play({ sensitivity: 0 }), ctx)).toBe(model);
+    const m = applyPlay(model, play({ sensitivity: -50 }), ctx);
+    for (const [id, sv] of Object.entries(model.services!)) expect(m.services![id]!.churnSensitivity).toBeCloseTo((sv.churnSensitivity ?? 0) * 0.5, 6);
+    expect(playIsDefault(play({ sensitivity: 20 }))).toBe(false);
+  });
+
+  it("run through the engine: a harsher late penalty leaves clients less healthy", () => {
+    const bundle = demoForecastBundle();
+    const base = prepareScenario(bundle, [], [], 12, DEMO_FORECAST_START, { pair: false }).segments[0]!.model;
+    const harsh = { ...base, health: { ...base.health, latePenalty: 40, missedPenalty: 60 } };
+    const health = (m: EngineModel) => Object.values(simulate(m, 4, 1).clients ?? {}).reduce((a, c) => a + c.health.mean, 0);
+    expect(health(harsh)).toBeLessThanOrEqual(health(base));
+  });
+});
