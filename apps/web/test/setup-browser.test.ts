@@ -360,6 +360,41 @@ describe("People & roles", { timeout: 120_000 }, () => {
     await page.close();
   });
 
+  it("D73: a role's panel has its salary for whoever sees pay, saved as a Set up field; a person it covers shows it greyed, not missing", async () => {
+    const { page, errors } = await mount({ page: "people", who: "owner" });
+    // No role salary: Sarah has none of her own, so she is missing one.
+    expect(await page.locator("[data-person='Sarah'] [data-cell=salary] [data-missing]").count()).toBe(1);
+    await page.locator("[data-role='SEO Manager']").click();
+    const seo = page.locator("[data-role-panel='SEO Manager']");
+    await seo.waitFor();
+    const salary = seo.getByLabel("Salary a month", { exact: true });
+    expect(await salary.inputValue()).toBe("");
+    await salary.fill("7000");
+    await salary.blur();
+    await page.waitForFunction(() => (window.__serverActions?.length ?? 0) > 0);
+    expect((await calls(page))[0]).toEqual({ name: "saveSetupField", args: ["roles", { id: "e0000000-0000-4000-8000-000000000001" }, "salary_monthly", null, 7000] });
+    expect(errors.filter((e) => !noise(e))).toEqual([]);
+    await page.close();
+
+    const covered = await mount({ page: "people", who: "owner", scenario: "role-salary" });
+    const cell = covered.page.locator("[data-person='Sarah'] [data-cell=salary]");
+    expect(await cell.innerText()).toMatch(/5,000/);
+    expect(await cell.locator("[data-missing]").count()).toBe(0);
+    await covered.page.locator("[data-person='Sarah']").click();
+    const sarah = covered.page.locator("[data-person-panel='Sarah']");
+    await sarah.waitFor();
+    expect(await sarah.getByLabel("Salary a month", { exact: true }).getAttribute("placeholder")).toBe("5000");
+    await covered.page.close();
+
+    const viewer = await mount({ page: "people", who: "viewer", scenario: "role-salary" });
+    await viewer.page.locator("[data-role='Content team']").click();
+    const content = viewer.page.locator("[data-role-panel='Content team']");
+    await content.waitFor();
+    expect(await content.getByLabel("Salary a month").count()).toBe(0);
+    expect(await viewer.page.locator("[data-setup=people]").innerText()).not.toMatch(/5,000|5000/);
+    await viewer.page.close();
+  });
+
   it("search and the Role filter narrow the people", async () => {
     const { page } = await mount({ page: "people", who: "owner" });
     expect(await page.locator("[data-people-list] [data-person]").count()).toBe(2);
