@@ -77,6 +77,8 @@
 ## 10. A named client with a blank fee brings in no revenue, though the screen shows the tier's fee as its default  
 *high · settings*
 
+Status: fixed in this branch
+
 - **Now:** The Fee cell in tiers-clients.tsx:668-680 shows a blank, with the tier's price as placeholder, whenever mrr is 0. The section text (settings/page.tsx:83) says 'A named client starts from its tier's values; anything filled in replaces them'. The engine then bills 0 for that client.
 - **Why it matters:** Each named client added without a fee takes its tier's fee off starting MRR, the forecast revenue and profit, and the value of losing that client. The owner sees the tier fee on screen, so it looks like a calculation bug.
 - **Fix:** In engineClients (model.ts:699), use the price of the client's primary tier service when c.mrr is 0 or null, so a blank inherits the tier fee as the UI says. Use the same rule in startingMrr. Alternatively, store null rather than 0 for a blank and treat null as 'use the tier's fee'.
@@ -237,6 +239,8 @@
 ## 30. Client lifetime value uses 'Expected tenure', which is separate from churn and hidden under More  
 *medium · settings*
 
+Status: fixed in this branch
+
 - **Now:** The tier table edits 'Churn a month' (tiers-clients.tsx:272), but deal value, lost-client cost and lost revenue use services.tenure_months, or client_groups.stay_months when a group row exists. Tenure is editable only under the tier's More panel (services-settings.tsx:221). Nothing ties it to 1/churn, though the implicit retainer does exactly that (simulate.ts:439).
 - **Why it matters:** Example: an owner lowers churn from 5% to 2% a month (implied stay 20 to 50 months). The simulation keeps clients longer, but every value of a won deal or a lost client still uses the old 18-month tenure, so the money figures and the churn figures tell different stories.
 - **Fix:** Derive tenure from churn by default (1/churn, capped) and treat Expected tenure as an optional override, or show tenure next to churn in the tier table with a warning when the two disagree.
@@ -293,6 +297,8 @@
 ## 37. Pooled (no client list) runs decay starting clients at the hidden workspace churn, while new wins use the service's 'Normal churn'  
 *low · engine*
 
+Status: still open. Making the pooled book churn at the services' base churn changes every pooled workspace's forecast without an edit, so it waits for the owner's sign-off.
+
 - **Now:** With services but no named clients or client groups, the starting book loses clients at settings.churn_monthly ('Monthly churn (interim)', company.ts:92), while clients won during the run churn at each service's churn_monthly_base.
 - **Why it matters:** Before an owner adds client groups, editing a service's churn changes only new clients; the existing book (most of the MRR) keeps churning at an invisible interim rate. Same type of two-sources problem as the tier churn bug.
 - **Fix:** In pooled mode, decay the starting clients at the mix-weighted service churn (like pooledMonthlyFee does for the fee, simulate.ts:411-419) when services exist, and use the same rate in projection.ts:104; keep settings.churn_monthly only for service-less workspaces.
@@ -332,6 +338,8 @@
 
 ## 42. Sandbox splits revenue by department using the service price, not the client group fee  
 *low · sandbox*
+
+Status: fixed in this branch
 
 - **Now:** Department retainers, and so the Sandbox's per-department DLER, weight each counted (unnamed) client at the service Price. The engine bills counted clients at their group fee (EngineClientGroup.fee).
 - **Why it matters:** When a tier's group fee differs from its list price (legacy clients on old rates), the Sandbox's department DLER and retainers chart split revenue wrongly between departments and disagree with Capacity and Overview.
@@ -388,6 +396,8 @@
 
 ## 49. DLER, revenue per employee and fee per hour still value counted clients at the service Price, not the group fee the engine uses  
 *low · pages*
+
+Status: fixed in this branch
 
 - **Now:** The Overview MRR fix (known issue 2) addresses MRR, but DLER, revenue per employee (wholeBusiness :902) and the Capacity fee-per-hour table use the service price for counted clients while the simulation bills the group fee.
 - **Why it matters:** If the group fee differs from the tier price, DLER and revenue-per-employee on Overview/Capacity disagree with the simulated revenue the Sandbox shows.
