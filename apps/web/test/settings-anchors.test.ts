@@ -16,16 +16,17 @@ function files(dir: string): string[] {
   });
 }
 
+// Its sections: the Settings folder, the Purposes band, the Tiers & clients and People & roles parts (components/setup).
+const sources = [...files(SETTINGS), join(SRC, "components/purposes/purposes-settings.tsx"), ...files(join(SRC, "components/setup"))];
+const text = sources.map((f) => readFileSync(f, "utf8")).join("\n");
+const cards = [...text.matchAll(/<(?:SettingsSection|SectionCard|SettingsBand)\s+(?:\n\s*)?id=(?:"([^"]+)"|\{`([^`$]+)`)/g)].map((m) => m[1] ?? m[2]!);
+const bands = new Set([
+  ...[...text.matchAll(/<SettingsBand\s+(?:\n\s*)?id="([^"]+)"/g)].map((m) => m[1]!),
+  ...[...text.matchAll(/<SettingsSection\s+(?:\n\s*)?id="([^"]+)"\s+band\b/g)].map((m) => m[1]!),
+]);
+const targets = new Set([...bands, ...cards.map((id) => `${id}-heading`)]);
+
 describe("links into Settings", () => {
-  // Its sections: the Settings folder, the Purposes band, the Tiers & clients and People & roles parts (components/setup).
-  const sources = [...files(SETTINGS), join(SRC, "components/purposes/purposes-settings.tsx"), ...files(join(SRC, "components/setup"))];
-  const text = sources.map((f) => readFileSync(f, "utf8")).join("\n");
-  const cards = [...text.matchAll(/<(?:SettingsSection|SectionCard|SettingsBand)\s+(?:\n\s*)?id=(?:"([^"]+)"|\{`([^`$]+)`)/g)].map((m) => m[1] ?? m[2]!);
-  const bands = new Set([
-    ...[...text.matchAll(/<SettingsBand\s+(?:\n\s*)?id="([^"]+)"/g)].map((m) => m[1]!),
-    ...[...text.matchAll(/<SettingsSection\s+(?:\n\s*)?id="([^"]+)"\s+band\b/g)].map((m) => m[1]!),
-  ]);
-  const targets = new Set([...bands, ...cards.map((id) => `${id}-heading`)]);
 
   it("finds the eight bands and the cards' headings", () => {
     expect([...bands].sort()).toEqual(["access", "churn-drivers", "demand", "people-roles", "purposes", "simulation", "tiers-clients", "workspace"]);
@@ -78,13 +79,23 @@ describe("the old Settings pages redirect to their sections", () => {
   });
 });
 
-// D47: the Client health rules and the benchmark have no controls in Settings or Set up. The components and the engine defaults stay.
-describe("client health controls are hidden (D47)", () => {
+// D47: the Client health rules have no controls in Settings. The components and the engine defaults stay.
+describe("client health controls", () => {
   it("the Settings page does not render the Client health rules", () => {
     expect(readFileSync(join(SETTINGS, "page.tsx"), "utf8")).not.toContain("HealthSettings");
   });
-  it("Set up, Tiers & clients does not render the benchmark or the other-services editor (D46)", () => {
+  // Customisability audit 29 and 44: services that aren't tiers, and the client health benchmark, are edited on Tiers & clients.
+  it("Tiers & clients renders the other-services editor and the client health benchmark", () => {
     const tiers = readFileSync(join(SRC, "components/setup/tiers-clients.tsx"), "utf8");
-    for (const gone of ["ClientHealthBenchmark", "ClientGroupsSettings", "ServicesSettings", "other-services\"" ]) expect(tiers, gone).not.toContain(gone);
+    for (const shown of ["<ServicesSettings", "<ClientHealthBenchmark", 'id="client-health"']) expect(tiers, shown).toContain(shown);
+    expect(readFileSync(join(SETTINGS, "services-settings.tsx"), "utf8")).toContain('id="other-services"');
+  });
+  it("the People page's benchmark link lands on the benchmark", () => {
+    expect(readFileSync(join(SRC, "components/people-page.tsx"), "utf8")).toContain("#client-health-heading");
+    expect(targets).toContain("client-health-heading");
+  });
+  it("the Sandbox's ramp note links to New starters under People & roles", () => {
+    expect(readFileSync(join(SRC, "components/sandbox/play-levers.tsx"), "utf8")).toContain("#new-starters-heading");
+    expect(targets).toContain("new-starters-heading");
   });
 });

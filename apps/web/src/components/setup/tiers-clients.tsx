@@ -23,8 +23,8 @@ import {
 import type { ClientRow, ClientAssignmentRow, ClientServiceRow } from "@transpera-flow/db";
 import { EmptyState, Toolbar } from "@/components/page-kit";
 import { SettingsSection } from "@/app/w/[slug]/settings/section";
-import { ServiceMore } from "@/app/w/[slug]/settings/services-settings";
-import { GroupFields } from "@/app/w/[slug]/settings/client-groups-settings";
+import { ServiceMore, ServicesSettings } from "@/app/w/[slug]/settings/services-settings";
+import { ClientHealthBenchmark, GroupFields } from "@/app/w/[slug]/settings/client-groups-settings";
 import { ClientMore, type ClientOps, type ClientsSettingsProps } from "@/app/w/[slug]/settings/clients-settings";
 import { saveClientAssignment, saveClientField, saveClientServices } from "@/app/w/[slug]/settings/client-actions";
 import { addNamedClient, addTierAction, removeTierAction, saveClientLookedAfter, saveSetupField } from "@/app/w/[slug]/settings/setup-actions";
@@ -93,7 +93,6 @@ function moreProps(setup: CapacitySetup, data: WorkspaceSettingsData, roster: Pr
 
 export function TiersAndClients({ setup, data, roster }: Props) {
   const tierServiceIds = new Set(setup.services.filter((s) => s.tier_id).map((s) => s.id));
-  const otherServices = data.services.filter((s) => s.active && !tierServiceIds.has(s.id)).length;
   return (
     <div className="flex min-w-0 flex-col gap-6" data-setup="clients">
       <TierControls setup={setup} />
@@ -102,14 +101,11 @@ export function TiersAndClients({ setup, data, roster }: Props) {
       ))}
       <BothServices setup={setup} />
       <NamedClients setup={setup} data={data} roster={roster} />
-      {/* D46: services that aren't tiers, and D47: the client health benchmark, are not edited here. Their data, code and engine behaviour are untouched. */}
-      {otherServices > 0 && (
-        <p className="px-1 text-sm text-fg-3" data-other-services>
-          {otherServices === 1
-            ? "This workspace also has 1 other service (projects or hourly work) that isn't a tier. It still counts in the simulation."
-            : `This workspace also has ${otherServices} other services (projects or hourly work) that aren't tiers. They still count in the simulation.`}
-        </p>
-      )}
+      {/* Services that aren't a tier of a department (projects, hourly work): seen, edited, added and removed here, with their counted clients. */}
+      <ServicesSettings data={data} tierServiceIds={tierServiceIds} extra={(sv) => <GroupFields service={sv} data={data} />} />
+      <SettingsSection id="client-health" title="Client health benchmark" description="The range of client health that is normal for a business like yours.">
+        <ClientHealthBenchmark data={data} />
+      </SettingsSection>
     </div>
   );
 }

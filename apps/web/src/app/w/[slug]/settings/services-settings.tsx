@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import type { PricingModel, ServiceRow } from "@transpera-flow/db";
 import { NumberField, SelectField, TextField, ToggleField } from "@/components/fields";
 import { Help, HelpLabel } from "@/components/help";
@@ -48,7 +48,16 @@ const priceUnit = (model: PricingModel) => (model === "retainer" ? "/month" : mo
  * `tierServiceIds`: the services that are a tier of a department. They are edited on Tiers & clients, so this lists the others
  * ("a service with neither keeps working as today"), with the same mix check over all of them.
  */
-export function ServicesSettings({ data, tierServiceIds = new Set<string>() }: { data: WorkspaceSettingsData; tierServiceIds?: ReadonlySet<string> }) {
+export function ServicesSettings({
+  data,
+  tierServiceIds = new Set<string>(),
+  extra,
+}: {
+  data: WorkspaceSettingsData;
+  tierServiceIds?: ReadonlySet<string>;
+  /** More fields under each service's own (Tiers & clients puts its counted-client numbers here). */
+  extra?: (service: ServiceRow) => ReactNode;
+}) {
   const { canEdit } = data;
   const services = data.services.filter((s) => !tierServiceIds.has(s.id));
   const mix = mixPercentages(data.services);
@@ -81,7 +90,7 @@ export function ServicesSettings({ data, tierServiceIds = new Set<string>() }: {
           <ul className="flex flex-col divide-y divide-line border-y border-line">
             {services.map((sv) => (
               <li key={sv.id}>
-                <ServiceItem service={sv} share={mix?.get(sv.id)} data={data} />
+                <ServiceItem service={sv} share={mix?.get(sv.id)} data={data} extra={extra?.(sv)} />
               </li>
             ))}
           </ul>
@@ -134,7 +143,7 @@ function AddService({ workspaceId }: { workspaceId: string }) {
   );
 }
 
-function ServiceItem({ service: sv, share, data }: { service: ServiceRow; share: number | undefined; data: WorkspaceSettingsData }) {
+function ServiceItem({ service: sv, share, data, extra }: { service: ServiceRow; share: number | undefined; data: WorkspaceSettingsData; extra?: ReactNode }) {
   const currency = data.workspace.settings.currency;
   return (
     <details className="group py-2">
@@ -153,6 +162,7 @@ function ServiceItem({ service: sv, share, data }: { service: ServiceRow; share:
         </span>
         {!sv.active && <span className="rounded-lg bg-panel-2 px-1.5 text-xs text-fg-2">Inactive</span>}
       </summary>
+      {extra && <div className="grid gap-4 px-1 pt-3 sm:grid-cols-2 lg:grid-cols-3">{extra}</div>}
       <ServiceMore service={sv} share={share} data={data} />
     </details>
   );
