@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import type { RecurrenceJson, ServiceRow } from "@transpera-flow/db";
+import { healthBands } from "@transpera-flow/engine";
 import { NumberField, SelectField } from "@/components/fields";
 import { Help } from "@/components/help";
 import { Button } from "@/components/ui/button";
@@ -242,11 +243,22 @@ export function HealthSettings({ data }: { data: WorkspaceSettingsData }) {
   const bands = {
     atRisk: settings.health_at_risk ?? HEALTH_SETTINGS.health_at_risk.fallback,
   };
+  // The bands the simulation runs on: it keeps them in order (healthy ≥ watch ≥ at risk), raising one set below the band under it.
+  const run = healthBands({ healthBands: { healthy: settings.health_healthy_from, watch: settings.health_watch_from, atRisk: settings.health_at_risk } });
+  const raised = [
+    settings.health_watch_from !== undefined && settings.health_watch_from !== null && run.watch !== settings.health_watch_from ? `Watch from runs as ${run.watch}` : null,
+    settings.health_healthy_from !== undefined && settings.health_healthy_from !== null && run.healthy !== settings.health_healthy_from ? `Healthy from runs as ${run.healthy}` : null,
+  ].filter((x): x is string => x !== null);
   return (
     <SettingsSection id="health" title="Client health" description={<>How servicing tasks move a client&apos;s health (0–100), and where it counts as healthy, to watch or at risk. Monthly churn = the tier&apos;s normal churn × (1 + sensitivity ×
           (100 − health) / 100); below {bands.atRisk} a client is at risk. Blank uses the estimated default.</>}>
       <HealthFields data={data} keys={HEALTH_RULE_SETTINGS} settings={settings} />
       <HealthFields data={data} keys={HEALTH_BAND_SETTINGS} settings={settings} />
+      {raised.length > 0 && (
+        <p className="mt-2 text-sm text-warn" role="status" data-health-bands-raised>
+          The bands are out of order: each must be at or above the one below it (Healthy from, then Watch from, then At risk below). {raised.join("; ")}.
+        </p>
+      )}
     </SettingsSection>
   );
 }
