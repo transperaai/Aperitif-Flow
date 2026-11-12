@@ -13,7 +13,7 @@ import { toneOf } from "@/components/capacity/widgets";
 // Goals and busy thresholds an owner sets (docs/customisability-audit.md findings 3, 11, 12, 32, 35, 40, 45, 48 and 50).
 
 describe("the DLER goal is the workspace's", () => {
-  const row = { ratio: 3.2, hidden: false };
+  const row = { departmentId: "org", name: "Organic", retainers: 32000, people: 1, ratio: 3.2, hidden: false };
   it("judges DLER against the goal given, 4.5 when none is", () => {
     expect(dlerStatus(row)?.tone).toBe("warn");
     expect(dlerStatus(row, 3)).toEqual({ tone: "good", words: "At or above the 3 goal" });
