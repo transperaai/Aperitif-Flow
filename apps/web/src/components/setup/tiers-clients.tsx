@@ -8,10 +8,14 @@
 
 import { Fragment, useState, useTransition } from "react";
 import { DEFAULT_MAX_STAY_MONTHS, tenureFromChurn } from "@transpera-flow/engine";
-import { NumberField } from "@/components/fields";
+import { NumberField, SelectField } from "@/components/fields";
 import {
   clientFee,
+  DEPARTMENT_KINDS,
+  departmentKind,
   missingForCapacity,
+  priceRiseMonths,
+  type DepartmentKind,
   tierCount,
   tierDiscrepancies,
   tierFieldsFor,
@@ -26,8 +30,8 @@ import {
 import type { ClientRow, ClientAssignmentRow, ClientServiceRow } from "@transpera-flow/db";
 import { EmptyState, Toolbar } from "@/components/page-kit";
 import { SettingsSection } from "@/app/w/[slug]/settings/section";
-import { ServiceMore } from "@/app/w/[slug]/settings/services-settings";
-import { GroupFields } from "@/app/w/[slug]/settings/client-groups-settings";
+import { ServiceMore, ServicesSettings } from "@/app/w/[slug]/settings/services-settings";
+import { ClientHealthBenchmark, GroupFields } from "@/app/w/[slug]/settings/client-groups-settings";
 import { ClientMore, type ClientOps, type ClientsSettingsProps } from "@/app/w/[slug]/settings/clients-settings";
 import { saveClientAssignment, saveClientField, saveClientServices } from "@/app/w/[slug]/settings/client-actions";
 import { addNamedClient, addTierAction, removeTierAction, saveClientLookedAfter, saveMaxStayMonths, saveSetupField } from "@/app/w/[slug]/settings/setup-actions";
@@ -71,6 +75,9 @@ const FIELD_HELP: Record<TierField | "fee" | "stay", { label: string; descriptio
 /** The stay a blank "Stay months" stands for: 1 ÷ churn a month, up to the longest stay, rounded (the engine's `tenureFromChurn`). */
 const stayPlaceholder = (churn: number, maxStayMonths: number): string => String(Math.round(tenureFromChurn(Number(churn), maxStayMonths)));
 
+/** A department kind in words. */
+const KIND_LABEL: Record<DepartmentKind, string> = { organic: "Organic", performance: "Performance" };
+
 const plainName = (n: string) => n.replace(/\s*\(.*\)\s*$/, "");
 
 interface Props {
@@ -99,7 +106,6 @@ function moreProps(setup: CapacitySetup, data: WorkspaceSettingsData, roster: Pr
 
 export function TiersAndClients({ setup, data, roster }: Props) {
   const tierServiceIds = new Set(setup.services.filter((s) => s.tier_id).map((s) => s.id));
-  const otherServices = data.services.filter((s) => s.active && !tierServiceIds.has(s.id)).length;
   return (
     <div className="flex min-w-0 flex-col gap-6" data-setup="clients">
       <TierControls setup={setup} />
@@ -109,14 +115,11 @@ export function TiersAndClients({ setup, data, roster }: Props) {
       ))}
       <BothServices setup={setup} />
       <NamedClients setup={setup} data={data} roster={roster} />
-      {/* D46: services that aren't tiers, and D47: the client health benchmark, are not edited here. Their data, code and engine behaviour are untouched. */}
-      {otherServices > 0 && (
-        <p className="px-1 text-sm text-fg-3" data-other-services>
-          {otherServices === 1
-            ? "This workspace also has 1 other service (projects or hourly work) that isn't a tier. It still counts in the simulation."
-            : `This workspace also has ${otherServices} other services (projects or hourly work) that aren't tiers. They still count in the simulation.`}
-        </p>
-      )}
+      {/* Services that aren't a tier of a department (projects, hourly work): seen, edited, added and removed here, with their counted clients. */}
+      <ServicesSettings data={data} tierServiceIds={tierServiceIds} extra={(sv) => <GroupFields service={sv} data={data} />} />
+      <SettingsSection id="client-health" title="Client health benchmark" description="The range of client health that is normal for a business like yours.">
+        <ClientHealthBenchmark data={data} />
+      </SettingsSection>
     </div>
   );
 }
@@ -200,7 +203,10 @@ function serviceOf(setup: CapacitySetup, deptId: string, tierId: string): SetupS
 }
 
 function DepartmentTable({ setup, data, department }: { setup: CapacitySetup; data: WorkspaceSettingsData; department: SetupDepartment }) {
-  const fields = tierFieldsFor(department.name);
+  const fields = tierFieldsFor(department);
+  // How long a rise weighs on churn: the price churn driver's own months (Settings > Churn drivers), as the Sandbox uses them.
+  const priceDriverMonths = data.churnDrivers.find((d) => d.driver === "price")?.effect_months;
+  const priceMonths = priceRiseMonths({}, { effectMonths: priceDriverMonths == null ? null : Number(priceDriverMonths) });
   const missing = new Set(missingForCapacity(setup, { salariesVisible: !setup.payHidden }).filter((m) => m.kind === "tier_deliverable").map((m) => `${m.id}:${m.field}`));
   const discrepancies = tierDiscrepancies(setup);
   const [open, setOpen] = useState<string | null>(null);
@@ -209,6 +215,20 @@ function DepartmentTable({ setup, data, department }: { setup: CapacitySetup; da
   const cols = 5 + fields.length;
   return (
     <SettingsSection id={`tiers-${department.id}`} title={`${department.name} tiers`} description="Per client, a month. The defaults every client of the tier uses. Each tier's normal churn is set under Churn drivers.">
+      <div className="max-w-xs" data-department-kind={department.id}>
+        <SelectField
+          label="Deliverables"
+          value={department.deliverable_kind ?? null}
+          save={saver<string | null>("departments", { id: department.id }, "deliverable_kind")}
+          disabled={!setup.canEdit}
+          noneLabel={`From the name: ${KIND_LABEL[departmentKind(department.name)]}`}
+          options={DEPARTMENT_KINDS.map((k) => ({ value: k, label: KIND_LABEL[k] }))}
+          help={{
+            description: "Which numbers this department's tiers have. Organic: words, links and tech hours. Performance: channels, builds and creative sets. Both have meetings and ad hoc requests.",
+            example: "A Paid Media department: Performance, so its tiers have channels, builds and creative sets.",
+          }}
+        />
+      </div>
       <Table>
         <TableHeader>
           <TableRow>
@@ -314,10 +334,10 @@ function DepartmentTable({ setup, data, department }: { setup: CapacitySetup; da
                   <TableRow>
                     <TableCell colSpan={cols} className="bg-panel-2">
                       <p className="mb-2 text-xs text-fg-2">
-                        {plainName(department.name)} {t.key}: price rise churn and the rest. Price-rise churn is the extra churn for each 10% rise, for 3 months, as a share (0.5 means churn x 1.5); it is stored for the Sandbox.
+                        {plainName(department.name)} {t.key}: price rise churn and the rest. Price-rise churn is the extra churn for each 10% rise, for {priceMonths} month{priceMonths === 1 ? "" : "s"} (the price churn driver&apos;s months), as a share (0.5 means churn x 1.5); it is stored for the Sandbox.
                       </p>
                       <div className="grid gap-4 sm:grid-cols-3">
-                        <NumberCell label={`${department.name} ${t.key}: Price-rise churn`} value={svc.price_rise_churn} save={saver("services", key, "price_rise_churn")} canEdit={setup.canEdit} optional={false} min={0} max={10} step={0.1} provenance={svc.provenance} column="price_rise_churn" help={{ description: "Extra churn for each 10% price rise, lasting 3 months, as a share of normal churn.", example: "0.5: a 10% rise lifts churn by half for 3 months (churn x 1.5)." }} />
+                        <NumberCell label={`${department.name} ${t.key}: Price-rise churn`} value={svc.price_rise_churn} save={saver("services", key, "price_rise_churn")} canEdit={setup.canEdit} optional={false} min={0} max={10} step={0.1} provenance={svc.provenance} column="price_rise_churn" help={{ description: `Extra churn for each 10% price rise, lasting ${priceMonths} month${priceMonths === 1 ? "" : "s"} (the price churn driver's months in Churn drivers), as a share of normal churn.`, example: `0.5: a 10% rise lifts churn by half for ${priceMonths} month${priceMonths === 1 ? "" : "s"} (churn x 1.5).` }} />
                       </div>
                       <div className="grid gap-4">
                         {svc.client_total !== null && (
@@ -379,6 +399,58 @@ function HelpLabelDot() {
 }
 
 type ClientView = SetupClient & { departmentId: string | null; tierId: string | null; primary: string | null };
+
+/** The deliverables a client row already has a column for; the rest of the department's are under More (`ClientOwnWork`). */
+const ROW_FIELDS = new Set<TierField>(["channels", "meetings", "adhoc_chance", "adhoc_requests"]);
+
+/**
+ * A named client's own deliverables (the department's other tier columns: words, links and tech hours, or builds and creative sets) and
+ * effort factor, under More. Blank uses the tier's value, shown greyed; the engine reads them as the client's overrides.
+ */
+function ClientOwnWork({ setup, client: c, tierService }: { setup: CapacitySetup; client: ClientView; tierService: Map<string, SetupService> }) {
+  const dept = setup.departments.find((d) => d.id === c.departmentId);
+  const svc = c.primary ? tierService.get(c.primary) : undefined;
+  const fields = (dept ? tierFieldsFor(dept) : []).filter((f) => !ROW_FIELDS.has(f)) as ("words" | "links" | "tech_hours" | "builds" | "creative_sets")[];
+  const key = { id: c.id };
+  const tierValue = (f: (typeof fields)[number]) => {
+    const v = svc ? svc[f] : null;
+    return v === null || v === undefined ? undefined : `${Math.round(v * 100) / 100} (tier)`;
+  };
+  return (
+    <div className="grid gap-4 px-1 pt-3 pb-2 sm:grid-cols-2 lg:grid-cols-3" data-client-own-work={c.name}>
+      {fields.map((f) => (
+        <NumberField
+          key={f}
+          label={`${FIELD_HELP[f].label} a month`}
+          value={c[f]}
+          save={saver<number | null>("clients", key, f)}
+          optional
+          min={0}
+          max={100_000}
+          step={FIELD_HELP[f].step}
+          placeholder={tierValue(f)}
+          disabled={!setup.canEdit}
+          help={{ description: `${FIELD_HELP[f].description} This client's own number; blank uses the tier's.`, example: FIELD_HELP[f].example }}
+        />
+      ))}
+      <NumberField
+        label="Effort factor"
+        value={c.step_factor}
+        save={saver<number | null>("clients", key, "step_factor")}
+        optional
+        min={0.01}
+        max={20}
+        step={0.1}
+        placeholder="1 (normal)"
+        disabled={!setup.canEdit}
+        help={{
+          description: "How much longer every task for this client takes than for a normal client of the tier. Blank or 1: normal.",
+          example: "1.5: a demanding client whose every task takes half as long again.",
+        }}
+      />
+    </div>
+  );
+}
 
 function NamedClients({ setup, data, roster }: { setup: CapacitySetup; data: WorkspaceSettingsData; roster: Props["roster"] }) {
   const [showInactive, setShowInactive] = useState(false);
@@ -462,6 +534,7 @@ function NamedClients({ setup, data, roster }: { setup: CapacitySetup; data: Wor
               {open === c.id && roster.clients.some((r) => r.id === c.id) && (
                 <TableRow>
                   <TableCell colSpan={cols} className="bg-panel-2">
+                    <ClientOwnWork setup={setup} client={c} tierService={tierService} />
                     <ClientMore client={roster.clients.find((r) => r.id === c.id)!} {...props} />
                   </TableCell>
                 </TableRow>
@@ -576,7 +649,7 @@ function ClientLine({ setup, client: c, tierService, open, onMore }: { setup: Ca
   const svc = c.primary ? tierService.get(c.primary) : undefined;
   const dept = setup.departments.find((d) => d.id === c.departmentId);
   const tier = setup.tiers.find((t) => t.id === c.tierId);
-  const performance = dept ? tierFieldsFor(dept.name).includes("channels") : false;
+  const performance = dept ? tierFieldsFor(dept).includes("channels") : false;
   const other = setup.departments.find((d) => d.id !== c.departmentId);
   const alsoService = other && c.tierId ? setup.services.find((s) => s.department_id === other.id && s.tier_id === c.tierId && s.active) : undefined;
   const also = alsoService ? c.service_ids.includes(alsoService.id) : false;

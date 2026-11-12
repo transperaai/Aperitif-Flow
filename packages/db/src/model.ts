@@ -13,6 +13,7 @@ import {
   tenureFromChurn,
   DEFAULT_HEALTH_RULES,
   WEEKS_PER_MONTH,
+  workingDaysOf,
   type ChurnLimits,
   type EngineMarket,
   type EngineDemand,
@@ -36,6 +37,9 @@ import { engineRecurrence } from "./servicing";
 import { effectiveMonthlySalary, hourlyCostFromSalary } from "./salary";
 import { COMPANY_DONE, STEP_SOURCE_LABELS, type DistParams, type Distribution, type EdgeRow, type LeadSourceRow, type PersonRow, type ProcessBundle, type ProcessPart, type SeasonalityRow, type StepRow, type StepSourceLabel, type WorkspaceSettings } from "./types";
 
+// Dates map onto run time as calendar weekdays (Monday to Friday), each a fifth of the week, so a calendar week is always one
+// working week whatever the workspace's working days; `working_days` only sets how long "a working day" of work is (the engine's
+// `workingDaysPerWeek`).
 const WORKING_DAYS_PER_WEEK = 5;
 const DAY_MS = 86_400_000;
 
@@ -353,6 +357,8 @@ function engineModelOf(bundle: ProcessBundle, options: ModelOptions): { model: E
     ...(hidesPay(bundle) ? { payHidden: true } : {}),
     horizonWeeks: s.horizon_weeks,
     hoursPerWeek: s.hours_per_week,
+    // Only a stored working week other than 5 days is passed: a 5-day week runs exactly as before the setting was read.
+    ...(workingDaysOf(s.working_days) !== 5 ? { workingDaysPerWeek: workingDaysOf(s.working_days) } : {}),
     leadsPerWeek: arrivalsPerWeek(bundle, services),
     ...(demand ? { demand } : {}),
     ...(market ? { market } : {}),

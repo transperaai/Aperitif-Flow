@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   ANALYSIS_RULE_IDS,
+  hoursPerWorkingDay,
+  workingDaysOf,
   ANALYSIS_RULE_SPECS,
   DEFAULT_RATING_CONFIG,
   RATING_RULE_IDS,
@@ -102,6 +104,15 @@ describe("what a setting does to the rating config", () => {
     const c = toRatingConfig({ money: { waitHours: { pipeline: 4, servicing: 24 } } }, 40);
     expect(c.expectedWaitDays).toEqual({ pipeline: 0.5, servicing: 3 });
     expect(toRatingConfig({ money: { waitHours: { pipeline: 4 } } }, 20).expectedWaitDays).toEqual({ pipeline: 1, servicing: 2 });
+  });
+
+  it("uses the model's working days a week for a working day (5 when not given)", () => {
+    // A 4-day week of 32 hours: a working day is 8 hours.
+    expect(toRatingConfig({ money: { waitHours: { pipeline: 4, servicing: 24 } } }, 32, undefined, 4).expectedWaitDays).toEqual({ pipeline: 0.5, servicing: 3 });
+    expect(hoursPerWorkingDay({ hoursPerWeek: 40 })).toBe(8);
+    expect(hoursPerWorkingDay({ hoursPerWeek: 36, workingDaysPerWeek: 4 })).toBe(9);
+    expect(workingDaysOf(6)).toBe(6);
+    for (const bad of [null, undefined, 0, 8, Number.NaN]) expect(workingDaysOf(bad)).toBe(5);
   });
 
   it("reads the money settings with defaults", () => {

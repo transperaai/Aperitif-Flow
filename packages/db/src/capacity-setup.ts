@@ -55,9 +55,20 @@ export const ORGANIC_TIER_FIELDS = ["words", "links", "tech_hours", "meetings", 
 export const PERFORMANCE_TIER_FIELDS = ["channels", "builds", "creative_sets", "meetings", "adhoc_chance", "adhoc_requests"] as const;
 export type TierField = (typeof ORGANIC_TIER_FIELDS)[number] | (typeof PERFORMANCE_TIER_FIELDS)[number];
 
-/** Which fields a department's tier table has: Performance (by name) has channels, builds and creative sets; any other, the Organic set. */
-export function tierFieldsFor(departmentName: string): readonly TierField[] {
-  return /^\s*perf/i.test(departmentName) ? PERFORMANCE_TIER_FIELDS : ORGANIC_TIER_FIELDS;
+/** The kinds of department, by the deliverables their tiers have (`departments.deliverable_kind`). */
+export const DEPARTMENT_KINDS = ["organic", "performance"] as const;
+export type DepartmentKind = (typeof DEPARTMENT_KINDS)[number];
+
+/** A department's kind: the one picked in Settings, else from the name as before it could be picked (a name starting "Perf" is Performance). */
+export function departmentKind(department: string | { name: string; deliverable_kind?: string | null }): DepartmentKind {
+  const d = typeof department === "string" ? { name: department } : department;
+  if (d.deliverable_kind === "organic" || d.deliverable_kind === "performance") return d.deliverable_kind;
+  return /^\s*perf/i.test(d.name) ? "performance" : "organic";
+}
+
+/** Which fields a department's tier table has: a Performance department has channels, builds and creative sets; any other, the Organic set. */
+export function tierFieldsFor(department: string | { name: string; deliverable_kind?: string | null }): readonly TierField[] {
+  return departmentKind(department) === "performance" ? PERFORMANCE_TIER_FIELDS : ORGANIC_TIER_FIELDS;
 }
 
 /** Overrides a named client may carry (null: use the tier's), in the order the screen shows them. */
@@ -83,6 +94,8 @@ export interface SetupDepartment {
   id: string;
   name: string;
   sort: number;
+  /** Which deliverables its tiers have; null (or left out): chosen from the name (`departmentKind`). */
+  deliverable_kind?: DepartmentKind | null;
 }
 export interface SetupTier {
   id: string;
@@ -218,6 +231,10 @@ export interface CapacitySetup {
   /** `settings.ramp_default`, or the built-in default. */
   rampDefault: number[];
   rampDefaultProvenance: unknown;
+  /** `settings.ramp_default` as stored: null when the workspace uses the built-in default. */
+  rampDefaultStored?: number[] | null;
+  /** `settings.hiring_delay_months` (months to hire, 0 to 24), or null when the workspace has set none (`hiringDelayBase` gives 2). */
+  hiringDelayMonths?: number | null;
   /** `settings.dler_includes_leadership`; false when never set (D48: directors and managers are not counted in DLER). */
   dlerIncludesLeadership: boolean;
   dlerProvenance: unknown;
@@ -266,7 +283,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
   const [canEdit, canSeePeople, departments, tiers, services, groups, clients, clientServices, clientAssignments, roles, people, personRoles, personTiers, portfolio] = await Promise.all([
     rpc(db, "can_edit_workspace", { ws: workspaceId }),
     rpc(db, "can_see_people", { ws: workspaceId }),
-    db.selectFrom("departments").select(["id", "name", "sort"]).where("workspace_id", "=", workspaceId).orderBy("sort").orderBy("name").execute(),
+    db.selectFrom("departments").select(["id", "name", "sort", "deliverable_kind"]).where("workspace_id", "=", workspaceId).orderBy("sort").orderBy("name").execute(),
     db.selectFrom("tiers").select(["id", "key", "name", "sort", "both_count", "provenance"]).where("workspace_id", "=", workspaceId).orderBy("sort").orderBy("key").execute(),
     db
       .selectFrom("services")
@@ -333,7 +350,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
   return {
     workspaceId,
     currency: typeof settings.currency === "string" ? settings.currency : "USD",
-    departments,
+    departments: departments.map((d) => ({ ...d, deliverable_kind: d.deliverable_kind === "organic" || d.deliverable_kind === "performance" ? d.deliverable_kind : null })),
     tiers: tiers.map((t) => ({ ...t, provenance: prov(t.provenance) })),
     services: services.map((s) => ({
       ...s,
@@ -386,6 +403,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
     roles: roles.map((r) => ({
       ...r,
       default_cost_rate: Number(r.default_cost_rate),
+      ongoing_hours_per_client_week: Number(r.ongoing_hours_per_client_week),
       line: Number(r.line),
       leadership: r.leadership === true,
       kind: r.kind === "shared" ? "shared" : "client_facing",
@@ -414,6 +432,8 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
     portfolio: portfolio.map((r) => ({ ...r, provenance: prov(r.provenance) })),
     rampDefault: numList(settings.ramp_default) ?? [...DEFAULT_RAMP],
     rampDefaultProvenance: wsProv["settings.ramp_default"] ?? null,
+    rampDefaultStored: numList(settings.ramp_default),
+    hiringDelayMonths: typeof settings.hiring_delay_months === "number" && Number.isFinite(settings.hiring_delay_months) ? settings.hiring_delay_months : null,
     dlerIncludesLeadership: settings.dler_includes_leadership === true,
     dlerProvenance: wsProv["settings.dler_includes_leadership"] ?? null,
     maxStayStored: maxStay,
@@ -481,7 +501,7 @@ const DELIVERABLES = Object.fromEntries(DELIVERABLE_COLUMNS.map((c) => [c, count
 
 /** Table → column → rule: the columns the Set up screens save with `save_fields`. */
 export const SETUP_FIELDS = {
-  departments: { name: text(100) },
+  departments: { name: text(100), deliverable_kind: { type: "enum", values: DEPARTMENT_KINDS, nullable: true } },
   tiers: { name: text(100), key: text(20), both_count: n(0, 100_000, false, true) },
   services: {
     ...DELIVERABLES,
@@ -524,6 +544,7 @@ export const SETUP_FIELDS = {
     department_id: { type: "id", nullable: true },
     kind: { type: "enum", values: ROLE_KINDS },
     line: n(0.01, 1.5),
+    ongoing_hours_per_client_week: n(0, 168),
     rule_of_thumb: n(1, 10_000, true, true),
     unit: text(60, true),
     leadership: { type: "boolean" },
@@ -722,7 +743,7 @@ export function missingForCapacity(
     const dept = deptOf.get(s.department_id);
     const tier = tierOf.get(s.tier_id);
     if (!dept || !tier) continue;
-    for (const field of tierFieldsFor(dept.name)) {
+    for (const field of tierFieldsFor(dept)) {
       if (s[field] === null) out.push({ kind: "tier_deliverable", id: s.id, field, label: `${dept.name} ${tier.key}: ${FIELD_WORDS[field]}` });
     }
   }

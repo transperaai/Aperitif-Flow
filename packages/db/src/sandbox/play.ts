@@ -24,7 +24,9 @@ export interface PreparedPlay {
 }
 
 /** The segments for `play` on `bundle`: the model of each segment with every lever applied. */
-export function preparePlay(bundle: ProcessBundle, play: PlayState, ctx: PlayContext, solutions: readonly SolutionRow[], months = 12): PreparedPlay {
+export function preparePlay(bundle: ProcessBundle, play: PlayState, given: PlayContext, solutions: readonly SolutionRow[], months = 12): PreparedPlay {
+  // Lever months run to the end of the horizon (a hire in month 18 of a 36-month run), not just the first year.
+  const ctx: PlayContext = { ...given, months: given.months ?? months };
   const effective = playChanges(play, ctx).map((change) => ({ change, scenarioId: "play", scenarioName: "Free play", inherited: false }));
   const prepared = prepareScenario(bundle, effective, solutions, months, ctx.startDate, { pair: false, ...(ctx.issueOf ? { issueOf: ctx.issueOf } : {}) });
   const edited = playIsDefault(play)

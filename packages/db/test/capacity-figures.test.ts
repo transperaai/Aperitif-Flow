@@ -15,6 +15,9 @@ import {
   limitedBy,
   hiringAdvice,
   hiringDelayAt,
+  hiringDelayBase,
+  storedHiringDelay,
+  DEFAULT_HIRING_DELAY_MONTHS,
   leaver,
   leavers,
   atRisk,
@@ -510,6 +513,15 @@ describe("hiringAdvice", () => {
       ["content", null],
     ]);
     expect(hiringAdvice(setup, result, (m) => hiringDelayAt(undefined, m))[1]!.hireBy).toBe(1);
+
+    // The workspace's own "Months to hire" (customisability audit 22/23/33) is the base the market stretches; unset is 2.
+    expect(storedHiringDelay({})).toBeNull();
+    expect(storedHiringDelay({ hiring_delay_months: 3 })).toBe(3);
+    for (const bad of [null, -1, 25, "3"]) expect(storedHiringDelay({ hiring_delay_months: bad })).toBeNull();
+    expect(hiringDelayBase({})).toBe(DEFAULT_HIRING_DELAY_MONTHS);
+    expect(hiringDelayBase({ hiring_delay_months: 0 })).toBe(0);
+    expect(hiringDelayAt(slow, 3, hiringDelayBase({ hiring_delay_months: 3 }))).toBe(6);
+    expect(hiringAdvice(setup, result, (m) => hiringDelayAt(undefined, m, hiringDelayBase({ hiring_delay_months: 1 })))[1]!.hireBy).toBe(2);
   });
 });
 

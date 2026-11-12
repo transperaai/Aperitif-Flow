@@ -15,15 +15,16 @@
 //        Win new clients                            `wonClients` (engine optional field: clients that skip the sales steps), least-busy placement
 //        A named client leaves in a month           `EngineClient.leavesMonth`
 //        Clients react to a price rise (D36)        the price churn driver in chance mode: effect = the tier's `price_rise_churn` x 0.5 / 1 / 2
-//        A hire's ramp                              `EnginePerson.ramp` = the workspace default
+//        A hire's ramp                              `EnginePerson.ramp` = the workspace default, or full speed from the start ("Up to speed")
 //        How much health moves churn (finding 15)    every service's `churnSensitivity` x (1 + the change), whole run
 //
-// Months in a `PlayState` are 0-based indexes of the twelve months of the run (0 is the first); the engine's `startMonth`, `month` and `leavesMonth` are 1-based.
+// Months in a `PlayState` are 0-based indexes of the months of the run (0 is the first; `PlayContext.months` long, 12 when not given); the
+// engine's `startMonth`, `month` and `leavesMonth` are 1-based.
 
 import { MARKET_PRESETS, STABLE_MARKET, type EngineChurnDriver, type EngineModel, type MarketFactors, type MarketPresetKey, type WonClientsEntry } from "@transpera-flow/engine";
 import type { CapacitySetup } from "./capacity-setup";
 import { tierCount } from "./capacity-setup";
-import type { SandboxChange } from "./sandbox-levers";
+import { sandboxLever, type SandboxChange } from "./sandbox-levers";
 
 /** The months a free-play run covers. */
 export const PLAY_MONTHS = 12;
@@ -67,6 +68,12 @@ export interface PlayState {
   priceFrom: number;
   priceTier: "all" | string;
   priceReaction: PriceReaction;
+  /** Months the rise weighs on churn (1 to 24); omitted or null: the price churn driver's own months from Settings (`priceRiseMonths`). */
+  priceMonths?: number | null;
+  /** Months to hire for "start hiring by" (0 to 24); omitted or null: the workspace's own (Settings > People & roles), else 2. */
+  hiringDelay?: number | null;
+  /** How the levers' hires get up to speed: "none" is full speed from their first day; omitted, the workspace's new starter ramp. */
+  hireRamp?: "workspace" | "none";
   leavers: { person: string; month: number }[];
   hires: { role: string; month: number }[];
   /** Named clients (client ids) who leave in a month. */
@@ -105,7 +112,7 @@ export function defaultPlay(): PlayState {
 export function playIsDefault(p: PlayState): boolean {
   const d = defaultPlay();
   return (
-    p.market === d.market && !p.leads && !p.win && !p.churn && !Object.values(p.add).some((n) => n > 0) && !p.price && !p.leavers.length && !p.hires.length && !p.lose.length &&
+    p.market === d.market && !p.leads && !p.win && !p.churn && !Object.values(p.add).some((n) => n > 0) && !p.price && (p.hiringDelay ?? null) === null && !p.leavers.length && !p.hires.length && !p.lose.length &&
     !Object.keys(p.versions).length && !healthMoved(p).length && !(Number(p.sensitivity) || 0)
   );
 }
@@ -124,6 +131,8 @@ export function healthMoved(p: Pick<PlayState, "health">): [PlayHealthRule, numb
 export interface PlayContext {
   /** The ISO date the run starts on (its first month is this date's month). */
   startDate: string;
+  /** The months the run covers (its horizon); lever months are clamped inside it. Omitted: `PLAY_MONTHS`. */
+  months?: number;
   setup: Pick<CapacitySetup, "departments" | "tiers" | "services" | "groups" | "clients" | "portfolio" | "rampDefault">;
   /** The issue each solution is for (by solution id), put on its step changes in the engine's input (reporting only). */
   issueOf?: (solutionId: string) => string | undefined;
@@ -149,7 +158,11 @@ export function monthShort(startDate: string, index: number): string {
   return SHORT[Number(monthKey(startDate, index).slice(5, 7)) - 1]!;
 }
 
-const clampMonth = (m: number) => Math.min(PLAY_MONTHS - 1, Math.max(0, Math.round(Number(m) || 0)));
+/** A lever month as a 0-based index inside the run's `months` (the horizon; 12 when not given). */
+const clampMonth = (m: number, months: number = PLAY_MONTHS) => Math.min(Math.max(1, months) - 1, Math.max(0, Math.round(Number(m) || 0)));
+
+/** The months a run covers: the context's horizon in months, else `PLAY_MONTHS`. */
+export const playMonthsOf = (ctx: { months?: number }): number => (Number.isInteger(ctx.months) && ctx.months! >= 1 ? ctx.months! : PLAY_MONTHS);
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Win new clients
@@ -178,9 +191,10 @@ export function tierService(setup: PlayContext["setup"], departmentId: string, t
  * the department's usual mix. The department's total (N x k) is shared across its tiers by largest remainder, then each tier's share is
  * spread over the k months (the first months take the extra one), so N x k clients land, by tier, exactly.
  */
-export function winEntries(play: PlayState, ctx: Pick<PlayContext, "setup" | "winMix">): WonClientsEntry[] {
-  const months = Math.max(1, Math.min(PLAY_MONTHS, Math.round(Number(play.addMonths) || 1)));
-  const from = clampMonth(play.addFrom);
+export function winEntries(play: PlayState, ctx: Pick<PlayContext, "setup" | "winMix" | "months">): WonClientsEntry[] {
+  const runMonths = playMonthsOf(ctx);
+  const months = Math.max(1, Math.min(runMonths, Math.round(Number(play.addMonths) || 1)));
+  const from = clampMonth(play.addFrom, runMonths);
   const out: WonClientsEntry[] = [];
   for (const dept of ctx.setup.departments) {
     const n = Math.round(Number(play.add[dept.id]) || 0);
@@ -235,6 +249,45 @@ export function priceDriverEffect(play: PlayState, setup: PlayContext["setup"]):
   return rate * PRICE_REACTION[play.priceReaction].factor;
 }
 
+/** The chance a client is hit by the price rise: the owner's own price driver's chance (0 to 1) when set, else a sure hit. */
+const ownChance = (chance: number | null | undefined): number => (typeof chance === "number" && Number.isFinite(chance) && chance >= 0 && chance <= 1 ? chance : 1);
+
+/**
+ * How many months a price rise weighs on churn in free play: the "Lasts" pick when made, else the workspace price driver's own months
+ * (Settings > Churn drivers), else `PRICE_RISE_MONTHS`.
+ */
+export function priceRiseMonths(play: Pick<PlayState, "priceMonths">, own: Pick<EngineChurnDriver, "effectMonths"> | undefined): number {
+  const ok = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 24;
+  if (ok(play.priceMonths)) return play.priceMonths;
+  if (ok(own?.effectMonths)) return own.effectMonths;
+  return PRICE_RISE_MONTHS;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The sliders' ranges: the lever registry's own, as percent changes in steps of 1
+
+export interface PlaySliderRange {
+  min: number;
+  max: number;
+  step: number;
+}
+
+/** A registry range as a percent change: a multiply of 0 to 5 is -100% to +400%; a set (B5's rise, a share) times 100. */
+function percentRange(leverId: string, op: "multiply" | "set"): PlaySliderRange {
+  const r = sandboxLever(leverId)?.range[op];
+  if (!r) throw new Error(`playSliderRanges: ${leverId} has no ${op} range`);
+  const pct = (v: number) => Math.round((op === "multiply" ? v - 1 : v) * 100);
+  return { min: pct(r.min), max: pct(r.max), step: 1 };
+}
+
+/**
+ * The free-play sliders' ranges, from the levers they map to (`playChanges`): Leads A1 and Win rate A3 (multiply), Churn B3 (multiply), Price
+ * change B5 (a rise as a share). So the Sandbox offers every change the registry accepts, e.g. doubling leads (+100%) or a 50% price rise.
+ */
+export function playSliderRanges(): Record<"leads" | "win" | "churn" | "price", PlaySliderRange> {
+  return { leads: percentRange("A1", "multiply"), win: percentRange("A3", "multiply"), churn: percentRange("B3", "multiply"), price: percentRange("B5", "set") };
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Levers -> the registry
 
@@ -248,9 +301,10 @@ export const playChangeId = (kind: string, n = 0): string => {
  * The registry changes the levers make. `A1` and `A3` and `B5` are monthly channels, `D1` and `D2` are people rows, `E6` is a spliced run,
  * and `B3` is a whole-run edit; none needs anything but the existing runner.
  */
-export function playChanges(play: PlayState, ctx: Pick<PlayContext, "startDate" | "setup">): SandboxChange[] {
+export function playChanges(play: PlayState, ctx: Pick<PlayContext, "startDate" | "setup" | "months">): SandboxChange[] {
   const out: SandboxChange[] = [];
-  const at = (m: number) => monthKey(ctx.startDate, clampMonth(m));
+  const runMonths = playMonthsOf(ctx);
+  const at = (m: number) => monthKey(ctx.startDate, clampMonth(m, runMonths));
   const leads = Number(play.leads) || 0;
   const win = Number(play.win) || 0;
   if (leads) out.push({ id: playChangeId("A1"), lever: "A1", target: null, op: "multiply", value: round(1 + leads / 100), from: at(play.marketFrom) });
@@ -278,10 +332,10 @@ export const hireIds = (play: PlayState): string[] => play.hires.map((_, i) => p
 // Levers -> the model
 
 /** The market schedule with `preset` from month `from` on (0-based) and the model's own schedule before it. */
-export function marketFrom(model: EngineModel, preset: MarketPresetKey, from: number): { months: MarketFactors[] } {
+export function marketFrom(model: EngineModel, preset: MarketPresetKey, from: number, runMonths: number = PLAY_MONTHS): { months: MarketFactors[] } {
   const own = model.market?.months ?? [STABLE_MARKET];
   const months: MarketFactors[] = [];
-  for (let i = 0; i < PLAY_MONTHS; i++) months.push(i < from ? (own[Math.min(i, own.length - 1)] ?? STABLE_MARKET) : MARKET_PRESETS[preset].factors);
+  for (let i = 0; i < Math.max(1, runMonths); i++) months.push(i < from ? (own[Math.min(i, own.length - 1)] ?? STABLE_MARKET) : MARKET_PRESETS[preset].factors);
   return { months };
 }
 
@@ -291,19 +345,29 @@ export function marketFrom(model: EngineModel, preset: MarketPresetKey, from: nu
  */
 export function applyPlay(model: EngineModel, play: PlayState, ctx: PlayContext, planPeople: ReadonlySet<string> = new Set()): EngineModel {
   let m = model;
-  if (play.market !== "today") m = { ...m, market: marketFrom(m, play.market, clampMonth(play.marketFrom)) };
+  const runMonths = playMonthsOf(ctx);
+  if (play.market !== "today") m = { ...m, market: marketFrom(m, play.market, clampMonth(play.marketFrom, runMonths), runMonths) };
   const wins = winEntries(play, ctx);
   if (wins.length) m = { ...m, wonClients: [...(m.wonClients ?? []), ...wins], placeNewClients: m.placeNewClients ?? "least-busy" };
   if (play.lose.length && m.clients) {
     const clients = { ...m.clients };
-    for (const l of play.lose) if (clients[l.id]) clients[l.id] = { ...clients[l.id]!, leavesMonth: clampMonth(l.month) + 1 };
+    for (const l of play.lose) if (clients[l.id]) clients[l.id] = { ...clients[l.id]!, leavesMonth: clampMonth(l.month, runMonths) + 1 };
     m = { ...m, clients };
   }
   if (Number(play.price)) {
     const effect = priceDriverEffect(play, ctx.setup);
     const drivers: EngineChurnDriver[] = [...(m.churnDrivers ?? [])];
     const at = drivers.findIndex((d) => d.id === "price");
-    const entry: EngineChurnDriver = { ...(at >= 0 ? drivers[at]! : { id: "price", weight: 1 }), enabled: true, chance: 1, effect, effectMonths: PRICE_RISE_MONTHS };
+    const own = at >= 0 ? drivers[at]! : undefined;
+    // The owner's own price driver (Settings > Churn drivers) keeps its chance and how long a hit lasts; only what they haven't set falls
+    // back (a sure hit, PRICE_RISE_MONTHS). "Lasts" in the Prices group, when picked, replaces the months for this run.
+    const entry: EngineChurnDriver = {
+      ...(own ?? { id: "price", weight: 1 }),
+      enabled: true,
+      chance: ownChance(own?.chance),
+      effect,
+      effectMonths: priceRiseMonths(play, own),
+    };
     if (at >= 0) drivers[at] = entry;
     else drivers.push(entry);
     m = { ...m, churnDrivers: drivers };
@@ -317,7 +381,7 @@ export function applyPlay(model: EngineModel, play: PlayState, ctx: PlayContext,
   }
   if (planPeople.size && m.people) {
     const people = { ...m.people };
-    for (const id of planPeople) if (people[id] && people[id]!.ramp === undefined) people[id] = { ...people[id]!, ramp: [...ctx.setup.rampDefault] };
+    for (const id of planPeople) if (people[id] && people[id]!.ramp === undefined) people[id] = { ...people[id]!, ramp: play.hireRamp === "none" ? [1] : [...ctx.setup.rampDefault] };
     m = { ...m, people };
   }
   return m;

@@ -15,7 +15,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { partOf, speedsNormalisedFor, type IssueRow, type ProcessBundle, type SandboxChange, type SandboxScenarioRow, type SolutionRow, type SourceRow } from "@transpera-flow/db";
-import { offeredLevers, sandboxLever, workspacePurposes } from "@transpera-flow/db";
+import { offeredLevers, sandboxLever, storedHiringDelay, workspacePurposes } from "@transpera-flow/db";
 import { BUILTIN_CHURN_DRIVER_IDS, CHURN_DRIVER_SPECS, CUSTOM_DRIVER_PREFIX, ENGINE_VERSION, busyCutoffsAt, firstCrossing, roleBusyCutoffs, toRatingConfig } from "@transpera-flow/engine";
 import { Help } from "@/components/help";
 import { HorizonPicker } from "@/components/horizon-picker";
@@ -980,6 +980,8 @@ export function SandboxView({ live, issues, sources = NO_SOURCES, mode, issuesHr
             return todayValue(lever, targetId, model, live.workspace.settings.currency, {
               conversion: result && finished > 0 ? result.kpi.won.mean / finished : null,
               causes: result?.churnCauses?.causes,
+              // D9's today: the workspace's own Months to hire, which scenario hires take unless D9 changes it.
+              hireDelayMonths: storedHiringDelay(live.workspace.settings) ?? undefined,
             });
           }}
           mix={mix}

@@ -45,6 +45,8 @@ export async function saveSetupField(table: SetupTable, key: Record<string, stri
   if (!checked.ok) return invalid;
   if (!(await signedIn())) return signedOut;
   const out = await saveField(table, key, field, base, checked.value as Scalar);
+  // A department's kind decides which columns its tier table and its named clients show.
+  if (out.status === "saved" && table === "departments" && field === "deliverable_kind") refresh();
   return out;
 }
 
@@ -55,13 +57,17 @@ export async function savePersonRamp(personId: string, base: string | null, valu
   if (!isId(personId) || b === undefined || v === undefined) return invalid;
   if (!(await signedIn())) return signedOut;
   const out = await saveFields<Scalar | number[]>("people", { id: personId }, { ramp: b }, { ramp: v });
-  if (out.status === "saved") return { status: "saved", value: formatRamp(v) };
+  if (out.status === "saved") {
+    // The capacity figures and the Sandbox read the ramp.
+    refresh();
+    return { status: "saved", value: formatRamp(v) };
+  }
   if (out.status === "conflict") return { status: "conflict", theirs: formatRamp((out.theirs.ramp ?? null) as number[] | null) };
   if (out.status === "not_found") return { status: "not_found" };
   return out;
 }
 
-/** The workspace's ramp default as typed, or null for the built-in one. */
+/** The workspace's ramp default as typed (Settings > People & roles > New starters), or null for the built-in one. */
 export async function saveRampDefault(workspaceId: string, base: string | null, value: string | null): Promise<SaveOutcome<string | null>> {
   const b = parseRamp(base);
   const v = parseRamp(value);
@@ -69,7 +75,11 @@ export async function saveRampDefault(workspaceId: string, base: string | null, 
   if (!(await signedIn())) return signedOut;
   const field = "settings.ramp_default";
   const out = await saveFields<Scalar | number[]>("workspaces", { id: workspaceId }, { [field]: b }, { [field]: v });
-  if (out.status === "saved") return { status: "saved", value: formatRamp(v) };
+  if (out.status === "saved") {
+    // The capacity figures and the Sandbox read the ramp.
+    refresh();
+    return { status: "saved", value: formatRamp(v) };
+  }
   if (out.status === "conflict") return { status: "conflict", theirs: formatRamp((out.theirs[field] ?? null) as number[] | null) };
   if (out.status === "not_found") return { status: "not_found" };
   return out;

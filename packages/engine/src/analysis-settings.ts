@@ -21,6 +21,7 @@ import {
   type RatingOverride,
   type RatingRuleId,
 } from "./ratings";
+import { hoursPerWorkingDay } from "./model";
 
 /** Every rule in docs/analysis-rules.md, in its order. */
 export const ANALYSIS_RULE_IDS = [
@@ -387,12 +388,17 @@ export function busyCutoffs(line: number): Cutoffs {
 
 /**
  * The rating model's config for these settings. `hoursPerWeek` is the model's
- * working week, to turn the expected waits (hours) into working days. `busy` is the
- * workspace's busy line (`busyLine(model)`): the middle busy cut-off. When the
- * settings give the busy rule's own inputs, those keep their distances from the
- * middle (the busy bands Settings > Simulation edits) and move with the line.
+ * working week (and its working days, 5 when omitted), to turn the expected waits (hours) into
+ * working days. `busy` is the workspace's busy line (`busyLine(model)`): the middle busy cut-off.
+ * When the settings give the busy rule's own inputs, those keep their distances from the middle
+ * (the busy bands Settings > Simulation edits) and move with the line.
  */
-export function toRatingConfig(settings: AnalysisSettings | null | undefined, hoursPerWeek: number, busy?: number): RatingConfig {
+export function toRatingConfig(
+  settings: AnalysisSettings | null | undefined,
+  hoursPerWeek: number,
+  busy?: number,
+  workingDaysPerWeek?: number,
+): RatingConfig {
   const s = parseAnalysisSettings(settings).value;
   const config = defaultRatingConfig();
   if (busy !== undefined && Number.isFinite(busy) && busy > 0) config.rules.busy.cutoffs = busyCutoffs(busy);
@@ -418,7 +424,7 @@ export function toRatingConfig(settings: AnalysisSettings | null | undefined, ho
   const spof = resolveAnalysisRule(s, "spof");
   const money = resolveMoney(s);
   config.absence = { weeks: money.absenceWeeks, perYear: money.absencesPerYear, recoveryCutoffs: [spof.inputs[2]!, spof.inputs[2]!, spof.inputs[3]!] };
-  const hoursPerDay = hoursPerWeek / 5;
+  const hoursPerDay = hoursPerWorkingDay({ hoursPerWeek, workingDaysPerWeek });
   const w = s.money?.waitHours;
   if (hoursPerDay > 0 && w?.pipeline !== undefined) config.expectedWaitDays.pipeline = w.pipeline / hoursPerDay;
   if (hoursPerDay > 0 && w?.servicing !== undefined) config.expectedWaitDays.servicing = w.servicing / hoursPerDay;

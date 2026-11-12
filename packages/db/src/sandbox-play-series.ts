@@ -7,7 +7,7 @@
 import type { EngineModel, SimulationResult } from "@transpera-flow/engine";
 import type { CapacitySetup, SetupPerson } from "./capacity-setup";
 import { clientFee, personSalary, tierCount, uniqueClients } from "./capacity-setup";
-import { busyShares, dler, hiringAdvice, DEFAULT_HIRING_DELAY_MONTHS } from "./capacity-figures";
+import { busyShares, dler, hiringAdvice, hiringDelayAt, hiringDelayBase } from "./capacity-figures";
 import { playChangeId, type PlayState } from "./sandbox-play";
 import type { PlayPersonSeries, PlaySeries } from "./sandbox-verdict";
 
@@ -90,7 +90,8 @@ export function playSeries(
   play: Pick<PlayState, "leavers" | "hires">,
   model: EngineModel,
   result: SimulationResult,
-  hiringDelay = DEFAULT_HIRING_DELAY_MONTHS,
+  /** Months to hire before the market stretches it: the workspace's own (`setup.hiringDelayMonths`), else the default. */
+  hiringBase: number = hiringDelayBase({ hiring_delay_months: setup.hiringDelayMonths }),
   /**
    * Each department's retainers in the first month of TODAY's path (`PlayOutcome.retainerAnchor` of today's outcome), in `setup.departments`
    * order: the levers' path's DLER moves from today's by its own retainers against these. Omitted: this run's own first month (today's path).
@@ -149,7 +150,8 @@ export function playSeries(
   }));
 
   // Teams over their line, and when to hire (P5).
-  const advice = hiringAdvice(setup, result, hiringDelay);
+  // Stretched by the run's own market (the workspace's, or the Sandbox's market lever), as the Overview stretches it.
+  const advice = hiringAdvice(setup, result, (m) => hiringDelayAt(model.market, m, hiringBase));
 
   // People and their lines (P5's busy shares for those in Set up; a hire is on its role's line).
   const known = busyShares(setup, model, result).people;

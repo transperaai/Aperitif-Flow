@@ -52,6 +52,6 @@ export function forecastInsights(model: EngineModel, result: SimulationResult, r
   // When a month's name comes round again its name alone is ambiguous: "October 2027".
   const repeats = new Set(months.map((m) => m.name)).size < months.length;
   const name = (i: number) => (repeats ? months[i]?.long : months[i]?.name) ?? `month ${i + 1}`;
-  const alerts = forecastAlerts(model, result, toRatingConfig(rules, model.hoursPerWeek, busyLine(model)), { monthName: name });
+  const alerts = forecastAlerts(model, result, toRatingConfig(rules, model.hoursPerWeek, busyLine(model), model.workingDaysPerWeek), { monthName: name });
   return visibleFindings(rules, alerts);
 }

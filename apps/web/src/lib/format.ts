@@ -12,9 +12,9 @@ export function formatPercent(share: number): string {
   return `${Math.round(share * 100)}%`;
 }
 
-/** Working hours to working days, given the workspace's hours per week. */
-export function formatDays(hours: number, hoursPerWeek: number): string {
-  const days = hours / (hoursPerWeek / WORKING_DAYS_PER_WEEK);
+/** Working hours to working days, given the workspace's hours per week and working days (5 when not given). */
+export function formatDays(hours: number, hoursPerWeek: number, workingDaysPerWeek: number = WORKING_DAYS_PER_WEEK): string {
+  const days = hours / (hoursPerWeek / workingDaysPerWeek);
   return `${formatNumber(days, days < 10 ? 1 : 0)} d`;
 }
 

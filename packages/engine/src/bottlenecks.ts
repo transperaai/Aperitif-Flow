@@ -8,7 +8,7 @@
 // no randomness and no language model.
 
 import { busyLine } from "./churn-drivers";
-import type { EngineModel, SimulationResult, Stat } from "./model";
+import { hoursPerWorkingDay, type EngineModel, type SimulationResult, type Stat } from "./model";
 
 export interface RoleConstraint {
   kind: "role";
@@ -80,7 +80,7 @@ export interface BottleneckOptions {
 
 /** Rank the constraints of `result`, which must come from simulating `model`. */
 export function rankBottlenecks(model: EngineModel, result: SimulationResult, { threshold = busyLine(model), limit }: BottleneckOptions = {}): Bottlenecks {
-  const hoursPerDay = model.hoursPerWeek / 5;
+  const hoursPerDay = hoursPerWorkingDay(model);
   const people = result.resolvedPeople;
 
   const roles: RoleConstraint[] = Object.keys(model.roles)

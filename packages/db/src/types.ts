@@ -32,7 +32,19 @@ export type PricingModel = "retainer" | "one_off" | "hourly";
 export type DistParams = { cv?: number | null; min?: number | null; mode?: number | null; max?: number | null };
 
 export interface WorkspaceSettings {
+  /** The normal working week in hours, above 0 and at most 168 (set when the workspace is made, editable in Settings > Simulation). */
   hours_per_week: number;
+  /**
+   * Working days a week, 1 to 7: a working day is `hours_per_week / working_days` hours wherever days turn into hours (first
+   * delivery, expected waits, days in findings). Absent or null: 5. Checked by `workspaces_working_days`.
+   */
+  working_days?: number | null;
+  /**
+   * Months from deciding to hire to the new person starting, 0 to 24: the base the market's time-to-hire factor stretches, used for
+   * "start hiring by" on the Overview and in the Sandbox, and for when a Sandbox hire starts. Absent or null: 2
+   * (`DEFAULT_HIRING_DELAY_MONTHS`). Checked by `workspaces_hiring_delay_months`.
+   */
+  hiring_delay_months?: number | null;
   horizon_weeks: number;
   currency: string;
   /** Arrivals a week while the workspace has no lead sources; the other three are interim until services and clients land. */

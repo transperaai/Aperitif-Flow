@@ -107,7 +107,7 @@ export function usePlayRuns(
         (results) => {
           if (!active) return;
           const run = joinPlay(prepared, results);
-          const outcome = playSeries(setup, play, run.model, run.result);
+          const outcome = playSeries(setup, play, run.model, run.result, play.hiringDelay ?? undefined);
           setChangedSlot({ key: preparedKey, run: { run, outcome, ms: performance.now() - t0 }, play });
         },
         (err) => {
@@ -130,7 +130,7 @@ export function usePlayRuns(
   const changedRun = useMemo(() => {
     if (!changedSlot || !anchor || !changedSlot.play) return changedSlot?.run ?? null;
     const { run } = changedSlot.run;
-    return { ...changedSlot.run, outcome: playSeries(setup, changedSlot.play, run.model, run.result, undefined, anchor) };
+    return { ...changedSlot.run, outcome: playSeries(setup, changedSlot.play, run.model, run.result, changedSlot.play.hiringDelay ?? undefined, anchor) };
   }, [changedSlot, anchor, setup]);
   const changed = asDefault ? todayRun : changedRun;
   const current = asDefault ? todayRun !== null : changedSlot?.key === preparedKey;

@@ -17,7 +17,7 @@
 // it as scenario patches (`fix`), which the app can run and compare.
 
 import { eligible, type AbsenceFinding, type AbsenceTest } from "./absence";
-import type { EngineModel, EngineStep, SimulationResult } from "./model";
+import { hoursPerWorkingDay, type EngineModel, type EngineStep, type SimulationResult } from "./model";
 import { pct as percentile } from "./simulate";
 import { checkSuccessMeasures, NO_SUCCESS_MEASURES, type SuccessMeasureSource } from "./success";
 import { churnCauseIssues, churnRiskIssues } from "./churn-issues";
@@ -180,7 +180,7 @@ export function detectIssues(
   const money = resolveCostConfig(options.cost);
   const shadow = options.shadowPrices ?? {};
   const fmt = (v: number) => formatMoney(v, money.currency);
-  const hoursPerDay = model.hoursPerWeek / 5;
+  const hoursPerDay = hoursPerWorkingDay(model);
   const people = result.resolvedPeople;
   const named = Boolean(model.people && Object.keys(model.people).length);
   const load = offeredLoad(model);

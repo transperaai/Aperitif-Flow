@@ -76,7 +76,7 @@ const cols = <T extends keyof DB>(_table: T, ...c: (keyof Selectable<DB[T]> & st
  * source_ids; `market_schedule` may carry `condition_preset` in place of `condition_id`.
  */
 export const IMPORT_COLUMNS = {
-  departments: cols("departments", "id", "name", "sort", "created_at"),
+  departments: cols("departments", "id", "name", "sort", "created_at", "deliverable_kind"),
   tiers: cols("tiers", "id", "key", "name", "sort", "both_count", "provenance", "created_at"),
   roles: cols(
     "roles", "id", "name", "color", "default_cost_rate", "headcount", "ongoing_hours_per_client_week", "active", "provenance", "created_at",
@@ -170,6 +170,8 @@ const SETTING_KEYS: Record<keyof WorkspaceSettings, true> = {
   max_stay_months: true,
   dler_goal: true,
   at_risk_margin: true,
+  working_days: true,
+  hiring_delay_months: true,
 };
 export const WORKSPACE_SETTING_KEYS = Object.keys(SETTING_KEYS) as readonly (keyof WorkspaceSettings)[];
 

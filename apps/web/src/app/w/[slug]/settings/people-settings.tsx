@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { DEFAULT_AVAILABILITY_FLOOR } from "@transpera-flow/engine";
+import { DEFAULT_AVAILABILITY_FLOOR, DEFAULT_WORKING_DAYS } from "@transpera-flow/engine";
 import { DEFAULT_AT_RISK_MARGIN, DEFAULT_DLER_GOAL } from "@transpera-flow/db";
 import { ChecklistField, DateField, FieldRows, NumberField, SelectField, TextField, ToggleField } from "@/components/fields";
 import { ASSUMPTION_LIMITS, assumptionValues, type AssumptionKey } from "@/lib/analysis/assumptions";
@@ -28,6 +28,8 @@ import {
   saveCapacityFactorsEnabled,
   saveDlerGoal,
   saveForecastLength,
+  saveHoursPerWeek,
+  saveWorkingDays,
   saveOvertimeCap,
   savePersonField,
   savePersonSet,
@@ -64,8 +66,40 @@ export function SimulationSettings({ data, assumptions = assumptionValues({}) }:
   ];
   const assumption = (key: AssumptionKey) => (base: number | null, next: number | null) => saveAnalysisAssumption(workspace.id, key, base, next);
   return (
-    <SettingsSection id="simulation" band title="Simulation" description="Limits on how the simulation treats people's time, the goals the figures are judged against, and the assumptions behind them.">
+    <SettingsSection id="simulation" band title="Simulation" description="The working week, limits on how the simulation treats people's time, the goals the figures are judged against, and the assumptions behind them.">
       <FieldRows>
+        <NumberField
+          label="Normal working week"
+          value={workspace.settings.hours_per_week}
+          save={(base, next) => saveHoursPerWeek(workspace.id, base, next)}
+          unit="hours"
+          min={1}
+          max={168}
+          step={0.5}
+          disabled={!canManage}
+          hint={ownersOnly}
+          help={{
+            description: "The hours in a normal full-time week. Anyone without their own hours a week has this times their working time.",
+            example: "37.5: someone at 0.8 working time has 30 hours a week.",
+          }}
+        />
+        <NumberField
+          label="Working days a week"
+          value={workspace.settings.working_days ?? null}
+          save={(base, next) => saveWorkingDays(workspace.id, base, next)}
+          optional
+          unit="days"
+          min={1}
+          max={7}
+          step={0.5}
+          placeholder={`${DEFAULT_WORKING_DAYS} (default)`}
+          disabled={!canManage}
+          hint={ownersOnly ?? "Leave blank for a 5-day week."}
+          help={{
+            description: "How many days the normal week is spread over. A working day is the week's hours over these days, wherever days are turned into hours: first delivery, waits and days in findings.",
+            example: "A 4-day week of 32 hours: a working day is 8 hours, so 10 working days to first delivery is 80 hours.",
+          }}
+        />
         <SelectField
           label="Default forecast length"
           value={months === null ? "custom" : String(months)}

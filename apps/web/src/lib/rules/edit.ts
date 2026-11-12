@@ -37,7 +37,7 @@ export function rerate(
   /** The workspace currency for the cost descriptions, and the shadow prices the too-busy cost needs (issue #108). */
   costs: { currency?: string; shadowPrices?: Record<string, number>} = {},
 ): DetectedIssue[] {
-  return detectIssues(model, result, toRatingConfig(settings, model.hoursPerWeek, busyLine(model)), {
+  return detectIssues(model, result, toRatingConfig(settings, model.hoursPerWeek, busyLine(model), model.workingDaysPerWeek), {
     processId,
     absence,
     // The money settings (12-month cap, absences a year) are the workspace's.

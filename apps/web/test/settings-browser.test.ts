@@ -56,7 +56,9 @@ describe("Settings: Per-person times switch", { timeout: 120_000 }, () => {
     expect(await field(page, "Per-person times").isDisabled()).toBe(false);
     expect(await field(page, "Availability floor").isDisabled()).toBe(false);
     expect(await field(page, "Overtime cap").isDisabled()).toBe(false);
-    expect(await page.locator("#simulation-heading").locator("xpath=ancestor::*[@role='region']").innerText()).toContain("Limits on how the simulation treats people's time, the goals the figures are judged against, and the assumptions behind them.");
+    expect(await page.locator("#simulation-heading").locator("xpath=ancestor::*[@role='region']").innerText()).toContain("The working week, limits on how the simulation treats people's time, the goals the figures are judged against, and the assumptions behind them.");
+    expect(await field(page, "Normal working week").isDisabled()).toBe(false);
+    expect(await field(page, "Working days a week").isDisabled()).toBe(false);
     expect(errors).toEqual([]);
     await page.close();
   });

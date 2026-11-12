@@ -54,7 +54,7 @@ import { openIssues, timeSplitByProcess } from "@/lib/overview/health";
 import { forecastInsights, forecastModel, today } from "@/lib/forecast/forecast";
 import { timelineData } from "@/lib/forecast/timeline";
 import { calendarMonthStarts } from "@transpera-flow/db/sandbox";
-import { hiringAdvice, hiringDelayAt } from "@transpera-flow/db";
+import { hiringAdvice, hiringDelayAt, hiringDelayBase } from "@transpera-flow/db";
 import { rerate, visibleFindings } from "@/lib/rules/edit";
 import { analysisRulesOf } from "@/lib/analysis/defaults";
 import { useAbsenceTest } from "@/lib/sim/absence";
@@ -328,8 +328,8 @@ export function Overview({
   const cutoffs = useMemo(() => toRatingConfig(rules, hoursPerWeek, busy).rules.busy.cutoffs, [rules, hoursPerWeek, busy]);
   // The Capacity page's "What to do" for this run, and each role's own line (Set up); without Set up the sentence is worked out from the rows.
   const advice = useMemo(
-    () => (capacity && horizonModel && horizonResult?.monthly ? hiringAdvice(capacity.setup, horizonResult, (m) => hiringDelayAt(horizonModel.market, m)) : null),
-    [capacity, horizonModel, horizonResult],
+    () => (capacity && horizonModel && horizonResult?.monthly ? hiringAdvice(capacity.setup, horizonResult, (m) => hiringDelayAt(horizonModel.market, m, hiringDelayBase(live.workspace.settings))) : null),
+    [capacity, horizonModel, horizonResult, live.workspace.settings],
   );
   const roleLines = useMemo(() => Object.fromEntries((capacity?.setup.roles ?? []).map((r) => [r.id, r.line])), [capacity]);
   const teamLoad = useMemo(() => (horizonModel && horizonResult ? timelineData(horizonModel, horizonResult, live, start) : null), [horizonModel, horizonResult, live, start]);

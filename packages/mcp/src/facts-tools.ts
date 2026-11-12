@@ -62,7 +62,7 @@ export async function liveFacts(
   assumptions.push(`Facts come from a run of the live model at ${REPS} replications, seed ${SEED}, with the workspace's analysis assumptions (Settings > Simulation).`);
   const run = simulate(loaded.model, REPS, SEED);
   const rules = loaded.bundle.analysisRules ?? {};
-  const config = toRatingConfig(rules, loaded.model.hoursPerWeek, busyLine(loaded.model));
+  const config = toRatingConfig(rules, loaded.model.hoursPerWeek, busyLine(loaded.model), loaded.model.workingDaysPerWeek);
   const money = { ...resolveMoney(rules), currency: loaded.bundle.workspace.settings.currency };
   const absence = absenceTest(loaded.model, { seed: SEED, weeks: config.absence.weeks, timeBudgetMs: ABSENCE_BUDGET_MS });
   if (!absence.complete) assumptions.push(`The absence test ran out of time and tested ${absence.people.length} people; key-person facts cover only those.`);

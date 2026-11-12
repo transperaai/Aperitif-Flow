@@ -118,6 +118,39 @@ export async function saveOvertimeCap(workspaceId: string, base: number | null, 
 }
 
 /**
+ * The normal working week in hours (above 0, at most 168: the rule the new-workspace form and `workspaces_hours_per_week` apply).
+ * Required, so never null. Refreshes on a save: every figure that turns FTE into hours reads it.
+ */
+export async function saveHoursPerWeek(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const hours = (v: unknown) => number(v) && (v as number) > 0 && (v as number) <= 168;
+  if (!isId(workspaceId) || !hours(value) || !(base === null || isFiniteNumber(base))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.hours_per_week", base, value);
+  if (out.status === "saved") refresh();
+  return out;
+}
+
+/** Working days a week, 1 to 7 (`workspaces_working_days`); null restores the default of 5. */
+export async function saveWorkingDays(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const days = (v: unknown) => v === null || (number(v) && (v as number) >= 1 && (v as number) <= 7);
+  if (!isId(workspaceId) || !days(value) || !(base === null || isFiniteNumber(base))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.working_days", base, value);
+  if (out.status === "saved") refresh();
+  return out;
+}
+
+/** Months from deciding to hire to the person starting, 0 to 24 (`workspaces_hiring_delay_months`); null restores the default of 2. */
+export async function saveHiringDelay(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const months = (v: unknown) => v === null || (number(v) && (v as number) >= 0 && (v as number) <= 24);
+  if (!isId(workspaceId) || !months(value) || !(base === null || isFiniteNumber(base))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.hiring_delay_months", base, value);
+  if (out.status === "saved") refresh();
+  return out;
+}
+
+/**
  * Fixed costs a month (rent, tools, insurance), in the workspace currency (sandbox phase 2): a number from 0 to 100,000,000, or
  * null to remove it. The database checks the same range (`workspaces_overhead_monthly`). Refreshes on a save: the forecast reads it.
  */
