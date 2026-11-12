@@ -320,6 +320,7 @@ function engineModelOf(bundle: ProcessBundle, options: ModelOptions): { model: E
       count: role.headcount,
       cost: Number(role.default_cost_rate),
       ongoing: Number(role.ongoing_hours_per_client_week),
+      ...(role.line != null && Number(role.line) > 0 ? { line: Number(role.line) } : {}),
       ...(tier && engineRoleUnit(tier, role.id) ? { unit: engineRoleUnit(tier, role.id)! } : {}),
     };
   }

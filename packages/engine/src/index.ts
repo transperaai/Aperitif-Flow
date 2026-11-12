@@ -284,6 +284,8 @@ export {
   rateValue,
   resolveRatingConfig,
   resolveRule,
+  busyCutoffsAt,
+  withRoleLines,
   storedOfRating,
   worseRating,
   type AbsenceSettings,

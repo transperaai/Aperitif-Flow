@@ -46,6 +46,7 @@ import {
   rateValue,
   worseRating,
   resolveRatingConfig,
+  withRoleLines,
   resolveRule,
   type Rating,
   type RatingConfig,
@@ -174,7 +175,8 @@ export function detectIssues(
   ratingConfig: RatingConfigInput | RatingConfig = {},
   options: DetectOptions = {},
 ): DetectedIssue[] {
-  const config = resolveRatingConfig(ratingConfig);
+  // Each role's own utilisation threshold is rule 1's line for it (finding 11 of docs/customisability-audit.md).
+  const config = withRoleLines(resolveRatingConfig(ratingConfig), model.roles);
   const money = resolveCostConfig(options.cost);
   const shadow = options.shadowPrices ?? {};
   const fmt = (v: number) => formatMoney(v, money.currency);

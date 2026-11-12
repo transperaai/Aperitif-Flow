@@ -27,6 +27,12 @@ export interface EngineRole {
    * engine's own unit is working hours, and the label is turned into hours outside it (capacity-inputs.ts). Omitted: none.
    */
   unit?: { label: string; perHour?: number };
+  /**
+   * The role's utilisation threshold (Settings: "Utilisation threshold", `roles.line`), as a share: at or over it the role and
+   * its people count as too busy. It is rule 1's middle cut-off for the role (`withRoleLines`); the rule's other cut-offs keep
+   * their distance from it. Omitted: the rule's own cut-offs.
+   */
+  line?: number;
 }
 
 /**

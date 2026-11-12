@@ -124,6 +124,11 @@ export interface RoleRow {
   active: boolean;
   /** Leadership: left out of clients and revenue per employee (D22). */
   leadership: boolean;
+  /**
+   * The role's utilisation threshold as a share (Settings: "Utilisation threshold"; default 0.85): at or over it the role counts as too
+   * busy, in the engine's ratings and forecast as on the Capacity page. Optional so fixtures that predate it still type-check.
+   */
+  line?: number;
 }
 
 export interface PersonRow {
@@ -1107,7 +1112,8 @@ export type _SchemaDriftChecks = [
   // settings is jsonb; WorkspaceSettings is its app-side shape.
   // provenance is loaded only where shown (optional here, required in the table).
   Assert<Matches<Omit<WorkspaceRow, "settings" | "provenance">, "workspaces">>,
-  Assert<Matches<RoleRow, "roles">>,
+  // line is optional here (absent on fixtures).
+  Assert<Matches<Omit<RoleRow, "line">, "roles">>,
   Assert<Matches<Omit<PersonRow, "provenance">, "people">>,
   Assert<Matches<PersonRoleRow, "person_roles">>,
   Assert<Matches<PersonSkillRow, "person_skills">>,

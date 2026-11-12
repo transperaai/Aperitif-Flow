@@ -232,6 +232,19 @@ describe("who gets too busy, and when", () => {
     expect(avgOnly.title).toMatch(/on average\)$/);
   });
 
+  it("uses each role's own utilisation threshold as its line (customisability audit 11)", () => {
+    const ppcDefault = alerts.find((a) => a.key === "forecast:role:ppc")!;
+    const strict: EngineModel = { ...growing, roles: { ...growing.roles, ppc: { ...growing.roles.ppc!, line: 0.8 } } };
+    const early = forecastAlerts(strict, run).find((a) => a.key === "forecast:role:ppc");
+    expect(early?.metrics.too_busy_line).toBe(0.8);
+    expect(early?.metrics.month ?? Infinity).toBeLessThanOrEqual(ppcDefault.metrics.month!);
+    const loose: EngineModel = { ...growing, roles: { ...growing.roles, ppc: { ...growing.roles.ppc!, line: 1.4 } } };
+    expect(forecastAlerts(loose, run).some((a) => a.key === "forecast:role:ppc")).toBe(false);
+    // 0.85 is the default line: the same alerts as a role without one.
+    const same: EngineModel = { ...growing, roles: { ...growing.roles, ppc: { ...growing.roles.ppc!, line: 0.85 } } };
+    expect(forecastAlerts(same, run)).toEqual(forecastAlerts(growing, run));
+  });
+
   it("says month 1, month 2… without month names, and nothing without a month-by-month run", () => {
     expect(forecastAlerts(growing, run).find((a) => a.key === "forecast:role:ppc")!.title).toMatch(/in month \d+ /);
     expect(forecastAlerts(growing, simulate(growing, 3, 1))).toEqual([]);

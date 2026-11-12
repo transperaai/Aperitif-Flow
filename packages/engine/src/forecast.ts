@@ -24,6 +24,7 @@ import {
   rateRule,
   ratingFields,
   resolveRatingConfig,
+  withRoleLines,
   resolveRule,
   type RatingConfigInput,
   type RatingSubject,
@@ -90,7 +91,8 @@ export function forecastAlerts(
   const monthly = result.monthly;
   if (!monthly || !monthly.months.length) return [];
   model = flattenModel(model);
-  const config = resolveRatingConfig(configInput);
+  // Each role's own utilisation threshold is the "Too busy" line for it and its people.
+  const config = withRoleLines(resolveRatingConfig(configInput), model.roles);
   const people = result.resolvedPeople;
   const named = model.people !== undefined;
   const monthName = options.monthName ?? ((i: number) => `month ${i + 1}`);
