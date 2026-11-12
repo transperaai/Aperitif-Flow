@@ -132,8 +132,8 @@ export function PlayPage({ live, parts, company, setup, solutions, solutionLinks
   }, [live, start, setup, issueOf, solutions, horizon]);
   const ctx: PlayContext = useMemo(() => {
     const model = base0.segments[0]?.model;
-    return { startDate: start, setup, issueOf, winMix: (d) => (model ? winMix(setup, model, d) : {}) };
-  }, [base0, start, setup, issueOf]);
+    return { startDate: start, months: horizon, setup, issueOf, winMix: (d) => (model ? winMix(setup, model, d) : {}) };
+  }, [base0, start, setup, issueOf, horizon]);
   const prepare = useCallback(
     (play: PlayState) => {
       const prepared = preparePlay(run, play, ctx, solutions, horizon);

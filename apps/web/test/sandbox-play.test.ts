@@ -13,6 +13,9 @@ import {
   winMix,
   PLAY_MONTHS,
   PRICE_REACTION,
+  PRICE_RISE_MONTHS,
+  playSliderRanges,
+  priceRiseMonths,
   type StoredStepChange,
   type PlayContext,
   type PlayState,
@@ -291,5 +294,84 @@ describe("the automations and augmentations a map version holds (D53)", () => {
     const last = prepared.segments[prepared.segments.length - 1]!.model.changes!;
     expect(last.map((x) => x.name)).toEqual(["Second"]);
     expect(last[0]!.startMonth).toBe(6);
+  });
+});
+
+// Customisability audit 26: lever months run to the end of the horizon, not just the first year.
+describe("lever months cover the whole horizon", () => {
+  const long: PlayContext = { ...ctx, months: 36 };
+
+  it("a hire in month 18 and a price rise in year 2 keep their months on a 36-month run", () => {
+    const c = playChanges(play({ hires: [{ role: "links", month: 18 }], price: 5, priceFrom: 14 }), long);
+    expect(c.find((x) => x.lever === "D1")!.from).toBe("2028-05");
+    expect(c.find((x) => x.lever === "B5")!.from).toBe("2028-01");
+    // Past the horizon, clamped to its last month; with no horizon, the first year as before.
+    expect(playChanges(play({ leads: 5, marketFrom: 99 }), long)[0]!.from).toBe("2029-10");
+    expect(playChanges(play({ hires: [{ role: "links", month: 18 }] }), ctx)[0]!.from).toBe("2027-10");
+  });
+
+  it("a market from month 15 runs to the end of the horizon, and a named client can leave in month 20", () => {
+    const m = applyPlay(model, play({ market: "downturn", marketFrom: 15 }), long);
+    expect(m.market!.months).toHaveLength(36);
+    expect(m.market!.months[14]!.leads).toBe(1);
+    expect(m.market!.months[15]!.leads).toBe(0.65);
+    const id = Object.keys(model.clients ?? {})[0];
+    if (id) expect(applyPlay(model, play({ lose: [{ id, month: 20 }] }), long).clients![id]!.leavesMonth).toBe(21);
+  });
+
+  it("wins can start after the first year", () => {
+    const [dept] = setup.departments;
+    const wins = winEntries(play({ add: { [dept!.id]: 1 }, addFrom: 20, addMonths: 2, addTier: "T1" }), long);
+    expect(wins.map((w) => w.month)).toEqual([21, 22]);
+  });
+});
+
+// Customisability audit 24: the sliders offer the lever registry's ranges, in steps of 1.
+describe("the sliders' ranges", () => {
+  it("come from the registry: leads, win rate, churn and prices -100% to +400%", () => {
+    const r = playSliderRanges();
+    expect(r.leads).toEqual({ min: -100, max: 400, step: 1 });
+    expect(r.win).toEqual({ min: -100, max: 400, step: 1 });
+    expect(r.churn).toEqual({ min: -100, max: 400, step: 1 });
+    expect(r.price).toEqual({ min: -100, max: 400, step: 1 });
+  });
+
+  it("doubling leads, +3% win rate and a 50% price rise become the registry's changes", () => {
+    const c = playChanges(play({ leads: 100, win: 3, price: 50 }), ctx);
+    expect(c).toMatchObject([
+      { lever: "A1", value: 2 },
+      { lever: "A3", value: 1.03 },
+      { lever: "B5", value: 0.5 },
+    ]);
+  });
+});
+
+// Customisability audit 7: a free-play price rise keeps the price churn driver's own chance and months from Settings.
+describe("a price rise and the price churn driver's own settings", () => {
+  const withDriver = (d: Partial<NonNullable<EngineModel["churnDrivers"]>[number]>): EngineModel => ({ ...model, churnDrivers: [{ id: "price", weight: 1, enabled: false, ...d }] });
+  const priceOf = (m: EngineModel) => m.churnDrivers!.find((d) => d.id === "price")!;
+
+  it("keeps the driver's months and chance, and falls back to a sure hit for 3 months", () => {
+    const own = priceOf(applyPlay(withDriver({ chance: 0.4, effectMonths: 6 }), play({ price: 10 }), ctx));
+    expect(own).toMatchObject({ enabled: true, chance: 0.4, effectMonths: 6 });
+    expect(own.effect).toBeCloseTo(0.5, 12);
+    const none = priceOf(applyPlay({ ...model, churnDrivers: [] }, play({ price: 10 }), ctx));
+    expect(none).toMatchObject({ enabled: true, chance: 1, effectMonths: PRICE_RISE_MONTHS });
+  });
+
+  it("'Lasts' replaces the months for the run only", () => {
+    expect(priceOf(applyPlay(withDriver({ effectMonths: 6 }), play({ price: 10, priceMonths: 2 }), ctx)).effectMonths).toBe(2);
+    expect(priceRiseMonths({}, { effectMonths: 6 })).toBe(6);
+    expect(priceRiseMonths({ priceMonths: null }, undefined)).toBe(PRICE_RISE_MONTHS);
+    expect(priceRiseMonths({ priceMonths: 30 }, { effectMonths: 6 })).toBe(6);
+  });
+});
+
+// Customisability audit 22/23/33: "Months to hire" in free play changes the advice, not the run's changes.
+describe("months to hire in free play", () => {
+  it("a chosen months to hire moves the levers off today's path but makes no registry change", () => {
+    expect(playIsDefault(play({ hiringDelay: 3 }))).toBe(false);
+    expect(playIsDefault(play({ hiringDelay: null }))).toBe(true);
+    expect(playChanges(play({ hiringDelay: 3 }), ctx)).toEqual([]);
   });
 });

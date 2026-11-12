@@ -7,7 +7,7 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { defaultPlay, monthKey, monthShort, playIsDefault, type CapacitySetup, type PlayState, type PurposeCategory } from "@transpera-flow/db";
+import { defaultPlay, monthKey, monthShort, playIsDefault, priceRiseMonths, type CapacitySetup, type PlayState, type PurposeCategory } from "@transpera-flow/db";
 import type { PreparedPlay } from "@transpera-flow/db/sandbox";
 import { Help } from "@/components/help";
 import { Button } from "@/components/ui/button";
@@ -75,8 +75,8 @@ export function PlayView(props: PlayViewProps) {
   const months = useMemo(() => playMonths(startDate, horizon), [startDate, horizon]);
   const mapKey = props.mapKey ?? null;
   const runs = usePlayRuns(setup, play, today, prepare, mapKey);
-  // The levers' month pickers stay on the first year; the charts follow the horizon.
-  const leverMonths = useMemo(() => (horizon === 12 ? months : playMonths(startDate)), [horizon, months, startDate]);
+  // The levers' month pickers cover the whole horizon, as the charts do (a hire in month 18 of a 36-month run).
+  const leverMonths = months;
   const moved = !playIsDefault(play) || mapKey !== null;
   const expectedWins = runs.today ? runs.today.run.result.kpi.won.mean / horizon : null;
   const busy = runs.status === "running";
@@ -130,6 +130,8 @@ export function PlayView(props: PlayViewProps) {
             setup={setup}
             months={leverMonths}
             expectedWinsPerMonth={expectedWins}
+            priceDriverMonths={priceRiseMonths({}, today.segments[0]?.model.churnDrivers?.find((d) => d.id === "price"))}
+            settingsHref={props.base ? `${props.base}/settings` : undefined}
             note={
               props.base && (
                 <p className="text-xs text-muted-foreground">
