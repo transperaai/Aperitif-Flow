@@ -23,3 +23,4 @@ Single-context: `CONTEXT.md` and `docs/adr/` at the repo root, created lazily. S
 - Run `pnpm lint && pnpm typecheck && pnpm test` before pushing; database tests need Postgres at `DATABASE_URL`.
 - `apps/web` uses Next.js 16: read `apps/web/AGENTS.md` and the bundled docs before writing Next code (e.g. `proxy.ts`, not middleware).
 - Anything verified only against plain Postgres rather than Neon goes in `docs/supabase-notes.md`.
+- No hardcoded business numbers. Anything an owner could reasonably want to set for their company (fees, churn, pay, costs, goals, thresholds, rates, delays, durations, health rules) is stored per workspace and editable in the app: in Settings, and as a Sandbox lever where trying a change makes sense. A code constant is only a default for a new workspace. One stored value per number: the engine, Overview, Capacity and Sandbox all read the same one, never a copy. Known gaps still to fix: `docs/customisability-audit.md`.
