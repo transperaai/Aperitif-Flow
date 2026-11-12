@@ -109,6 +109,22 @@ function withSolution() {
 
 const card = (page: Page, processId: string) => page.locator(`[data-company-map] .react-flow__node-group[data-id="${processId}"]`);
 
+/**
+ * Click a process card and wait for its versions popover. While the first run is still finishing, the map can re-render under the
+ * click and the popover never opens, so it clicks again (up to a few times) until it does.
+ */
+async function openVersions(page: Page, processId: string, popover = page.locator(`[data-version-popover="${processId}"]`)) {
+  for (let attempt = 0; ; attempt++) {
+    await card(page, processId).click();
+    try {
+      await popover.waitFor({ timeout: 5_000 });
+      return;
+    } catch (e) {
+      if (attempt >= 4) throw e;
+    }
+  }
+}
+
 describe("the Sandbox as the company map", { timeout: 300_000 }, () => {
   it("shows the company map first, full width, with lanes and tags, then the levers, then the results", async () => {
     const { page, errors } = await mount();
@@ -141,9 +157,8 @@ describe("the Sandbox as the company map", { timeout: 300_000 }, () => {
   it("clicking a process lists Today and its solutions; picking one badges the card, adds a chip and runs it; Reset to today undoes it", async () => {
     const { page, errors } = await mount();
     const { solution, processId, processName } = withSolution();
-    await card(page, processId).click();
     const popover = page.locator(`[data-version-popover="${processId}"]`);
-    await popover.waitFor();
+    await openVersions(page, processId, popover);
     expect(await popover.locator("[data-version-option]").first().getAttribute("data-version-option")).toBe("today");
     expect(await popover.locator(`[data-version-option="${solution.id}"]`).innerText()).toContain(solution.name);
     expect(await popover.locator(`[data-version-option="${solution.id}"] [data-status]`).count()).toBe(1);
@@ -176,9 +191,8 @@ describe("the Sandbox as the company map", { timeout: 300_000 }, () => {
     expect(await page.locator("[data-play-levers]").innerText()).not.toMatch(/Automation and augmentation/);
     const held = data.solutions.find((s) => s.step_changes.length > 0)!;
     expect(held.step_changes[0]!.name).toBeTruthy();
-    await card(page, held.process_id).click();
     const popover = page.locator(`[data-version-popover="${held.process_id}"]`);
-    await popover.waitFor();
+    await openVersions(page, held.process_id, popover);
     await popover.locator(`[data-version-option="${held.id}"]`).click();
     await page.locator(`[data-version-month="${held.process_id}"]`).selectOption("1");
     await page.keyboard.press("Escape");
@@ -212,8 +226,7 @@ describe("the Sandbox as the company map", { timeout: 300_000 }, () => {
     const { solution, processId } = withSolution();
     for (const [width, scheme] of [[1440, "light"], [1440, "dark"], [400, "light"]] as const) {
       const { page } = await mount({ width, scheme });
-      await card(page, processId).click();
-      await page.locator(`[data-version-popover="${processId}"]`).waitFor();
+      await openVersions(page, processId);
       await page.waitForTimeout(300);
       await page.screenshot({ path: `${shots}/sandbox-popover-${scheme}-${width}.png` });
       await page.locator(`[data-version-option="${solution.id}"]`).click();
