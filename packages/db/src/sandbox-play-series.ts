@@ -6,7 +6,7 @@
 
 import type { EngineModel, SimulationResult } from "@transpera-flow/engine";
 import type { CapacitySetup, SetupPerson } from "./capacity-setup";
-import { tierCount, uniqueClients } from "./capacity-setup";
+import { clientFee, tierCount, uniqueClients } from "./capacity-setup";
 import { busyShares, dler, hiringAdvice, DEFAULT_HIRING_DELAY_MONTHS } from "./capacity-figures";
 import { playChangeId, type PlayState } from "./sandbox-play";
 import type { PlayPersonSeries, PlaySeries } from "./sandbox-verdict";
@@ -99,7 +99,7 @@ export function playSeries(setup: CapacitySetup, play: Pick<PlayState, "leavers"
     setup.services.map((s) => {
       const count = tierCount(s.id, setup);
       const named = setup.clients.filter((c) => c.active && c.service_ids.includes(s.id));
-      const total = named.reduce((a, c) => a + c.mrr, 0) + Math.max(0, count - named.length) * s.price;
+      const total = named.reduce((a, c) => a + clientFee(setup, c), 0) + Math.max(0, count - named.length) * s.price;
       return [s.id, count > 0 ? total / count : s.price] as const;
     }),
   );

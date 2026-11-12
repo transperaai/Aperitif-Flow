@@ -25,7 +25,7 @@ import {
   type SimulationResult,
 } from "@transpera-flow/engine";
 import type { CapacitySetup, SetupPerson, SetupRole } from "./capacity-setup";
-import { tierCount, uniqueClients } from "./capacity-setup";
+import { clientFee, tierCount, uniqueClients } from "./capacity-setup";
 
 /**
  * Months to hire a replacement before the market stretches it (the prototype's `hiringDelay`; the Sandbox's "Hiring delay" lever starts
@@ -391,7 +391,7 @@ export function departmentRetainers(setup: CapacitySetup, departmentId: string):
     const named = setup.clients.filter((c) => c.active && c.service_ids.includes(s.id)).length;
     sum += Math.max(0, tierCount(s.id, setup) - named) * s.price;
   }
-  for (const c of setup.clients) if (c.active && clientDepartment(setup, c) === departmentId) sum += c.mrr;
+  for (const c of setup.clients) if (c.active && clientDepartment(setup, c) === departmentId) sum += clientFee(setup, c);
   return sum;
 }
 
@@ -421,13 +421,14 @@ export function personFees(setup: CapacitySetup): Map<string, number> {
     const svcs = setup.services.filter((x) => x.active && x.tier_id && c.service_ids.includes(x.id));
     if (!svcs.length) continue;
     const total = svcs.reduce((a, x) => a + x.price, 0);
+    const fee = clientFee(setup, c);
     for (const svc of svcs) {
       const managerRole = Object.keys(c.assignments).find((rid) => {
         const role = roleById.get(rid);
         return role?.kind === "client_facing" && role.department_id === svc.department_id;
       });
       const manager = managerRole ? c.assignments[managerRole] : undefined;
-      if (manager) add(manager, total > 0 ? (c.mrr * svc.price) / total : c.mrr / svcs.length);
+      if (manager) add(manager, total > 0 ? (fee * svc.price) / total : fee / svcs.length);
     }
   }
   return fees;
@@ -732,7 +733,7 @@ export function timeToServe(setup: CapacitySetup, model: EngineModel): { departm
       hours += h.total;
       for (const [k, v] of Object.entries(h.byPurpose)) byPurpose[k] = (byPurpose[k] ?? 0) + v;
     }
-    const fee = ec?.mrr ?? c.mrr;
+    const fee = ec?.mrr ?? clientFee(setup, c);
     named.push({ id: c.id, name: c.name, departmentId: clientDepartment(setup, c), manager: ec?.manager ?? Object.values(c.assignments)[0] ?? null, fee, hours, feePerHour: hours > 0 ? fee / hours : null, byPurpose: purposes(byPurpose) });
   }
   return { departments, named };

@@ -39,6 +39,17 @@ const DELIVERABLE_KEYS: readonly (readonly [keyof CapacityDeliverableColumns, ke
 /** A finite number, or null (a column that was never entered, or junk). */
 const finite = (v: number | null | undefined): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
+/**
+ * A named client's fee a month: its own when one is entered (more than 0), else its tier's: the sum of the fees of the tiers it takes
+ * (a client on both services pays both). The Settings screen shows a blank fee with the tier's as its default; the engine, Overview,
+ * Capacity and the Sandbox all use this one rule.
+ */
+export function namedClientFee(mrr: number, tierFees: readonly number[]): number {
+  const own = Number(mrr);
+  if (Number.isFinite(own) && own > 0) return own;
+  return tierFees.reduce((a, f) => a + (Number.isFinite(f) ? f : 0), 0);
+}
+
 /** What the mapping reads of a tier workspace, worked out once per model. */
 export interface TierContext {
   cap: CapacityInputs;

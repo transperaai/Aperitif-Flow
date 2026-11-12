@@ -8,6 +8,7 @@
 
 import { Fragment, useState, useTransition } from "react";
 import {
+  clientFee,
   missingForCapacity,
   tierCount,
   tierDiscrepancies,
@@ -674,7 +675,7 @@ function ClientLine({ setup, client: c, tierService, open, onMore }: { setup: Ca
           min={0}
           step={100}
           digits={0}
-          placeholder={ph(svc?.price ?? null)}
+          placeholder={ph(clientFee(setup, { mrr: 0, service_ids: c.service_ids }) || null)}
           provenance={c.provenance}
           column="mrr"
         />

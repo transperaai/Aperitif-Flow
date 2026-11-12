@@ -24,7 +24,7 @@ import {
   type EngineStep,
 } from "@transpera-flow/engine";
 import { resolvePurpose, workspacePurposes, type PurposeSource } from "./purposes";
-import { engineClientCapacity, enginePersonCapacity, engineRoleUnit, engineTierClientGroups, engineTierService, tierContext, type TierContext } from "./capacity-model";
+import { engineClientCapacity, enginePersonCapacity, engineRoleUnit, engineTierClientGroups, engineTierService, namedClientFee, tierContext, type TierContext } from "./capacity-model";
 import { engineRecurrence } from "./servicing";
 import { COMPANY_DONE, STEP_SOURCE_LABELS, type DistParams, type Distribution, type EdgeRow, type LeadSourceRow, type ProcessBundle, type ProcessPart, type SeasonalityRow, type StepRow, type StepSourceLabel, type WorkspaceSettings } from "./types";
 
@@ -689,13 +689,15 @@ function engineClients(
       .sort((a, b) => (a.role_id < b.role_id ? -1 : a.role_id > b.role_id ? 1 : 0))) {
       assignments[a.role_id] = a.person_id;
     }
+    const takes = (bundle.clientServices ?? [])
+      .filter((cs) => cs.client_id === c.id && services && cs.service_id in services)
+      .map((cs) => cs.service_id)
+      .sort();
     clients[c.id] = {
       name: c.name,
-      services: (bundle.clientServices ?? [])
-        .filter((cs) => cs.client_id === c.id && services && cs.service_id in services)
-        .map((cs) => cs.service_id)
-        .sort(),
-      mrr: Number(c.mrr),
+      services: takes,
+      // A blank fee (0) in a tier workspace is the tier's fee, as the Settings screen shows it.
+      mrr: tier ? namedClientFee(Number(c.mrr), takes.filter((sid) => tier.tierServices.has(sid)).map((sid) => services![sid]!.price)) : Number(c.mrr),
       ...(c.health !== null && c.health !== undefined ? { health: Number(c.health) } : {}),
       assignments,
       // A tier workspace: its own values, its manager and its hand-holding hours (capacity-model.ts).

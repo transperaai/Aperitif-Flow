@@ -53,6 +53,24 @@ describe("a service is one tier of one department", () => {
   });
 });
 
+describe("a named client's fee", () => {
+  const services = (b: ProcessBundle, sid: string) => (b.clientServices ?? []).filter((cs) => cs.client_id === C1).map((cs) => cs.service_id).includes(sid);
+  const blank = { ...base, clients: base.clients!.map((c) => (c.id === C1 ? { ...c, mrr: 0 } : c)) };
+
+  it("a blank fee (0) is its tier's fee, as the Settings screen shows it", () => {
+    const m = model(tiered({}, blank));
+    const tierFees = [S1, S2].filter((sid) => services(blank, sid)).map((sid) => Number(base.services.find((s) => s.id === sid)!.price));
+    expect(tierFees.length).toBeGreaterThan(0);
+    expect(m.clients![C1]!.mrr).toBe(tierFees.reduce((a, b) => a + b, 0));
+    // An entered fee is its own.
+    expect(model(tiered()).clients![C1]!.mrr).toBe(Number(base.clients![0]!.mrr));
+  });
+
+  it("outside a tier workspace a blank fee stays 0", () => {
+    expect(model(blank).clients![C1]!.mrr).toBe(0);
+  });
+});
+
 describe("a tier's deliverables and ad-hoc rule", () => {
   it("maps every deliverable column to its engine key, and leaves a blank one out (not 0)", () => {
     const row = svc(S1, T1, { words: 4000, links: 8, tech_hours: 10, meetings: 4, builds: 5, creative_sets: 2, channels: 3, adhoc_chance: 0.9, adhoc_requests: 6.5 });

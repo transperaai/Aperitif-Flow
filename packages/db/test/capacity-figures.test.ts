@@ -4,6 +4,7 @@ import {
   bottleneck,
   busyShares,
   capacitySetupFromModel,
+  clientFee,
   departmentCeiling,
   departmentTime,
   dler,
@@ -404,6 +405,16 @@ describe("dler (D40: the average of each client-facing person's DLER)", () => {
     expect(fees.get("a")).toBe(10000);
     const org = dler(setup).departments.find((d) => d.departmentId === "org")!;
     expect(org.ratio).toBeCloseTo((ANN + BO + 5000 / 7500) / 3, 10);
+  });
+  test("a named client with a blank fee pays its tier's fee, in DLER and the department's retainers", () => {
+    const model = tinyModel();
+    model.clients = { n1: { name: "Named", services: ["org-T1"], mrr: 0, assignments: { mgr_org: "c" }, manager: "c" } };
+    const setup = capacitySetupFromModel(model, { dlerIncludesLeadership: false });
+    const price = setup.services.find((s) => s.id === "org-T1")!.price;
+    expect(clientFee(setup, setup.clients[0]!)).toBe(price);
+    expect(personFees(setup).get("c")).toBe(price);
+    // An entered fee is its own.
+    expect(clientFee(setup, { ...setup.clients[0]!, mrr: 5000 })).toBe(5000);
   });
   test("the Sandbox's retainers for a month are shared by each person's share of today's fees", () => {
     const setup = capacitySetupFromModel(tinyModel(), { dlerIncludesLeadership: false });

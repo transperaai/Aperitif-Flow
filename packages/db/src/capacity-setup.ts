@@ -23,6 +23,7 @@
 import type { Db } from "./queries";
 import { rpc } from "./rpc";
 import type { Json } from "./db-types";
+import { namedClientFee } from "./capacity-model";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Vocabulary
@@ -573,6 +574,12 @@ export function tierCount(serviceId: string, data: Pick<CountData, "groups" | "c
   if (total !== null && total !== undefined) return Math.max(total, named + held);
   const rest = data.groups.filter((g) => g.service_id === serviceId).reduce((s, g) => s + g.client_count, 0);
   return named + held + rest;
+}
+
+/** A named client's fee a month: its own, or (left blank) the fee of each tier it takes, by the engine's own rule (`namedClientFee`). */
+export function clientFee(setup: Pick<CapacitySetup, "services">, c: Pick<SetupClient, "mrr" | "service_ids">): number {
+  const tiers = setup.services.filter((s) => s.active && s.tier_id && s.department_id && c.service_ids.includes(s.id));
+  return namedClientFee(c.mrr, tiers.map((s) => s.price));
 }
 
 export type TierDiscrepancyKind = "over" | "unassigned";
