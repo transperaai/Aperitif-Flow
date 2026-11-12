@@ -3,7 +3,7 @@
 // team load chart (B15) build the same model and read the same alerts.
 
 import { ModelError, toEngineModel, type ProcessBundle } from "@transpera-flow/db";
-import { forecastAlerts, toRatingConfig, type AnalysisSettings, type DetectedIssue, type EngineModel, type ScenarioPatch, type SimulationResult } from "@transpera-flow/engine";
+import { busyLine, forecastAlerts, toRatingConfig, type AnalysisSettings, type DetectedIssue, type EngineModel, type ScenarioPatch, type SimulationResult } from "@transpera-flow/engine";
 import { horizonWeeks } from "@/lib/horizon";
 import { withLeverChanges } from "@/lib/solutions/levers";
 import { visibleFindings } from "@/lib/rules/edit";
@@ -52,6 +52,6 @@ export function forecastInsights(model: EngineModel, result: SimulationResult, r
   // When a month's name comes round again its name alone is ambiguous: "October 2027".
   const repeats = new Set(months.map((m) => m.name)).size < months.length;
   const name = (i: number) => (repeats ? months[i]?.long : months[i]?.name) ?? `month ${i + 1}`;
-  const alerts = forecastAlerts(model, result, toRatingConfig(rules, model.hoursPerWeek), { monthName: name });
+  const alerts = forecastAlerts(model, result, toRatingConfig(rules, model.hoursPerWeek, busyLine(model)), { monthName: name });
   return visibleFindings(rules, alerts);
 }

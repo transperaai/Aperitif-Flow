@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CHURN_LIMITS,
   DEFAULT_HEALTH_BANDS,
+  DEFAULT_RATING_CUTOFFS,
+  busyCutoffs,
+  busyLine,
   churnLimits,
   churnRiskIssues,
   clientHealthSummary,
@@ -11,10 +14,12 @@ import {
   northbeamWithClientGroups,
   onboardingPressure,
   priceEffectOfWeight,
+  rankBottlenecks,
   responsePressure,
   resultsPressure,
   reworkPressure,
   simulate,
+  toRatingConfig,
   type EngineChurnDriver,
   type EngineModel,
 } from "../src";
@@ -124,5 +129,32 @@ describe("health bands (findings 34 and 38)", () => {
     const issues = churnRiskIssues(m, simulate(m, 4, 1));
     expect(issues.length).toBeGreaterThan(0);
     expect(issues[0]!.evidence).toContain("Operational risk below 99");
+  });
+});
+
+describe("the workspace's busy line (finding 2)", () => {
+  it("is 85% unless the workspace sets one, and is the overload driver's line", () => {
+    expect(busyLine({})).toBe(0.85);
+    expect(busyLine({ churnLimits: { loadThreshold: 0.75 } })).toBe(0.75);
+    expect(busyLine({ churnLimits: { loadThreshold: 0.75 } })).toBe(churnLimits({ churnLimits: { loadThreshold: 0.75 } }).loadThreshold);
+  });
+
+  it("is the middle busy cut-off, the others moving only to stay in order", () => {
+    expect(busyCutoffs(0.85)).toEqual(DEFAULT_RATING_CUTOFFS.busy);
+    expect(busyCutoffs(0.75)).toEqual([0.7, 0.75, 0.95]);
+    expect(busyCutoffs(0.6)).toEqual([0.6, 0.6, 0.95]);
+    expect(busyCutoffs(1)).toEqual([0.7, 1, 1]);
+    expect(toRatingConfig({}, 40).rules.busy.cutoffs).toEqual(DEFAULT_RATING_CUTOFFS.busy);
+    expect(toRatingConfig({}, 40, 0.85).rules.busy.cutoffs).toEqual(DEFAULT_RATING_CUTOFFS.busy);
+    expect(toRatingConfig({}, 40, 0.75).rules.busy.cutoffs).toEqual([0.7, 0.75, 0.95]);
+  });
+
+  it("is the ceiling bottlenecks count against", () => {
+    const model: EngineModel = groups();
+    const result = simulate(model, 6, 2);
+    expect(rankBottlenecks(model, result).threshold).toBe(0.85);
+    const set: EngineModel = { ...model, churnLimits: { loadThreshold: 0.7 } };
+    expect(rankBottlenecks(set, result).threshold).toBe(0.7);
+    expect(rankBottlenecks(set, result, { threshold: 0.9 }).threshold).toBe(0.9);
   });
 });

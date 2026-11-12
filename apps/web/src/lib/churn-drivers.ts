@@ -135,7 +135,7 @@ export const CHURN_LIMIT_SETTINGS = {
     max: 1.5,
     step: 1,
     fallback: 85,
-    description: "How busy the team looking after a client can be before the client starts to notice. Above this, the overload driver adds churn. It is also the workspace's utilisation threshold.",
+    description: "How busy the team looking after a client can be before the client starts to notice. Above this, the overload driver adds churn. It is also the workspace's utilisation threshold: the line the busy ratings, bottlenecks, the People page and the Sandbox's busy charts count against.",
     example: "85: a strategist busy 90% of the time adds a little churn; one busy 80% adds none.",
   },
   churn_load_full: {

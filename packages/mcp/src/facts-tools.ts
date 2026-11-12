@@ -7,7 +7,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { absenceTest, compareCostsDesc, detectIssues, RATINGS, resolveMoney, shadowPricesFor, simulate, toRatingConfig, type DetectedIssue } from "@transpera-flow/engine";
+import { absenceTest, busyLine, compareCostsDesc, detectIssues, RATINGS, resolveMoney, shadowPricesFor, simulate, toRatingConfig, type DetectedIssue } from "@transpera-flow/engine";
 import { loadLiveModel, processSteps } from "./analysis-tools";
 import { resolveProcess, resolveWorkspace, type ProcessWithDraft, type ToolContext, type WorkspaceRef } from "./context";
 import { runTool } from "./result";
@@ -61,7 +61,7 @@ export async function liveFacts(
   const loaded = await loadLiveModel(ctx, { workspace: ws.id, process: proc.id }, assumptions);
   assumptions.push(`Facts come from a run of the live model at ${REPS} replications, seed ${SEED}, with the documented default cut-offs.`);
   const run = simulate(loaded.model, REPS, SEED);
-  const config = toRatingConfig({}, loaded.model.hoursPerWeek);
+  const config = toRatingConfig({}, loaded.model.hoursPerWeek, busyLine(loaded.model));
   const money = { ...resolveMoney({}), currency: loaded.bundle.workspace.settings.currency };
   const absence = absenceTest(loaded.model, { seed: SEED, weeks: config.absence.weeks, timeBudgetMs: ABSENCE_BUDGET_MS });
   if (!absence.complete) assumptions.push(`The absence test ran out of time and tested ${absence.people.length} people; key-person facts cover only those.`);

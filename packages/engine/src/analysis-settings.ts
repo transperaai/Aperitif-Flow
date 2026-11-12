@@ -12,6 +12,7 @@
 import {
   OVERRIDE_KINDS,
   RATING_RULE_IDS,
+  DEFAULT_RATING_CUTOFFS,
   defaultRatingConfig,
   type Cutoffs,
   type OverrideKind,
@@ -375,12 +376,24 @@ export function isDefaultAnalysisSettings(settings: AnalysisSettings): boolean {
 }
 
 /**
- * The rating model's config for these settings. `hoursPerWeek` is the model's
- * working week, to turn the expected waits (hours) into working days.
+ * The busy cut-offs with `line` (the workspace's busy line, `busyLine`) as the middle one: the others keep their defaults and move
+ * only as far as they must to stay in order. At 0.85 these are the defaults.
  */
-export function toRatingConfig(settings: AnalysisSettings | null | undefined, hoursPerWeek: number): RatingConfig {
+export function busyCutoffs(line: number): Cutoffs {
+  const [lo, , hi] = DEFAULT_RATING_CUTOFFS.busy;
+  return [Math.min(lo, line), line, Math.max(hi, line)];
+}
+
+/**
+ * The rating model's config for these settings. `hoursPerWeek` is the model's
+ * working week, to turn the expected waits (hours) into working days. `busy` is the
+ * workspace's busy line (`busyLine(model)`): the middle busy cut-off unless the
+ * settings give the busy rule's own inputs.
+ */
+export function toRatingConfig(settings: AnalysisSettings | null | undefined, hoursPerWeek: number, busy?: number): RatingConfig {
   const s = parseAnalysisSettings(settings).value;
   const config = defaultRatingConfig();
+  if (busy !== undefined && Number.isFinite(busy) && busy > 0) config.rules.busy.cutoffs = busyCutoffs(busy);
   for (const id of RATING_RULE_IDS) {
     const r = s.rules?.[id];
     if (!r) continue;

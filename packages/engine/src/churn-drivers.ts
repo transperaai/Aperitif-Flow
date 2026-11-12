@@ -362,6 +362,12 @@ export function churnLimits(model: Pick<EngineModel, "churnLimits">): ChurnLimit
   };
 }
 
+/**
+ * The workspace's busy line (settings.utilisation_threshold, 85% unless set; finding 2): where the overload driver starts, the middle
+ * busy cut-off, the ceiling bottlenecks count against and the People page's "too busy". One number, read everywhere from here.
+ */
+export const busyLine = (model: Pick<EngineModel, "churnLimits">): number => churnLimits(model).loadThreshold;
+
 const L = DEFAULT_CHURN_LIMITS;
 /** Late or missed share of ad-hoc requests, 0 to 1 pressure. */
 export const responsePressure = (badShare: number, full: number = L.responseFullShare): number => clamp(badShare / full, 0, 1);

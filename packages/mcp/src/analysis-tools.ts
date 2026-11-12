@@ -21,7 +21,7 @@ import {
   type ProcessBundle,
   type ScenarioRow,
 } from "@transpera-flow/db";
-import { absenceTest, detectIssues, ENGINE_VERSION, ISSUE_TYPES, ratingOfStored, resolveMoney, shadowPricesFor, simulate, toRatingConfig, withoutDisabledRules, type EngineModel } from "@transpera-flow/engine";
+import { absenceTest, busyLine, detectIssues, ENGINE_VERSION, ISSUE_TYPES, ratingOfStored, resolveMoney, shadowPricesFor, simulate, toRatingConfig, withoutDisabledRules, type EngineModel } from "@transpera-flow/engine";
 import { bottleneckReport, checkScenarioRobustness, compareScenarios, matchNamed, type NamedScenario } from "./analysis";
 import { resolveProcess, resolveWorkspace, revisionIdFor, type ProcessWithDraft, type ToolContext, type WorkspaceRef } from "./context";
 import { runTool, ToolError } from "./result";
@@ -396,7 +396,7 @@ export function registerAnalysisTools(server: McpServer, ctx: ToolContext): void
           const currency = loaded.bundle.workspace.settings.currency;
           // The money settings (the cap on what a loss is worth, absences a year) are the defaults too (issue #108, D40).
           const money = { ...resolveMoney(rules.settings), currency };
-          const config = toRatingConfig(rules.settings, loaded.model.hoursPerWeek);
+          const config = toRatingConfig(rules.settings, loaded.model.hoursPerWeek, busyLine(loaded.model));
           // The absence test (rule 8) is its own pass, a few more replications per person who is the only one for a step.
           // Skip it when the filters would drop its facts anyway, and cap its time; say so when it didn't finish.
           const wantsAbsence = config.rules.spof.enabled && !client && (!args.type || args.type === "spof") && (!args.status || args.status === "open");

@@ -23,6 +23,7 @@
 // run serves both.
 // The trend charts load on their own.
 
+import { workspaceBusyLine } from "@/lib/busy-line";
 import type { ScreenMode } from "@/lib/mode";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -323,7 +324,8 @@ export function Overview({
     () => (groups ? groups.filter((g) => g.id !== COMPANY_GROUP || g.openIssues > 0).map((g) => ({ id: g.id, name: g.name, count: g.openIssues, href: hrefs[g.id] })) : null),
     [groups, hrefs],
   );
-  const cutoffs = useMemo(() => toRatingConfig(rules, hoursPerWeek).rules.busy.cutoffs, [rules, hoursPerWeek]);
+  const busy = workspaceBusyLine(live.workspace.settings);
+  const cutoffs = useMemo(() => toRatingConfig(rules, hoursPerWeek, busy).rules.busy.cutoffs, [rules, hoursPerWeek, busy]);
   // The Capacity page's "What to do" for this run, and each role's own line (Set up); without Set up the sentence is worked out from the rows.
   const advice = useMemo(
     () => (capacity && horizonModel && horizonResult?.monthly ? hiringAdvice(capacity.setup, horizonResult, (m) => hiringDelayAt(horizonModel.market, m)) : null),

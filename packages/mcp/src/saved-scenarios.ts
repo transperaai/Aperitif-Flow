@@ -34,7 +34,7 @@ import {
   type ScenarioRun,
   type TimeRows,
 } from "@transpera-flow/db/sandbox";
-import { CHURN_DRIVER_SPECS, CUSTOM_DRIVER_PREFIX, ENGINE_VERSION, isTooBusy, toRatingConfig, type BuiltinChurnDriverId, type MonthlyResult, type Stat } from "@transpera-flow/engine";
+import { busyLine, CHURN_DRIVER_SPECS, CUSTOM_DRIVER_PREFIX, ENGINE_VERSION, isTooBusy, toRatingConfig, type BuiltinChurnDriverId, type MonthlyResult, type Stat } from "@transpera-flow/engine";
 import { matchNamed } from "./analysis";
 import type { ToolContext, WorkspaceRef } from "./context";
 import { ToolError } from "./result";
@@ -305,7 +305,7 @@ export async function runSaved(ctx: ToolContext, ws: WorkspaceRef, args: SavedRu
 
   const monthly = run.result.monthly!;
   const hpw = run.model.hoursPerWeek;
-  const cutoffs = toRatingConfig({}, hpw).rules.busy.cutoffs;
+  const cutoffs = toRatingConfig({}, hpw, busyLine(run.model)).rules.busy.cutoffs;
   const { bundle } = inputs;
   const roleNames = Object.fromEntries(Object.entries(run.model.roles).map(([id, r]) => [id, r.name]));
   const categories = workspacePurposes(bundle.workspace.settings as WorkspaceSettings);

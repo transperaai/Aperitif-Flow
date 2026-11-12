@@ -5,6 +5,7 @@
 // which it links to. It is its own run (30 replications month by month, about half a second in a worker for the
 // seeded Northbeam over 12 months), so it only starts once the section scrolls near the screen.
 
+import { workspaceBusyLine } from "@/lib/busy-line";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
@@ -47,7 +48,7 @@ export function ForecastPanel({
   }, [near]);
   const sim = useSimulation(near ? built.model : null, 30, 1, { monthly: true, monthStarts: built.monthStarts });
   const result = near && sim.status === "done" ? sim.run.result : null;
-  const cutoffs = toRatingConfig(ANALYSIS_DEFAULTS, bundle.workspace.settings.hours_per_week).rules.busy.cutoffs;
+  const cutoffs = toRatingConfig(ANALYSIS_DEFAULTS, bundle.workspace.settings.hours_per_week, workspaceBusyLine(bundle.workspace.settings)).rules.busy.cutoffs;
   const busyLine = cutoffs[1];
   const alerts = useMemo(() => (built.model && result ? forecastInsights(built.model, result, ANALYSIS_DEFAULTS, start) : null), [built.model, result, start]);
   const data = useMemo(() => (built.model && result ? timelineData(built.model, result, bundle, start) : null), [built.model, result, bundle, start]);

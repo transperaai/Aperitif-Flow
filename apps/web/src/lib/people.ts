@@ -13,7 +13,10 @@ import {
   type SimulationResult,
 } from "@transpera-flow/engine";
 
-/** A person whose utilisation at or above this in a bad month (the 90th percentile) counts as too busy; as on the rating model's busy rule. */
+/**
+ * The default busy line: a person whose utilisation is above it in a bad month (the 90th percentile) counts as too busy. A workspace's
+ * own line is `busyLine(model)` (settings.utilisation_threshold), which `teamSummary` takes; this is only its default.
+ */
 export const BUSY_LIMIT = 0.85;
 
 export interface PersonBusy {
@@ -85,16 +88,19 @@ export interface TeamSummary {
   people: number;
   /** Total full-time equivalents of the people who have one on record; null when none do. */
   fte: number | null;
-  /** People whose bad month (P90) is above the busy limit. */
+  /** People whose bad month (P90) is above the busy line. */
   busyInBadMonth: number;
+  /** The busy line counted against (the workspace's, `busyLine(model)`). */
+  line: number;
 }
 
-export function teamSummary(rows: readonly PersonBusy[]): TeamSummary {
+export function teamSummary(rows: readonly PersonBusy[], line: number = BUSY_LIMIT): TeamSummary {
   const withFte = rows.filter((r) => r.fte !== null);
   return {
     people: rows.length,
     fte: withFte.length ? withFte.reduce((a, r) => a + r.fte!, 0) : null,
-    busyInBadMonth: rows.filter((r) => r.p90 > BUSY_LIMIT).length,
+    busyInBadMonth: rows.filter((r) => r.p90 > line).length,
+    line,
   };
 }
 

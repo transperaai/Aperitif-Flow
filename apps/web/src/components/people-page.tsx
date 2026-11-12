@@ -7,7 +7,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState } from "react";
 import { speedsNormalisedFor, type ProcessBundle, type Viewer } from "@transpera-flow/db";
-import { ABSENCE_MAX_PEOPLE, RATING_LABELS, clientHealthSummary, resolveMoney, toRatingConfig, type ClientHealthSummary, type Rating } from "@transpera-flow/engine";
+import { ABSENCE_MAX_PEOPLE, RATING_LABELS, busyLine, clientHealthSummary, resolveMoney, toRatingConfig, type ClientHealthSummary, type Rating } from "@transpera-flow/engine";
 import { ANALYSIS_DEFAULTS } from "@/lib/analysis/defaults";
 import { Help } from "@/components/help";
 import { HorizonPicker } from "@/components/horizon-picker";
@@ -19,7 +19,6 @@ import { benchmarkOf, positionAgainst, type Benchmark } from "@/lib/client-group
 import { formatDateRange, formatNumber, formatPercent } from "@/lib/format";
 import { horizonWeeks, isHorizonMonths } from "@/lib/horizon";
 import {
-  BUSY_LIMIT,
   absenceCoverage,
   absenceRows,
   FACTOR_HELP,
@@ -119,12 +118,12 @@ export function PeoplePage({
     const fte = new Map(bundle.people.map((p) => [p.id, Number(p.fte)]));
     const rows = personRows(ranModel, run.result, fte);
     // The team card counts the whole team; a member sees only their own row in the table (B1 2b).
-    return { health: clientHealthSummary(ranModel, run.result), rows: ownRowsOnly(viewer, rows, (r) => r.id), team: teamSummary(rows) };
+    return { health: clientHealthSummary(ranModel, run.result), rows: ownRowsOnly(viewer, rows, (r) => r.id), team: teamSummary(rows, busyLine(ranModel)) };
   }, [ranModel, run, bundle.people, viewer]);
   const detailOf = useMemo(() => (id: string) => (ranModel && run ? personDetail(ranModel, run.result, bundle, id, today) : null), [ranModel, run, bundle, today]);
   const away = useMemo(() => {
     if (!baseModel || !absence) return null;
-    const config = toRatingConfig(ANALYSIS_DEFAULTS, baseModel.hoursPerWeek);
+    const config = toRatingConfig(ANALYSIS_DEFAULTS, baseModel.hoursPerWeek, busyLine(baseModel));
     // A member sees only their own result, and no count of who else wasn't tested.
     const { tooShort, untested } = absenceCoverage(baseModel, absence, testWho ?? undefined);
     return {
@@ -163,7 +162,7 @@ export function PeoplePage({
         <TeamCard team={team} />
       </div>
       {health.groups.length > 0 && <ClientGroupsTable health={health} />}
-      <HowBusy busy={sim.status === "running"} rows={rows} viewer={viewer} notInRun={notInRun} detailOf={detailOf} bundle={bundle} setupHref={setupHref} />
+      <HowBusy busy={sim.status === "running"} rows={rows} line={team.line} viewer={viewer} notInRun={notInRun} detailOf={detailOf} bundle={bundle} setupHref={setupHref} />
       <IfSomeoneIsAway away={away} viewer={viewer} runWeeks={baseModel?.horizonWeeks ?? 0} weeksAway={absenceWeeks} />
       {forecast && <ForecastPanel bundle={forecast.bundle ?? bundle} forecastHref={forecast.href} startDate={forecast.startDate} />}
     </>
@@ -266,8 +265,8 @@ function TeamCard({ team }: { team: ReturnType<typeof teamSummary> }) {
         <BigNumber value={String(team.people)} unit={`${team.people === 1 ? "person" : "people"}${team.fte !== null ? ` · ${formatNumber(team.fte, 1)} FTE` : ""}`} />
         <p className="text-xs text-muted-foreground">
           {team.busyInBadMonth === 0
-            ? `Nobody is above ${formatPercent(BUSY_LIMIT)} busy in a bad month`
-            : `${team.busyInBadMonth} ${team.busyInBadMonth === 1 ? "person" : "people"} above ${formatPercent(BUSY_LIMIT)} busy in a bad month`}
+            ? `Nobody is above ${formatPercent(team.line)} busy in a bad month`
+            : `${team.busyInBadMonth} ${team.busyInBadMonth === 1 ? "person" : "people"} above ${formatPercent(team.line)} busy in a bad month`}
         </p>
       </CardContent>
     </Card>
@@ -334,10 +333,13 @@ function HowBusy({
   detailOf,
   bundle,
   setupHref,
+  line,
 }: {
   /** A newer run is going: the numbers shown are the previous run's. */
   busy: boolean;
   rows: PersonBusy[];
+  /** The workspace's busy line; within 10 points under it is amber. */
+  line: number;
   viewer: Viewer;
   notInRun: boolean;
   detailOf: (id: string) => PersonDetail | null;
@@ -446,7 +448,7 @@ function HowBusy({
                       <TableCell className="hidden min-w-40 sm:table-cell">
                         <span className="block h-2 overflow-hidden rounded-full bg-panel-2" role="img" aria-label={`${formatPercent(p.average)} busy on average, ${formatPercent(p.p90)} in a bad month`}>
                           <i
-                            className={`block h-full ${p.average >= BUSY_LIMIT ? "bg-crit" : p.average >= 0.75 ? "bg-warn" : "bg-good"}`}
+                            className={`block h-full ${p.average >= line ? "bg-crit" : p.average >= line - 0.1 ? "bg-warn" : "bg-good"}`}
                             style={{ width: pctWidth(p.average) }}
                           />
                         </span>

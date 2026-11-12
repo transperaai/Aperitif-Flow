@@ -9,6 +9,7 @@
 // Who: the Owner and Agency admins (mode "live") add, move, save and delete; a Viewer (mode "readonly") opens, runs and compares
 // saved scenarios and sees the alerts without acknowledging them, with no goal seek and no "What matters most" (Agency admins and the Owner only); the demo (mode "demo") keeps scenarios in the tab.
 
+import { workspaceBusyLine } from "@/lib/busy-line";
 import { useIsPhone } from "@/hooks/use-mobile";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -204,7 +205,8 @@ export function SandboxView({ live, issues, sources = NO_SOURCES, mode, issuesHr
   }, [built.model, built.monthStarts, result]);
   // The alerts use the documented defaults (D40): the rules editor is gone, so a stored setting nobody can reach doesn't move results.
   const rules = ANALYSIS_DEFAULTS;
-  const cutoffs = useMemo(() => toRatingConfig(rules, live.workspace.settings.hours_per_week).rules.busy.cutoffs, [rules, live.workspace.settings.hours_per_week]);
+  const workspaceBusy = workspaceBusyLine(live.workspace.settings);
+  const cutoffs = useMemo(() => toRatingConfig(rules, live.workspace.settings.hours_per_week, workspaceBusy).rules.busy.cutoffs, [rules, live.workspace.settings.hours_per_week, workspaceBusy]);
   const busyLine = cutoffs[1];
   const alerts = useMemo(() => (built.model && result ? forecastInsights(built.model, result, rules, start) : null), [built.model, result, rules, start]);
   const data = useMemo(() => (built.model && result ? timelineData(built.model, result, live, start) : null), [built.model, result, live, start]);

@@ -4,6 +4,7 @@
 // workspace's solutions (their step changes, D53, run when a version is picked). The company map is the Overview's, with its controls (D25), playing the run on screen. The model-driven `PlayView` is
 // what the browser test mounts.
 
+import { workspaceBusyLine } from "@/lib/busy-line";
 import { useCallback, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -254,7 +255,8 @@ export function PlayPage({ live, parts, company, setup, solutions, solutionLinks
 function PlayExport({ live, runs, play, ctx, solutions, start, canSeeMoney, mapMoved, horizon }: { live: ProcessBundle; runs: PlayRuns; play: PlayState; ctx: PlayContext; solutions: SolutionRow[]; start: string; canSeeMoney: boolean; mapMoved: boolean; horizon: number }) {
   const [includeCosts, setIncludeCosts] = useState(true);
   const hpw = live.workspace.settings.hours_per_week;
-  const cutoffs = useMemo(() => toRatingConfig(ANALYSIS_DEFAULTS, hpw).rules.busy.cutoffs, [hpw]);
+  const busy = workspaceBusyLine(live.workspace.settings);
+  const cutoffs = useMemo(() => toRatingConfig(ANALYSIS_DEFAULTS, hpw, busy).rules.busy.cutoffs, [hpw, busy]);
   const changes = useMemo(() => playChanges(play, ctx).map((change) => ({ change, scenarioId: "play", scenarioName: "Free play", inherited: false })), [play, ctx]);
   const today = runs.today;
   const changed = runs.changed;
