@@ -78,10 +78,11 @@ describe("the old Settings pages redirect to their sections", () => {
   });
 });
 
-// D47: the Client health rules and the benchmark have no controls in Settings or Set up. The components and the engine defaults stay.
-describe("client health controls are hidden (D47)", () => {
-  it("the Settings page does not render the Client health rules", () => {
-    expect(readFileSync(join(SETTINGS, "page.tsx"), "utf8")).not.toContain("HealthSettings");
+// D47 hid the Client health rules and the benchmark. The customisability audit (finding 8) brings the health rules and bands back,
+// on Settings, Churn drivers, under the drivers; the benchmark and the other-services editor stay out of Set up.
+describe("client health controls (D47, audit finding 8)", () => {
+  it("the Settings page renders the Client health rules with the churn drivers", () => {
+    expect(readFileSync(join(SETTINGS, "page.tsx"), "utf8")).toContain("health={<HealthSettings data={data} />}");
   });
   it("Set up, Tiers & clients does not render the benchmark or the other-services editor (D46)", () => {
     const tiers = readFileSync(join(SRC, "components/setup/tiers-clients.tsx"), "utf8");

@@ -5,6 +5,8 @@
 ## 1. Churn-driver pressure curves are fixed: overload at 85% busy, early tenure = 26 weeks, response/rework 'full pressure' shares, handoff away bump, results 'normal' score, price-rise memory  
 *high · engine*
 
+Status: fixed in this branch
+
 - **Now:** Only each driver's weight, on/off and one 'value' (e.g. onboarding normal days, handoff share, results score, tenure multiplier, price rise %) are stored. The thresholds that turn a measurement into churn pressure are constants: a team counts as overloaded only above 85% busy and is full pressure at 100%; 'early tenure' is always the first 26 weeks; 50% late ad-hoc requests or 25% reworked visits is maximum pressure; an away account team always adds +0.5; a rating of 8/10 is 'normal'; a price rise weighs for 13 weeks at 2x.
 - **Why it matters:** An owner whose clients only start leaving when the team is 95% busy, or whose risky period is the first 3 months not 6, cannot tell the simulator; the churn blamed on each driver and the lost revenue are driven by our guesses, not their business.
 - **Fix:** Settings > Churn drivers: add a 'starts at' / 'full at' field per measured driver (load threshold, response and rework full shares), an 'early tenure months' field on the tenure driver, an 'away adds' field on handoff, and a 'normal rating' on results. Store as extra columns on churn_drivers, pass through packages/db/src/model.ts churnDrivers into EngineChurnDriver, and read them in simulate.ts driveClient instead of the constants (constants become defaults).
@@ -12,6 +14,8 @@
 
 ## 2. Workspace 'utilisation_threshold' setting exists but nothing reads it; engine uses fixed 85%  
 *high · engine*
+
+Status: fixed in this branch
 
 - **Now:** docs/PRD.md:223 defines settings.utilisation_threshold default 0.85; it can be written via suggestions/import, shows on the company model, but no code in packages/engine, packages/db/src/model.ts or apps/web reads it.
 - **Why it matters:** An owner (or the MCP assistant) who sets 'we're full at 75%' sees it stored and labelled on the company model, but the overload churn driver, the 'too busy' facts and capacity forecasts still use 85%. A field that does nothing.
@@ -60,6 +64,8 @@
 
 ## 8. Client health rules (starting health, on-time boost, late and missed penalties) cannot be edited  
 *high · settings*
+
+Status: fixed in this branch
 
 - **Now:** Every workspace runs on 80 / +2 / -5 / -12. The editor exists (HealthSettings, apps/web/src/app/w/[slug]/settings/servicing-settings.tsx:224, saving through saveHealthSetting at servicing-actions.ts:88), but nothing renders it.
 - **Why it matters:** Health drives churn: churn = base x (1 + sensitivity x (100 - health)/100). The owner can't say 'our clients forgive a late task' or 'a missed report costs us a lot', so the churn and revenue forecasts run on assumptions they can't see or change. On the tier path a stored health_initial is ignored for counted clients anyway, because capacity-model.ts:203 uses 80.
@@ -119,6 +125,8 @@ Status: fixed in this branch
 ## 15. Client health rules and churn sensitivity are Sandbox levers marked offered:false  
 *medium · engine*
 
+Status: fixed in this branch (free play: one lever per health rule, and churn sensitivity as a percent; the scenario dialog still does not offer them)
+
 - **Now:** Both are wired through to the engine (patchPath health.* and services.*.churn_health_sensitivity; HEALTH_RULES at sandbox-levers.ts:716) but only kept 'for migrated rows' and never offered.
 - **Why it matters:** An owner cannot test 'what if clients forgive a late report less (penalty 10 instead of 5)?' or 'what if our clients are less health-sensitive?' as a scenario; they must change live Settings, which changes the Overview for everyone.
 - **Fix:** X1 has range:{} and the target 'health_rule', which covers several fields with different units. Offering it needs one lever per rule field (starting health, late penalty, missed penalty, recovery) with ranges for each, not just flipping offered:true.
@@ -126,6 +134,8 @@ Status: fixed in this branch
 
 ## 16. Client start date is ignored: every existing client counted as brand new  
 *medium · engine*
+
+Status: fixed in this branch
 
 - **Now:** clients.start_date is editable, but model.ts uses it only to drop future clients. monthsActive is never set, so the value of losing a client is always fee x min(tenure, 12) as if month 0, and the early-tenure churn driver never applies to roster clients who joined last month.
 - **Why it matters:** The cost of churn findings overstates the loss on long-standing clients, and a client signed two weeks ago is treated like a five-year client for churn risk. The owner enters the date and it changes nothing.
@@ -215,6 +225,8 @@ Status: fixed in this branch
 ## 27. Client health rules and ongoing hours per client are editable in Settings but have no Sandbox lever  
 *medium · sandbox*
 
+Status: partly fixed in this branch: the health rules have free-play levers; client hours per client (X2) still has none
+
 - **Now:** Starting health, recovery, and late and missed penalties (X1), and the ongoing hours a client needs from a role (X2), are registry levers kept 'for migrated rows', never offered and with no ranges. Churn sensitivity to health (X3) is the known case.
 - **Why it matters:** The owner can't test 'if we stop missing deadlines' (smaller penalties) or 'if each client needed 2 fewer account hours a week'. These are the service-quality and efficiency questions that drive retention and capacity.
 - **Fix:** Give X1 and X2 ranges (penalty 0-50 points step 1; ongoing hours multiply 0.1-2 step 0.05) and offered:true. In free play, add a 'Service' group with 'Late penalty' and 'Account hours per client %' sliders.
@@ -273,6 +285,8 @@ Status: fixed in this branch
 ## 34. Client health bands (75/65/50) and the 'at risk below 50' line are fixed  
 *medium · pages*
 
+Status: fixed in this branch
+
 - **Now:** Healthy/Watch/At risk counts on the People page, client-group ratings, the at-risk counts the engine reports per month, the churn issues' text and the agency list's 'client groups at risk' (apps/web/src/lib/overview/headline.ts:33) all use 75/65/50.
 - **Why it matters:** An owner who changes starting health to 60 (or penalties) to match their own health score instantly has most clients 'at risk' because the bands didn't move with the scale; the benchmark they set doesn't change the bands either.
 - **Fix:** Add 'At risk below' and 'Healthy from' fields next to the health rules in Settings > Servicing (save_health_rules already writes that area), carry them in model.health, and use them in simulate.ts, clientHealthSummary and churn-issues.
@@ -306,6 +320,8 @@ Status: still open. Making the pooled book churn at the services' base churn cha
 
 ## 38. Client-health bands, 'at risk' line and money assumptions for findings are fixed  
 *low · engine*
+
+Status: partly fixed in this branch: the at-risk line and bands are settings; the 12-month lost-client cap, the absence assumptions and missed = 2x SLA stay fixed
 
 - **Now:** Clients-at-risk KPI (simulate.ts:3659, 4024), health ratings and churn-risk findings use fixed bands. A lost client's value is capped at 12 months, absence tests assume 2 weeks twice a year, and a task is 'missed' at twice its SLA. These were editable as analysis rules before decision D40, which removed the editor.
 - **Why it matters:** An agency with long-tenure clients sees churn cost understated by the 12-month cap; one that treats health 60 as at risk sees too few at-risk clients. Lower priority because D40 fixed these on purpose, but they are business assumptions.
