@@ -91,6 +91,7 @@ export const COMPANY_FIELDS: Record<CompanyTable, Record<string, FieldMeta>> = {
     active_clients: { label: "Active clients (interim)", format: "number" },
     churn_monthly: { label: "Monthly churn (interim)", format: "percent" },
     retainer: { label: "Retainer (interim)", format: "money" },
+    max_stay_months: { label: "Longest stay", format: "months" },
   },
   roles: {
     name: { label: "Name", format: "text" },

@@ -17,7 +17,7 @@
 
 import type { EngineClient, EngineModel, EngineService, EngineStep } from "./model";
 import { flattenModel } from "./flatten";
-import { routeFor } from "./simulate";
+import { routeFor, tenureFromChurn } from "./simulate";
 import { servicingStepIds } from "./servicing";
 import { shadowPrice, type ShadowPriceOptions } from "./shadow-price";
 
@@ -110,7 +110,7 @@ export function churnLossValue(fee: number, tenureMonths: number, monthsActive: 
 /** A client's loss value: its monthly fee × the tenure it had left on its longest-tenured service. */
 export function clientLossValue(model: EngineModel, client: EngineClient, capMonths: number): number {
   const tenures = client.services.flatMap((sid) => (model.services?.[sid] ? [tenureOf(model.services[sid]!)] : []));
-  const tenure = tenures.length ? Math.max(...tenures) : model.churnMonthly > 0 ? 1 / model.churnMonthly : Infinity;
+  const tenure = tenures.length ? Math.max(...tenures) : tenureOf({ tenureMonths: tenureFromChurn(model.churnMonthly, model.maxStayMonths) });
   return churnLossValue(client.mrr, tenure, client.monthsActive ?? 0, capMonths);
 }
 
@@ -127,7 +127,7 @@ export function serviceMix(model: EngineModel): { id: string | null; service: En
             pricingModel: "retainer",
             price: model.retainer,
             margin: 0,
-            tenureMonths: model.churnMonthly > 0 ? 1 / model.churnMonthly : 0,
+            tenureMonths: tenureFromChurn(model.churnMonthly, model.maxStayMonths),
             churnMonthly: model.churnMonthly,
             mixShare: 1,
             pathTags: [],

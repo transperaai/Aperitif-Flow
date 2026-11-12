@@ -93,6 +93,12 @@ export interface WorkspaceSettings {
    * Stored only. Checked by `workspaces_dler_includes_leadership`.
    */
   dler_includes_leadership?: boolean | null;
+  /**
+   * The longest stay, in months (1 to 600), that a stay worked out from churn may be: a service with no expected tenure stays
+   * 1 / churn months up to this, and this long at a churn of 0. Absent or null: `DEFAULT_MAX_STAY_MONTHS` (60) for services, and
+   * the implicit retainer keeps 1 / churn uncapped. Checked by `workspaces_max_stay_months`.
+   */
+  max_stay_months?: number | null;
 }
 
 /** One per-person time as `team_capacity` returns it (`step_id` null is the person's time on every step). */

@@ -420,11 +420,21 @@ export function pooledMonthlyFee(model: EngineModel): number {
 }
 
 /**
- * How long a client stays, in months, worked out from its monthly churn: 1 / churn (a 2% churn is a 50-month stay), and 0 when
- * churn is 0 (no stay to value). A service with no expected tenure entered uses this, as does the implicit retainer.
+ * The longest a stay worked out from churn may be, in months, when the workspace has set none (`settings.max_stay_months`): five
+ * years, the longest simulation horizon. Only a default: the owner sets their own in Settings.
  */
-export function tenureFromChurn(churnMonthly: number): number {
-  return Number.isFinite(churnMonthly) && churnMonthly > 0 ? 1 / churnMonthly : 0;
+export const DEFAULT_MAX_STAY_MONTHS = 60;
+
+/**
+ * How long a client stays, in months, worked out from its monthly churn: 1 / churn (a 2% churn is a 50-month stay), capped at
+ * `maxStayMonths`; a churn of 0 never ends a stay, so it is the cap. A service with no expected tenure entered uses this, as does
+ * the implicit retainer. With no cap (the implicit retainer of a workspace that has set none) it is 1 / churn uncapped, and 0 at a
+ * churn of 0, as before.
+ */
+export function tenureFromChurn(churnMonthly: number, maxStayMonths?: number): number {
+  const rate = Number.isFinite(churnMonthly) && churnMonthly > 0 ? churnMonthly : 0;
+  if (maxStayMonths === undefined || !Number.isFinite(maxStayMonths) || maxStayMonths <= 0) return rate > 0 ? 1 / rate : 0;
+  return rate > 0 ? Math.min(1 / rate, maxStayMonths) : maxStayMonths;
 }
 
 /**
@@ -444,7 +454,7 @@ function resolveServices(model: EngineModel): ServiceState[] {
             pricingModel: "retainer",
             price: model.retainer,
             margin: 0,
-            tenureMonths: tenureFromChurn(churn),
+            tenureMonths: tenureFromChurn(churn, model.maxStayMonths),
             churnMonthly: churn,
             mixShare: 1,
             pathTags: [],

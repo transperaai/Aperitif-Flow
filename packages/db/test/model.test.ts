@@ -426,12 +426,25 @@ describe("services", () => {
     expect(Object.values(model.services!).every((sv) => !("entry" in sv))).toBe(true);
   });
 
-  it("a blank expected tenure is worked out from base churn (1 / churn, 0 at no churn); an entered one is kept", () => {
-    const blank = (churn: number) => toEngineModel(patch(pipelineOnly(), seo, { tenure_months: null, churn_monthly_base: churn }), { startDate: START }).services![seo]!.tenureMonths;
+  it("a blank expected tenure is worked out from base churn (1 / churn, up to the longest stay, which is also the stay at no churn); an entered one is kept", () => {
+    const blankSv = (churn: number, maxStay?: number) => {
+      const b = patch(pipelineOnly(), seo, { tenure_months: null, churn_monthly_base: churn });
+      if (maxStay !== undefined) b.workspace = { ...b.workspace, settings: { ...b.workspace.settings, max_stay_months: maxStay } };
+      return toEngineModel(b, { startDate: START }).services![seo]!;
+    };
+    const blank = (churn: number, maxStay?: number) => blankSv(churn, maxStay).tenureMonths;
     expect(blank(0.02)).toBeCloseTo(50, 12);
     expect(blank(0.05)).toBeCloseTo(20, 12);
-    expect(blank(0)).toBe(0);
-    expect(toEngineModel(pipelineOnly(), { startDate: START }).services![seo]!.tenureMonths).toBe(18);
+    expect(blank(0)).toBe(60);
+    expect(blank(0.01)).toBe(60);
+    expect(blank(0.01, 120)).toBeCloseTo(100, 12);
+    expect(blank(0, 24)).toBe(24);
+    expect(blankSv(0.02).tenureFromChurn).toBe(true);
+    const entered = toEngineModel(pipelineOnly(), { startDate: START });
+    expect(entered.services![seo]!.tenureMonths).toBe(18);
+    expect(entered.services![seo]!.tenureFromChurn).toBeUndefined();
+    // No longest stay set: the model carries none, so the implicit retainer keeps 1 / churn as before.
+    expect(entered.maxStayMonths).toBeUndefined();
   });
 
   it("maps numeric columns that arrive as strings (Postgres numeric) and trims tags", () => {

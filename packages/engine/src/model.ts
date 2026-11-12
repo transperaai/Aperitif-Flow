@@ -144,6 +144,11 @@ export interface EngineService {
   margin: number;
   /** Expected tenure of a retainer client, in months (LTV and lost revenue). */
   tenureMonths: number;
+  /**
+   * True when no expected tenure was entered: `tenureMonths` is worked out from `churnMonthly` (`tenureFromChurn`, capped at the
+   * model's `maxStayMonths`), so a change to the churn (a Sandbox base-churn change) works it out again. Omitted: entered.
+   */
+  tenureFromChurn?: boolean;
   /** Base monthly churn of a client on this service; billed-in-horizon is net of it. */
   churnMonthly: number;
   /** Relative share of arrivals; shares are normalised over the model's services. */
@@ -368,6 +373,8 @@ export interface EngineClientGroup {
   churnMonthly: number;
   /** Typical stay in months: the service's expected tenure (lifetime value and lost revenue). */
   stayMonths: number;
+  /** True when the stay is worked out from `churnMonthly` (its service has no expected tenure entered); see `EngineService.tenureFromChurn`. */
+  stayFromChurn?: boolean;
   /** Average health at the start, 0-100. */
   health: number;
 }
@@ -606,6 +613,12 @@ export interface EngineModel {
    * months (none, so no LTV, when churn is 0).
    */
   retainer: number;
+  /**
+   * The longest stay, in months, a stay worked out from churn may be (the workspace's `max_stay_months`): a churn of 0 is a stay of
+   * this long. Omitted: `DEFAULT_MAX_STAY_MONTHS` for a service's worked-out stay; the implicit retainer keeps 1 / churn, uncapped
+   * (none at a churn of 0), as before.
+   */
+  maxStayMonths?: number;
   /**
    * Services by id. Each arrival is tagged with one, drawn from the mix, and
    * is routed and priced by it. Omitted or empty: the implicit retainer above.

@@ -18,6 +18,7 @@ export {
   seasonalityCurve,
   speedsNormalisedFor,
   hidesPay,
+  maxStayMonths,
   resolveBundlePurposes,
   toEngineModel,
   usesCapacityFactors,

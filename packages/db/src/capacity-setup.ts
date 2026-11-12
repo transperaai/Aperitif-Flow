@@ -25,6 +25,7 @@ import { rpc } from "./rpc";
 import { effectiveMonthlySalary } from "./salary";
 import type { Json } from "./db-types";
 import { namedClientFee } from "./capacity-model";
+import { DEFAULT_MAX_STAY_MONTHS } from "@transpera-flow/engine";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Vocabulary
@@ -220,6 +221,10 @@ export interface CapacitySetup {
   /** `settings.dler_includes_leadership`; false when never set (D48: directors and managers are not counted in DLER). */
   dlerIncludesLeadership: boolean;
   dlerProvenance: unknown;
+  /** `settings.max_stay_months`: the longest stay worked out from churn, or null when the workspace has set none. */
+  maxStayStored: number | null;
+  /** The longest stay worked out from churn that the engine uses: `maxStayStored`, else `DEFAULT_MAX_STAY_MONTHS`. */
+  maxStayMonths: number;
   /** Whether the viewer may change anything here (Owner and Agency admins). */
   canEdit: boolean;
   /** True when the viewer can't see pay: every salary is null and the column is not shown. */
@@ -289,6 +294,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
   ]);
 
   const settings = (workspace.settings ?? {}) as Record<string, unknown>;
+  const maxStay = typeof settings.max_stay_months === "number" && settings.max_stay_months > 0 ? settings.max_stay_months : null;
   const wsProv = prov(workspace.provenance);
   const hidden = !canSeePeople;
   const servicesOf = new Map<string, string[]>();
@@ -389,6 +395,8 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
     rampDefaultProvenance: wsProv["settings.ramp_default"] ?? null,
     dlerIncludesLeadership: settings.dler_includes_leadership === true,
     dlerProvenance: wsProv["settings.dler_includes_leadership"] ?? null,
+    maxStayStored: maxStay,
+    maxStayMonths: maxStay ?? DEFAULT_MAX_STAY_MONTHS,
     canEdit: canEdit === true,
     payHidden: hidden,
   };

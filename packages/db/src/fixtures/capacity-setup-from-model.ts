@@ -125,6 +125,8 @@ export function capacitySetupFromModel(model: EngineModel, options: { payHidden?
     rampDefaultProvenance: null,
     dlerIncludesLeadership: options.dlerIncludesLeadership ?? false,
     dlerProvenance: null,
+    maxStayStored: null,
+    maxStayMonths: 60,
     canEdit: options.canEdit ?? true,
     payHidden: hidden,
   };

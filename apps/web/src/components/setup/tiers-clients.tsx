@@ -7,7 +7,8 @@
 // is under "More" on its row.
 
 import { Fragment, useState, useTransition } from "react";
-import { tenureFromChurn } from "@transpera-flow/engine";
+import { DEFAULT_MAX_STAY_MONTHS, tenureFromChurn } from "@transpera-flow/engine";
+import { NumberField } from "@/components/fields";
 import {
   clientFee,
   missingForCapacity,
@@ -29,7 +30,7 @@ import { ServiceMore } from "@/app/w/[slug]/settings/services-settings";
 import { GroupFields } from "@/app/w/[slug]/settings/client-groups-settings";
 import { ClientMore, type ClientOps, type ClientsSettingsProps } from "@/app/w/[slug]/settings/clients-settings";
 import { saveClientAssignment, saveClientField, saveClientServices } from "@/app/w/[slug]/settings/client-actions";
-import { addNamedClient, addTierAction, removeTierAction, saveClientLookedAfter, saveSetupField } from "@/app/w/[slug]/settings/setup-actions";
+import { addNamedClient, addTierAction, removeTierAction, saveClientLookedAfter, saveMaxStayMonths, saveSetupField } from "@/app/w/[slug]/settings/setup-actions";
 import { HelpLabel } from "@/components/help";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,11 +69,8 @@ const FIELD_HELP: Record<TierField | "fee" | "churn" | "stay", { label: string; 
   stay: { label: "Stay months", description: "How many months a client of this tier usually stays. A won client is worth the fee times this, and so is a lost one. Leave it blank to work it out from churn (1 ÷ churn a month).", example: "Blank at 2% churn: 50 months. Type 24 if clients really stay about two years.", step: 1, max: 600 },
 };
 
-/** The stay a blank "Stay months" stands for: 1 ÷ churn a month, rounded (the engine's `tenureFromChurn`). */
-const stayPlaceholder = (churn: number): string => {
-  const months = tenureFromChurn(churn);
-  return months > 0 ? String(Math.round(months)) : "0";
-};
+/** The stay a blank "Stay months" stands for: 1 ÷ churn a month, up to the longest stay, rounded (the engine's `tenureFromChurn`). */
+const stayPlaceholder = (churn: number, maxStayMonths: number): string => String(Math.round(tenureFromChurn(Number(churn), maxStayMonths)));
 
 const plainName = (n: string) => n.replace(/\s*\(.*\)\s*$/, "");
 
@@ -106,6 +104,7 @@ export function TiersAndClients({ setup, data, roster }: Props) {
   return (
     <div className="flex min-w-0 flex-col gap-6" data-setup="clients">
       <TierControls setup={setup} />
+      <LongestStay setup={setup} />
       {setup.departments.map((d) => (
         <DepartmentTable key={d.id} setup={setup} data={data} department={d} />
       ))}
@@ -119,6 +118,30 @@ export function TiersAndClients({ setup, data, roster }: Props) {
             : `This workspace also has ${otherServices} other services (projects or hourly work) that aren't tiers. They still count in the simulation.`}
         </p>
       )}
+    </div>
+  );
+}
+
+/** The longest a blank "Stay months" can work out to (`settings.max_stay_months`), and the stay at no churn. */
+function LongestStay({ setup }: { setup: CapacitySetup }) {
+  return (
+    <div className="max-w-xs" data-longest-stay>
+      <NumberField
+        label="Longest stay"
+        value={setup.maxStayStored}
+        save={(base, next) => saveMaxStayMonths(setup.workspaceId, base, next)}
+        unit="months"
+        optional
+        min={1}
+        max={600}
+        step={1}
+        placeholder={String(DEFAULT_MAX_STAY_MONTHS)}
+        disabled={!setup.canEdit}
+        help={{
+          description: `A blank Stay months is worked out from churn (1 ÷ churn a month), up to this. A tier with no churn stays this long. Typed stays are kept as they are. Blank: ${DEFAULT_MAX_STAY_MONTHS} months.`,
+          example: "At 1% churn the worked-out stay is 100 months; with 60 here it counts as 60.",
+        }}
+      />
     </div>
   );
 }
@@ -282,7 +305,7 @@ function DepartmentTable({ setup, data, department }: { setup: CapacitySetup; da
                     <NumberCell label={`${department.name} ${t.key}: Churn a month`} value={svc.churn_monthly_base} save={saver("services", key, "churn_monthly_base")} canEdit={setup.canEdit} optional={false} scale={100} unit="" min={0} max={100} step={0.5} provenance={svc.provenance} column="churn_monthly_base" />
                   </TableCell>
                   <TableCell>
-                    <NumberCell label={`${department.name} ${t.key}: Stay months`} value={svc.tenure_months} save={saver("services", key, "tenure_months")} canEdit={setup.canEdit} min={0} max={FIELD_HELP.stay.max} step={FIELD_HELP.stay.step} digits={0} placeholder={stayPlaceholder(svc.churn_monthly_base)} provenance={svc.provenance} column="tenure_months" />
+                    <NumberCell label={`${department.name} ${t.key}: Stay months`} value={svc.tenure_months} save={saver("services", key, "tenure_months")} canEdit={setup.canEdit} min={0} max={FIELD_HELP.stay.max} step={FIELD_HELP.stay.step} digits={0} placeholder={stayPlaceholder(svc.churn_monthly_base, setup.maxStayMonths)} provenance={svc.provenance} column="tenure_months" />
                   </TableCell>
                   <TableCell>
                     {dataSvc && (

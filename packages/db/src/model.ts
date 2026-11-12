@@ -8,6 +8,7 @@ import {
   afterSaleSteps,
   MAX_REWORK,
   ModelError,
+  DEFAULT_MAX_STAY_MONTHS,
   tenureFromChurn,
   type EngineMarket,
   type EngineDemand,
@@ -356,6 +357,8 @@ function engineModelOf(bundle: ProcessBundle, options: ModelOptions): { model: E
           : s.active_clients,
     churnMonthly: s.churn_monthly,
     retainer: s.retainer,
+    // Only when the owner set one: the implicit retainer then caps its stay too; otherwise it keeps 1 / churn as before.
+    ...(storedMaxStay(s) !== null ? { maxStayMonths: storedMaxStay(s)! } : {}),
     roles: engineRoles,
     ...(services ? { services } : {}),
     ...(people ? { people } : {}),
@@ -532,6 +535,17 @@ function heldProcesses(bundle: ProcessBundle): Map<string, ProcessPart> {
  * don't arrive here. Undefined when none apply: then the interim `retainer`
  * prices every win, as before services existed.
  */
+/** The workspace's longest stay worked out from churn (`settings.max_stay_months`, more than 0), or null when it has set none. */
+function storedMaxStay(s: Pick<WorkspaceSettings, "max_stay_months">): number | null {
+  const v = num(s.max_stay_months);
+  return v !== null && v > 0 ? v : null;
+}
+
+/** The longest stay worked out from churn: the workspace's own, else `DEFAULT_MAX_STAY_MONTHS`. */
+export function maxStayMonths(s: Pick<WorkspaceSettings, "max_stay_months">): number {
+  return storedMaxStay(s) ?? DEFAULT_MAX_STAY_MONTHS;
+}
+
 function engineServices(bundle: ProcessBundle, processId: string): Record<string, EngineService> | undefined {
   const here = bundle.services
     .filter((sv) => sv.active && (sv.entry_process_id === null || sv.entry_process_id === processId))
@@ -549,8 +563,11 @@ function engineServices(bundle: ProcessBundle, processId: string): Record<string
       pricingModel: sv.pricing_model,
       price: Number(sv.price),
       margin: Number(sv.margin),
-      // A blank expected tenure is worked out from churn (finding 30), so the stay that values a deal moves with the churn.
-      tenureMonths: sv.tenure_months === null || sv.tenure_months === undefined ? tenureFromChurn(Number(sv.churn_monthly_base)) : Number(sv.tenure_months),
+      // A blank expected tenure is worked out from churn (finding 30), capped at the workspace's longest stay, so the stay that values
+      // a deal moves with the churn; the flag lets a Sandbox churn change work it out again.
+      ...(sv.tenure_months === null || sv.tenure_months === undefined
+        ? { tenureMonths: tenureFromChurn(Number(sv.churn_monthly_base), maxStayMonths(bundle.workspace.settings)), tenureFromChurn: true }
+        : { tenureMonths: Number(sv.tenure_months) }),
       churnMonthly: Number(sv.churn_monthly_base),
       // Rows written before it existed may not carry it: then health doesn't move churn.
       ...(sv.churn_health_sensitivity != null && Number.isFinite(Number(sv.churn_health_sensitivity))

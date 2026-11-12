@@ -212,6 +212,8 @@ export function engineTierClientGroups(
       fee: row && !isTier ? Number(row.fee) : sv.price,
       churnMonthly: row && !isTier ? Number(row.churn_monthly) : sv.churnMonthly,
       stayMonths: row && !isTier ? Number(row.stay_months) : sv.tenureMonths,
+      // A tier with no expected tenure entered: its counted clients' stay is worked out from churn too, and follows a churn change.
+      ...(!(row && !isTier) && sv.tenureFromChurn ? { stayFromChurn: true } : {}),
       health: row ? Number(row.starting_health) : 80,
     };
   }

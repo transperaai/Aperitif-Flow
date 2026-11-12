@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { tenureFromChurn } from "@transpera-flow/engine";
+import { DEFAULT_MAX_STAY_MONTHS, tenureFromChurn } from "@transpera-flow/engine";
 import type { PricingModel, ServiceRow } from "@transpera-flow/db";
 import { NumberField, SelectField, TextField, ToggleField } from "@/components/fields";
 import { Help, HelpLabel } from "@/components/help";
@@ -227,7 +227,7 @@ export function ServiceMore({ service: sv, share, data, removable = true }: { se
           min={0}
           max={600}
           step={1}
-          placeholder={String(Math.round(tenureFromChurn(Number(sv.churn_monthly_base))))}
+          placeholder={String(Math.round(tenureFromChurn(Number(sv.churn_monthly_base), data.workspace.settings.max_stay_months ?? DEFAULT_MAX_STAY_MONTHS)))}
           disabled={disabled}
           hint={retainer ? "How long a client stays: LTV and lost revenue use price × tenure. Blank: worked out from base churn (1 ÷ churn)." : "Used for retainers only."} help={{ description: "How many months a client typically stays. Lifetime value and lost revenue use price times tenure. Leave it blank to work it out from base churn. Retainers only.", example: "At 2,500 a month and 18 months, a client is worth 45,000. Blank at 2% churn: 50 months." }} />
         <NumberField

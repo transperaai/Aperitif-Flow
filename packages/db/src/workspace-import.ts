@@ -155,6 +155,7 @@ const SETTING_KEYS: Record<keyof WorkspaceSettings, true> = {
   churn_drivers_removed: true,
   ramp_default: true,
   dler_includes_leadership: true,
+  max_stay_months: true,
 };
 export const WORKSPACE_SETTING_KEYS = Object.keys(SETTING_KEYS) as readonly (keyof WorkspaceSettings)[];
 

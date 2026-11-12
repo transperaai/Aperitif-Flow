@@ -12,9 +12,11 @@ import type { ProcessBundle } from "../types";
 import {
   CUSTOM_DRIVER_PREFIX,
   DEFAULT_HEALTH_RULES,
+  DEFAULT_MAX_STAY_MONTHS,
   EFFECT_MONTHS,
   MAX_GROUP_CLIENTS,
   healthRules,
+  tenureFromChurn,
   type EngineChurnDriver,
   type EngineClient,
   type EngineClientGroup,
@@ -62,7 +64,14 @@ export const totalLeads = (bundle: Pick<ProcessBundle, "leadSources">): number |
 /** The group a type would have if it had none yet: its price, base churn, stay and the starting health. */
 function groupFrom(model: EngineModel, sid: string): EngineClientGroup {
   const sv = model.services![sid]!;
-  return { count: 0, fee: sv.price, churnMonthly: sv.churnMonthly, stayMonths: sv.tenureMonths, health: healthRules(model).initial ?? DEFAULT_HEALTH_RULES.initial };
+  return {
+    count: 0,
+    fee: sv.price,
+    churnMonthly: sv.churnMonthly,
+    stayMonths: sv.tenureMonths,
+    ...(sv.tenureFromChurn ? { stayFromChurn: true } : {}),
+    health: healthRules(model).initial ?? DEFAULT_HEALTH_RULES.initial,
+  };
 }
 
 /** How many named clients take a type, active in the model. */
@@ -128,11 +137,23 @@ function baseChurn(model: EngineModel, c: SandboxChange, problems: ChangeProblem
   const clamp = (v: number) => Math.min(1, Math.max(0, v));
   const ids = c.target !== null ? [c.target] : Object.keys(services);
   const nextServices = { ...services };
-  for (const sid of ids) nextServices[sid] = { ...nextServices[sid]!, churnMonthly: clamp(combine(services[sid]!.churnMonthly, c.op, c.value)) };
+  // A stay worked out from churn (no expected tenure entered) is worked out again from the new churn, so a won deal and a lost
+  // client are valued at the stay the simulation gives them (finding 30). An entered stay is the owner's and stays.
+  const cap = model.maxStayMonths ?? DEFAULT_MAX_STAY_MONTHS;
+  for (const sid of ids) {
+    const sv = services[sid]!;
+    const churnMonthly = clamp(combine(sv.churnMonthly, c.op, c.value));
+    nextServices[sid] = { ...sv, churnMonthly, ...(sv.tenureFromChurn ? { tenureMonths: tenureFromChurn(churnMonthly, cap) } : {}) };
+  }
   let groups = model.clientGroups;
   if (groups) {
     groups = { ...groups };
-    for (const sid of ids) if (groups[sid]) groups[sid] = { ...groups[sid]!, churnMonthly: clamp(combine(groups[sid]!.churnMonthly, c.op, c.value)) };
+    for (const sid of ids) {
+      const g = groups[sid];
+      if (!g) continue;
+      const churnMonthly = clamp(combine(g.churnMonthly, c.op, c.value));
+      groups[sid] = { ...g, churnMonthly, ...(g.stayFromChurn ? { stayMonths: tenureFromChurn(churnMonthly, cap) } : {}) };
+    }
   }
   return { ...model, services: nextServices, ...(groups ? { clientGroups: groups } : {}) };
 }

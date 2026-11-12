@@ -75,6 +75,16 @@ export async function saveRampDefault(workspaceId: string, base: string | null, 
   return out;
 }
 
+/** The longest stay worked out from churn (`settings.max_stay_months`): 1 to 600 whole months, or null for the default. */
+export async function saveMaxStayMonths(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const months = (v: unknown) => v === null || (typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 600);
+  if (!isId(workspaceId) || !months(value) || !(base === null || (typeof base === "number" && Number.isFinite(base)))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.max_stay_months", base, value);
+  if (out.status === "saved") refresh();
+  return out as SaveOutcome<number | null>;
+}
+
 /** Whether DLER counts leadership's salary (`settings.dler_includes_leadership`; unset means no, D48; the Set up page no longer has this control). */
 export async function saveDlerIncludesLeadership(workspaceId: string, base: boolean, value: boolean): Promise<SaveOutcome<boolean>> {
   if (!isId(workspaceId) || typeof base !== "boolean" || typeof value !== "boolean") return invalid;

@@ -250,12 +250,15 @@ export async function saveClientGroupField(
   if (existing) return saveField("client_groups", { service_id: serviceId }, field, base, value);
   const service = await db
     .selectFrom("services")
-    .select(["id"])
+    .select(["id", "tier_id"])
     .where("id", "=", serviceId)
     .where("workspace_id", "=", workspaceId)
     .executeTakeFirst()
     .catch(() => undefined);
   if (!service) return { status: "not_found" };
+  // Counted clients are set up on a tier, whose fee, churn and stay they take. A service that isn't a tier would bill and churn at
+  // the group row's own columns, which this screen no longer writes, so it is refused rather than given a fee and churn of 0.
+  if (service.tier_id === null) return { status: "error", message: "Counted clients belong to a tier. Add them on a tier's row." };
   try {
     await db
       .insertInto("client_groups")
