@@ -6,6 +6,7 @@ import {
   marketFromSchedule,
   NestingError,
   afterSaleSteps,
+  DEFAULT_RATING_CUTOFFS,
   MAX_REWORK,
   ModelError,
   type EngineMarket,
@@ -320,7 +321,8 @@ function engineModelOf(bundle: ProcessBundle, options: ModelOptions): { model: E
       count: role.headcount,
       cost: Number(role.default_cost_rate),
       ongoing: Number(role.ongoing_hours_per_client_week),
-      ...(role.line != null && Number(role.line) > 0 ? { line: Number(role.line) } : {}),
+      // The role's utilisation threshold, when it isn't the rating model's own line (85%): a role left at the default maps as before.
+      ...(role.line != null && Number(role.line) > 0 && Number(role.line) !== DEFAULT_RATING_CUTOFFS.busy[1] ? { line: Number(role.line) } : {}),
       ...(tier && engineRoleUnit(tier, role.id) ? { unit: engineRoleUnit(tier, role.id)! } : {}),
     };
   }
