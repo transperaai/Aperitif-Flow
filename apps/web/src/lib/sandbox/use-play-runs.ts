@@ -44,6 +44,8 @@ export interface PlayRuns {
 interface Slot {
   key: string;
   run: PlayRun;
+  /** The levers' path: the play it ran, to work its outcome out again against today's first month. */
+  play?: PlayState;
 }
 
 /**
@@ -106,7 +108,7 @@ export function usePlayRuns(
           if (!active) return;
           const run = joinPlay(prepared, results);
           const outcome = playSeries(setup, play, run.model, run.result);
-          setChangedSlot({ key: preparedKey, run: { run, outcome, ms: performance.now() - t0 } });
+          setChangedSlot({ key: preparedKey, run: { run, outcome, ms: performance.now() - t0 }, play });
         },
         (err) => {
           if (active && !(err instanceof SimulationCancelled)) setFailure({ key: preparedKey, message: (err as Error).message });
@@ -123,7 +125,14 @@ export function usePlayRuns(
   }, [asDefault, prepared, preparedKey, setup]);
 
   const todayRun = todaySlot?.key === todayKey ? todaySlot.run : null;
-  const changed = asDefault ? todayRun : (changedSlot?.run ?? null);
+  // The levers' path's DLER moves from today's first month (customisability audit 18): worked out again once today's path is in.
+  const anchor = todayRun?.outcome.retainerAnchor;
+  const changedRun = useMemo(() => {
+    if (!changedSlot || !anchor || !changedSlot.play) return changedSlot?.run ?? null;
+    const { run } = changedSlot.run;
+    return { ...changedSlot.run, outcome: playSeries(setup, changedSlot.play, run.model, run.result, undefined, anchor) };
+  }, [changedSlot, anchor, setup]);
+  const changed = asDefault ? todayRun : changedRun;
   const current = asDefault ? todayRun !== null : changedSlot?.key === preparedKey;
   const error = today.error ?? (asDefault ? null : prepared.error) ?? (failure && (failure.key === todayKey || failure.key === preparedKey) ? failure.message : null);
   const status: PlayRuns["status"] = error !== null ? "error" : !todayRun || (!asDefault && !current) ? "running" : "done";
