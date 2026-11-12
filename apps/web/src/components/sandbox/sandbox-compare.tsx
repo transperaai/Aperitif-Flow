@@ -8,7 +8,7 @@
 
 import { useMemo, useState } from "react";
 import { workspacePurposes, type ProcessBundle, type SandboxScenarioRow, type SolutionRow } from "@transpera-flow/db";
-import { ENGINE_VERSION, type Stat } from "@transpera-flow/engine";
+import { ENGINE_VERSION, roleBusyCutoffs, type Stat } from "@transpera-flow/engine";
 import { Help, type HelpProps } from "@/components/help";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -124,6 +124,8 @@ export function SandboxCompare({ live, startDate, months, scenarios, solutions, 
   }, [exportColumns, comparison, live, solutions]);
   const exportReason = comparison && exportData ? null : columns.some((c) => c.error) ? "A column failed, so there is nothing whole to export." : "Wait for the runs to finish.";
   const roleNames = Object.fromEntries(Object.entries(ready[0]?.model.roles ?? {}).map(([id, r]) => [id, r.name]));
+  // Each role's own utilisation threshold when it has one, else the workspace's line.
+  const lineOf = (roleId: string) => roleBusyCutoffs(cutoffs, ready[0]?.model.roles, roleId)[1];
   const running = columns.some((c) => c.run.status === "running" && !c.error);
   const last = comparison ? comparison.months[comparison.months.length - 1]!.long : "";
   const failed = columns.filter((c) => c.error);
@@ -238,7 +240,7 @@ export function SandboxCompare({ live, startDate, months, scenarios, solutions, 
               categories={workspacePurposes(live.workspace.settings)}
               currency={currency}
               costs={canEdit && includeCosts && exportColumns.every((c) => c.monthly.money)}
-              timingLine={ready[0].result.monthly ? capacityLine(capacityRunsOut(ready[0].result.monthly, roleNames, cutoffs), comparison.months, horizonLabel(months)) : null}
+              timingLine={ready[0].result.monthly ? capacityLine(capacityRunsOut(ready[0].result.monthly, roleNames, cutoffs, ready[0].model.roles), comparison.months, horizonLabel(months)) : null}
               ctx={{ bundle: live, solutions }}
             />
           ) : null}
@@ -329,7 +331,7 @@ export function SandboxCompare({ live, startDate, months, scenarios, solutions, 
                 names={names}
                 format={formatPercent}
                 formatDiff={(v) => signed(v, (x) => `${Math.round(x * 100)} points`)}
-                reference={{ value: cutoffs[1], label: `${formatPercent(cutoffs[1])} utilisation threshold` }}
+                reference={{ value: lineOf(row.id), label: `${formatPercent(lineOf(row.id))} utilisation threshold` }}
                 minTop={1}
               />
             ))}

@@ -343,7 +343,9 @@ export function departmentsAnswer(rows: readonly Pick<DepartmentFigure, "name" |
 }
 
 /** "3 people", or "2.4 FTE" when part-timers make it a fraction. */
-export function employeesLabel(fte: number): string {
+export function employeesLabel(raw: number): string {
+  // FTE are summed in floating point (0.7 + 0.1 + 0.2 is 0.9999999999999999): round off the noise before asking for a whole number.
+  const fte = Math.round(raw * 1e6) / 1e6;
   return Number.isInteger(fte) ? `${fte} ${fte === 1 ? "person" : "people"}` : `${formatNumber(fte, 1)} FTE`;
 }
 

@@ -498,9 +498,10 @@ function isEmployee(setup: CapacitySetup, p: SetupPerson, role: SetupRole | null
 /** Clients and revenue per employee (D22): the department's clients and retainers ÷ the FTE of everyone in it who counts (`isEmployee`). */
 export function perEmployee(setup: CapacitySetup, departmentId: string): PerEmployee {
   const { personRole, deptOf } = lookups(setup);
-  const employees = activePeople(setup)
+  const fteSum = activePeople(setup)
     .filter((p) => deptOf(p) === departmentId && isEmployee(setup, p, personRole(p)))
     .reduce((sum, p) => sum + (Number.isFinite(p.fte) && p.fte > 0 ? p.fte : 0), 0);
+  const employees = Math.round(fteSum * 1e6) / 1e6;
   const clients = uniqueClients(setup).byDepartment[departmentId] ?? 0;
   return {
     departmentId,

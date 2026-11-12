@@ -13,6 +13,7 @@ import {
   OVERRIDE_KINDS,
   RATING_RULE_IDS,
   DEFAULT_RATING_CUTOFFS,
+  busyCutoffsAt,
   defaultRatingConfig,
   type Cutoffs,
   type OverrideKind,
@@ -387,8 +388,9 @@ export function busyCutoffs(line: number): Cutoffs {
 /**
  * The rating model's config for these settings. `hoursPerWeek` is the model's
  * working week, to turn the expected waits (hours) into working days. `busy` is the
- * workspace's busy line (`busyLine(model)`): the middle busy cut-off unless the
- * settings give the busy rule's own inputs.
+ * workspace's busy line (`busyLine(model)`): the middle busy cut-off. When the
+ * settings give the busy rule's own inputs, those keep their distances from the
+ * middle (the busy bands Settings > Simulation edits) and move with the line.
  */
 export function toRatingConfig(settings: AnalysisSettings | null | undefined, hoursPerWeek: number, busy?: number): RatingConfig {
   const s = parseAnalysisSettings(settings).value;
@@ -405,7 +407,9 @@ export function toRatingConfig(settings: AnalysisSettings | null | undefined, ho
       ...(o.inputs ? { cutoffs: to(o.inputs) } : {}),
       ...(o.expectedWaitHours !== undefined ? { expectedWaitHours: o.expectedWaitHours } : {}),
     }));
-    config.rules[id] = { enabled: r.enabled !== false, cutoffs: r.inputs ? to(r.inputs) : config.rules[id].cutoffs, overrides };
+    const stored = r.inputs ? to(r.inputs) : null;
+    const cutoffs = stored && id === "busy" && busy !== undefined && Number.isFinite(busy) && busy > 0 ? busyCutoffsAt(stored, busy) : (stored ?? config.rules[id].cutoffs);
+    config.rules[id] = { enabled: r.enabled !== false, cutoffs, overrides };
   }
   if (s.escalators?.badMonth === false) config.escalators.badMonth = false;
   if (s.escalators?.bottleneck === false) config.escalators.bottleneck = false;

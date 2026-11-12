@@ -31,6 +31,13 @@ describe("capacityRunsOut", () => {
     const later = monthly({ design: [0.5, 0.88, 0.9, 0.9, 0.9, 0.9].map(busy) }, { design: [null, null, null, null, 4, null] });
     expect(capacityRunsOut(later, {}, CUTOFFS)).toMatchObject({ month: 1, kind: "busy" });
   });
+
+  it("holds a role with a utilisation threshold of its own to it (customisability audit 11)", () => {
+    const m = monthly({ design: [0.5, 0.78, 0.8, 0.88, 0.9, 0.9].map(busy) });
+    expect(capacityRunsOut(m, {}, CUTOFFS)).toMatchObject({ month: 3 });
+    expect(capacityRunsOut(m, {}, CUTOFFS, { design: { line: 0.75 } })).toMatchObject({ month: 1, roleId: "design" });
+    expect(capacityRunsOut(m, {}, CUTOFFS, { design: {} })).toMatchObject({ month: 3 });
+  });
 });
 
 describe("capacityLine", () => {

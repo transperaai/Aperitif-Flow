@@ -269,7 +269,7 @@ function PlayExport({ live, runs, play, ctx, solutions, start, canSeeMoney, mapM
   const data: ExportData | null =
     ready && columns && months ? { columns, months, model: changed.run.model, categories: workspacePurposes(live.workspace.settings), currency: live.workspace.settings.currency, ctx: exportCtx } : null;
   const roleNames = useMemo(() => Object.fromEntries(Object.entries(changed?.run.model.roles ?? {}).map(([id, r]) => [id, r.name])), [changed]);
-  const timingLine = ready && months ? capacityLine(capacityRunsOut(changed.run.result.monthly!, roleNames, cutoffs), months, horizonLabel(horizon)) : null;
+  const timingLine = ready && months ? capacityLine(capacityRunsOut(changed.run.result.monthly!, roleNames, cutoffs, changed.run.model.roles), months, horizonLabel(horizon)) : null;
   return (
     <>
       <SandboxExportMenu

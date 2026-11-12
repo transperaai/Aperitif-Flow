@@ -16,7 +16,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { partOf, speedsNormalisedFor, type IssueRow, type ProcessBundle, type SandboxChange, type SandboxScenarioRow, type SolutionRow, type SourceRow } from "@transpera-flow/db";
 import { offeredLevers, sandboxLever, workspacePurposes } from "@transpera-flow/db";
-import { BUILTIN_CHURN_DRIVER_IDS, CHURN_DRIVER_SPECS, CUSTOM_DRIVER_PREFIX, ENGINE_VERSION, busyCutoffsAt, firstCrossing, toRatingConfig } from "@transpera-flow/engine";
+import { BUILTIN_CHURN_DRIVER_IDS, CHURN_DRIVER_SPECS, CUSTOM_DRIVER_PREFIX, ENGINE_VERSION, busyCutoffsAt, firstCrossing, roleBusyCutoffs, toRatingConfig } from "@transpera-flow/engine";
 import { Help } from "@/components/help";
 import { HorizonPicker } from "@/components/horizon-picker";
 import { InsightsSection } from "@/components/insights";
@@ -301,8 +301,10 @@ export function SandboxView({ live, issues, sources = NO_SOURCES, mode, issuesHr
     const names = timelineMonths(start, plan.run.result.monthly!.months, built.model.hoursPerWeek).map((mo) => mo.long);
     const lines: string[] = [];
     for (const [id, role] of Object.entries(built.model.roles)) {
-      const l = firstCrossing(result.monthly!.roles[id] ?? [], cutoffs).average;
-      const p = firstCrossing(plan.run.result.monthly!.roles[id] ?? [], cutoffs).average;
+      // The role's own utilisation threshold when it has one, as the heatmap uses.
+      const own = roleBusyCutoffs(cutoffs, built.model.roles, id);
+      const l = firstCrossing(result.monthly!.roles[id] ?? [], own).average;
+      const p = firstCrossing(plan.run.result.monthly!.roles[id] ?? [], own).average;
       if (l?.month === p?.month) continue;
       if (l && p) lines.push(`${role.name}: too busy from ${names[p.month]} (with no changes: ${names[l.month]})`);
       else if (l) lines.push(`${role.name}: no longer too busy in the next ${horizonLabel(months)}`);
@@ -623,7 +625,7 @@ export function SandboxView({ live, issues, sources = NO_SOURCES, mode, issuesHr
   );
   const roleNames = useMemo(() => Object.fromEntries(Object.entries(shownRun?.model.roles ?? {}).map(([id, r]) => [id, r.name])), [shownRun]);
   const timingLine = useMemo(
-    () => (shownRun?.result.monthly && exportMonths ? capacityLine(capacityRunsOut(shownRun.result.monthly, roleNames, cutoffs), exportMonths, horizonLabel(months)) : null),
+    () => (shownRun?.result.monthly && exportMonths ? capacityLine(capacityRunsOut(shownRun.result.monthly, roleNames, cutoffs, shownRun.model.roles), exportMonths, horizonLabel(months)) : null),
     [shownRun, exportMonths, roleNames, cutoffs, months],
   );
   const people = namedForViewer(viewerOf(live), live.people.filter((p) => p.active))

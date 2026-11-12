@@ -194,6 +194,15 @@ export function busyCutoffsAt(cutoffs: Cutoffs, line: number): Cutoffs {
 }
 
 /**
+ * Rule 1's cut-offs for one role: `busyCutoffsAt(cutoffs, line)` when the role has a utilisation threshold of its own
+ * (`EngineRole.line`), else `cutoffs`. For screens that rate a role's monthly busy share outside `withRoleLines`.
+ */
+export function roleBusyCutoffs(cutoffs: Cutoffs, roles: Readonly<Record<string, { line?: number }>> | undefined, roleId: string): Cutoffs {
+  const line = roles?.[roleId]?.line;
+  return typeof line === "number" && Number.isFinite(line) && line > 0 ? busyCutoffsAt(cutoffs, line) : cutoffs;
+}
+
+/**
  * The config with each role's own utilisation threshold (`EngineRole.line`) as rule 1's middle cut-off for that role and its people
  * (a role override, ahead of any stored one). A person's own override still wins. Roles without a line are left as they are.
  */

@@ -288,6 +288,7 @@ export {
   resolveRatingConfig,
   resolveRule,
   busyCutoffsAt,
+  roleBusyCutoffs,
   withRoleLines,
   storedOfRating,
   worseRating,

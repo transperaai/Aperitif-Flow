@@ -25,6 +25,8 @@ Status: fixed in this branch
 ## 3. DLER goal is fixed at 4.5 and no setting can change it  
 *high · money*
 
+Status: fixed in this branch
+
 - **Now:** Every good/warn tone, the goal line on the DLER charts, the 'At or above the 4.5 goal' text and the Sandbox's 'Departments at the goal' count all compare against the constant 4.5. The owner expects a 3:1 goal.
 - **Why it matters:** An agency that aims for 3:1 sees every department marked 'Below the goal' in warning colour even when it is on target, and the Sandbox payoff ('0 of 2 departments at the goal') measures against the wrong bar. The owner can't make the app judge DLER by their own target.
 - **Fix:** Add a workspace setting `dler_goal` (Settings > Workspace or Capacity, next to 'DLER includes leadership', default 3 or 4.5), load it into CapacitySetup, and pass setup.dlerGoal to the three components in place of the constant.
@@ -93,6 +95,8 @@ Status: fixed in this branch
 ## 11. A role's utilisation threshold is ignored by the People page, the forecast and the Issues/Overview findings, which use a fixed 85%  
 *high · pages*
 
+Status: fixed in this branch
+
 - **Now:** Every role has an editable 'Utilisation threshold %' (roles.line). Capacity, Overview Busiest people, Overview team load and hiring advice use it (packages/db/src/capacity-figures.ts:150-154 over = util >= role.line). But role.line never reaches the engine model (EngineRole has no line field; packages/db/src/model.ts doesn't read it), so the engine's busy rating, forecast alerts ('who gets too busy, and when'), the Issues register's too-busy findings and the People page's 'above 85% busy in a bad month' / red-amber-green bars all use a fixed 85% (amber at 75%).
 - **Why it matters:** Owner sets Account Managers to 75%: Capacity and the Overview's team load say they are over from month 2, while on the same Overview the 'Across the company' finding, the People page forecast panel ('Nobody crosses the 85% utilisation threshold') and the Issues page say they are fine until 85%. Setting a role to 95% has the opposite disagreement. The threshold looks like it does nothing on half the app.
 - **Fix:** Pass each role's line into the engine model (e.g. EngineRole.line) and have the busy rule/forecastAlerts/firstCrossing use it as the subject's cutoff (or a per-role override in toRatingConfig built from roles.line); make lib/people.ts rate each person against their role's line instead of BUSY_LIMIT, and forecast-panel draw each role's line rather than cutoffs[1].
@@ -100,6 +104,8 @@ Status: fixed in this branch
 
 ## 12. DLER goal fixed at 4.5 everywhere  
 *high · pages*
+
+Status: fixed in this branch
 
 - **Now:** Every DLER tile, bar, status colour ('Below the 4.5 goal') and the Sandbox's 'Departments at the goal' count is judged against a constant 4.5.
 - **Why it matters:** An agency whose target DLER is 3.0 (or 5.0) sees every department flagged warn/good wrongly on Overview, Capacity and the Sandbox, and the Sandbox's 'reach the goal' verdict is measured against someone else's benchmark.
@@ -152,6 +158,8 @@ Status: fixed in this branch
 
 ## 18. Sandbox DLER for today's path doesn't match the Overview/Capacity DLER  
 *medium · money*
+
+Status: fixed in this branch
 
 - **Now:** Overview DLER (capacity-view.tsx:213, department-cards.tsx via wholeBusiness) credits nobody with counted clients that sit in a group but in nobody's portfolio, nor with non-tier retainers. The Sandbox puts all of the engine's MRR into the department pools, including unheld counted clients, non-tier services and the market price factor, and shares it across the client-facing people. The fee map at line 104 still prices counted clients at service.price.
 - **Why it matters:** With no lever moved, the Sandbox's month-1 DLER is higher than the DLER on the Overview and Capacity pages, so the owner can't trust either number.
@@ -269,6 +277,8 @@ Status: fixed in this branch
 ## 32. Analysis assumptions (absence test length/frequency, lost-client value cap, busy cutoffs, expected waits) are locked to defaults and stored rules are ignored  
 *medium · pages*
 
+Status: fixed in this branch (the value cap, the absence test and the busy bands are in Settings > Simulation; the expected waits stay at their defaults)
+
 - **Now:** Every page rates with the documented defaults: a lost client is worth at most 12 months of fees, the 'If someone is away' test is a 2-week absence twice a year, busy is 70/85/95%, expected waits 1 and 2 days. The defaults.ts comment says what a workspace stored in analysis_rules 'is kept, unread'.
 - **Why it matters:** An owner whose staff take 4 weeks' leave or whose clients stay 3 years can't make the People page's absence test or the money-at-risk figures match their business; any rules saved before the editor was removed silently stop applying (two sources of truth).
 - **Fix:** Expose at least capMonths, absenceWeeks and absencesPerYear in Settings (a small 'Assumptions' section) and read loadAnalysisRules in the pages instead of ANALYSIS_DEFAULTS; or delete the unread analysis_rules data so nothing pretends to be stored.
@@ -294,6 +304,8 @@ Status: fixed in this branch
 
 ## 35. People page busy % disagrees with Capacity/Overview busy % for the same person  
 *medium · pages*
+
+Status: fixed in this branch (same threshold and margin as Capacity; the People page says its figure is over the picked length with new clients)
 
 - **Now:** The People page 'How busy' average comes from a different run (different model, horizon and replication count) than Capacity's and the Overview's Busiest people, and is rated against 85%/75% rather than the role's line (see first finding).
 - **Why it matters:** The owner sees Sam at 82% on Capacity and 91% on People and can't tell which is true.
@@ -339,6 +351,8 @@ Status: partly fixed in this branch: the at-risk line and bands are settings; th
 ## 40. Revenue per employee counts heads, not FTE, and always leaves leadership out  
 *low · money*
 
+Status: fixed in this branch
+
 - **Now:** A 0.4 fte part-timer counts as a whole employee. Leadership is always excluded, while DLER has its own toggle (dlerIncludesLeadership, capacity-figures.ts:399-401). People whose role has no department (shared roles) aren't counted anywhere.
 - **Why it matters:** Agencies with part-timers or a shared ops team see misleading MRR per person, and the leadership choice made for DLER doesn't carry over to it.
 - **Fix:** Divide by summed fte (or offer 'heads / FTE'), and follow the same leadership setting as DLER (or a separate one).
@@ -381,6 +395,8 @@ Status: fixed in this branch
 ## 45. A lost client's value is fixed at 12 months of fees, and stored analysis settings are ignored  
 *low · settings*
 
+Status: fixed in this branch
+
 - **Now:** Every workspace values a lost deal or churned client at no more than 12 months of fees and assumes a two-week absence twice a year. The analysis_rules table is loaded by packages/db/src/analysis-rules.ts but never applied.
 - **Why it matters:** The 'cost per month' on every finding and the value of a churned client use a 12-month cap that may not fit the agency. Long-tenure retainers are undervalued and one-off-heavy agencies overvalued, and the code comment wrongly claims it is editable.
 - **Fix:** Add a 'Value a lost client at up to N months of fees' field (1-60) to Settings > Simulation, stored in analysis_rules.settings.money.capMonths, and pass it through instead of ANALYSIS_DEFAULTS.
@@ -405,6 +421,8 @@ Status: fixed in this branch
 ## 48. 'Near threshold' margin of 10 points is fixed, in two separate constants  
 *low · pages*
 
+Status: fixed in this branch
+
 - **Now:** Anyone within 10 points under their threshold counts as at risk on Capacity and shows on the Overview's Busiest people; the two copies could drift.
 - **Why it matters:** Small agencies running close to the line see half the team permanently 'at risk'; changing one constant would make Overview and Capacity disagree.
 - **Fix:** Use one constant (import AT_RISK_MARGIN in busiest-people.tsx); optionally a workspace setting 'Warn when within N points of the threshold' in Settings > People.
@@ -422,6 +440,8 @@ Status: fixed in this branch
 
 ## 50. Simulation length can't be changed after creating the workspace; Overview caps at 6 months, Capacity fixed at 12  
 *low · pages*
+
+Status: fixed in this branch
 
 - **Now:** workspace.settings.horizon_weeks is set only in the new-workspace form; the Overview can only play 1/3/6 months, so its hiring advice never sees a role crossing its line in months 7-12, while Capacity's year run does.
 - **Why it matters:** An owner planning a year ahead gets 'no hire needed' on the Overview but a crossing on Capacity, and cannot change the default length they picked at creation.

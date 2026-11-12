@@ -34,7 +34,7 @@ import {
   type ScenarioRun,
   type TimeRows,
 } from "@transpera-flow/db/sandbox";
-import { busyCutoffsAt, busyLine, CHURN_DRIVER_SPECS, CUSTOM_DRIVER_PREFIX, ENGINE_VERSION, isTooBusy, toRatingConfig, type BuiltinChurnDriverId, type MonthlyResult, type Stat } from "@transpera-flow/engine";
+import { busyLine, roleBusyCutoffs, CHURN_DRIVER_SPECS, CUSTOM_DRIVER_PREFIX, ENGINE_VERSION, isTooBusy, toRatingConfig, type BuiltinChurnDriverId, type MonthlyResult, type Stat } from "@transpera-flow/engine";
 import { matchNamed } from "./analysis";
 import type { ToolContext, WorkspaceRef } from "./context";
 import { ToolError } from "./result";
@@ -243,15 +243,11 @@ function timeOut(monthly: MonthlyResult, categories: ReturnType<typeof workspace
 /** `cutoffs` is the workspace's busy rule; a role with a utilisation threshold of its own (`lines`) is held to that instead. */
 function totalsOut(monthly: MonthlyResult, cutoffs: readonly [number, number, number], lines: Readonly<Record<string, { line?: number }>> = {}) {
   const money = monthly.money;
-  const of = (id: string) => {
-    const line = lines[id]?.line;
-    return typeof line === "number" && line > 0 ? busyCutoffsAt(cutoffs, line) : cutoffs;
-  };
   return {
     revenue: total(monthly.revenue.total),
     profit: money ? total(money.profit) : null,
     clients_lost: total(monthly.clientsLost),
-    too_busy_months: Object.entries(monthly.roles).reduce((n, [id, series]) => n + series.filter((m) => m !== null && isTooBusy(m.mean, of(id))).length, 0),
+    too_busy_months: Object.entries(monthly.roles).reduce((n, [id, series]) => n + series.filter((m) => m !== null && isTooBusy(m.mean, roleBusyCutoffs(cutoffs, lines, id))).length, 0),
   };
 }
 

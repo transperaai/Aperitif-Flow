@@ -18,9 +18,10 @@ later ticket can bring a setting back if Austin wants one.
 value cap, the absence test's weeks and how often a year, and the busy bands (how far under a role's utilisation threshold
 "busy" starts, and how far over it is Operational risk), stored in `analysis_rules.settings` as `money.capMonths`,
 `money.absenceWeeks`, `money.absencesPerYear` and `rules.busy.inputs`. Every page reads only those
-(`liveAnalysisSettings`); the rest of what the old editor stored stays unread. Rule 1's middle cut-off for each role is the
-role's own utilisation threshold (`roles.line`, the engine's `withRoleLines`), so the stored middle cut-off only applies to a
-role with none.
+(`liveAnalysisSettings`); the rest of what the old editor stored stays unread. Of the stored busy cut-offs only the two
+distances from the middle are read: the middle is the workspace's utilisation threshold (`settings.utilisation_threshold`, 85%
+unless set; `toRatingConfig`'s busy line), and for a role whose own threshold (`roles.line`) isn't the default 85%, that
+threshold (the engine's `withRoleLines`). A middle saved under the old editor is not read.
 
 **Editing (A44, issue #109; removed in B17):** Settings → Analysis rules (`/w/<slug>/settings/rules`, `/demo/settings/rules`) edits all 15 rules, the escalators and the money settings, stored per workspace in `analysis_rules.settings` (sparse jsonb; `packages/engine/src/analysis-settings.ts`). Only the rules on the rating model below take effect in the engine yet; the others are saved and apply when their detectors land. The absence test's length and frequency are read by the engine (A42); the 12-month cap is read once the cost ticket (A43) lands.
 
