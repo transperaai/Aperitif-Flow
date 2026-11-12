@@ -19,7 +19,7 @@
 // Not mapped, here (P4's, in parallel): step fields (split, tier multiplier, `toClientManager`, sources) and driver recurrences.
 // Not an engine input at all: tiers.both_count, services.price_rise_churn (P7), roles.line / rule_of_thumb, salary, labels.
 
-import type { EngineClient, EngineClientGroup, EnginePerson, EngineRole, EngineService, ClientOverrides, TierDeliverables } from "@transpera-flow/engine";
+import { DEFAULT_HEALTH_RULES, type EngineClient, type EngineClientGroup, type EnginePerson, type EngineRole, type EngineService, type ClientOverrides, type TierDeliverables } from "@transpera-flow/engine";
 import type { CapacityClientRow, CapacityDeliverableColumns, CapacityInputs, CapacityServiceRow, ClientGroupRow, ProcessBundle } from "./types";
 
 /** New starters reach about 80% in three months. P1's default (`DEFAULT_RAMP` in capacity-setup.ts), repeated here to keep the mapping free of the loaders. */
@@ -183,6 +183,8 @@ export function engineTierClientGroups(
   rows: readonly ClientGroupRow[],
   services: Record<string, EngineService>,
   namedOn: (serviceId: string) => number = () => 0,
+  /** The health of a counted client with no group row: the workspace's starting health (`settings.health_initial`), else 80. */
+  initialHealth: number = DEFAULT_HEALTH_RULES.initial,
 ): Record<string, EngineClientGroup> | undefined {
   const groups: Record<string, EngineClientGroup> = {};
   for (const sid of Object.keys(services).sort()) {
@@ -200,7 +202,7 @@ export function engineTierClientGroups(
       fee: row ? Number(row.fee) : sv.price,
       churnMonthly: row ? Number(row.churn_monthly) : sv.churnMonthly,
       stayMonths: row ? Number(row.stay_months) : sv.tenureMonths,
-      health: row ? Number(row.starting_health) : 80,
+      health: row ? Number(row.starting_health) : initialHealth,
     };
   }
   const counted = Object.values(groups).reduce((a, g) => a + Math.round(g.count), 0);

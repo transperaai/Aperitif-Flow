@@ -23,6 +23,8 @@ export {
   usesCapacityFactors,
   triangularRange,
   workingDaysBetween,
+  churnLimitsOf,
+  monthsBetween,
   type ModelOptions,
 } from "./model";
 export { loadAnalysisRules, saveAnalysisRules, type AnalysisRules, type SaveAnalysisRulesOutcome } from "./analysis-rules";

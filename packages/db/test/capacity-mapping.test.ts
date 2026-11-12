@@ -129,7 +129,8 @@ describe("counted clients and portfolios", () => {
     expect(m.clientGroups![S1]).toEqual({ count: 10, fee: 4500, churnMonthly: 0.02, stayMonths: 40, health: 75 });
     // S2 has no group row: its count is the portfolio, and its fee, churn and tenure are the service's own.
     const sv2 = base.services.find((s) => s.id === S2)!;
-    expect(m.clientGroups![S2]).toEqual({ count: 4, fee: Number(sv2.price), churnMonthly: Number(sv2.churn_monthly_base), stayMonths: Number(sv2.tenure_months), health: 80 });
+    // Its health is the workspace's starting health (audit finding 8), else 80.
+    expect(m.clientGroups![S2]).toEqual({ count: 4, fee: Number(sv2.price), churnMonthly: Number(sv2.churn_monthly_base), stayMonths: Number(sv2.tenure_months), health: base.workspace.settings.health_initial ?? 80 });
     expect(m.clientGroups![S3]).toBeUndefined();
     // The 18 named clients are still there, and everyone counts in the headline number.
     expect(Object.keys(m.clients!)).toHaveLength(18);
