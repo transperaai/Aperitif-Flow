@@ -1,6 +1,8 @@
 // Input checks for the client groups settings (issue #120). Pure, so they can be unit tested. They only reject
 // malformed input early: every write still runs as the signed-in user through RLS and the table's check constraints.
 
+import { DEFAULT_HEALTH_RULES } from "@transpera-flow/engine";
+
 type Check = (v: unknown) => boolean;
 
 const number: Check = (v) => typeof v === "number" && Number.isFinite(v);
@@ -25,8 +27,15 @@ export const isClientGroupField = (v: unknown): v is ClientGroupField => typeof 
 /** A benchmark bound for company client health: 0 to 100, or null to clear it. */
 export const isBenchmarkBound = (v: unknown): v is number | null => v === null || between(0, 100)(v);
 
-/** Where a group's own numbers start when one is first set up for a service (the table's defaults): no clients, health 80. */
-export const NEW_GROUP_DEFAULTS: Readonly<Record<ClientGroupField, number>> = { client_count: 0, starting_health: 80 };
+/**
+ * Where a group's own numbers start when one is first set up for a service: no clients, and the workspace's starting health
+ * (settings.health_initial, the engine's default when unset), the health its counted clients already run on before the group has a
+ * row. So the first edit of a count doesn't move their health (audit finding 8).
+ */
+export function newGroupDefaults(settings: { health_initial?: number | null }): Readonly<Record<ClientGroupField, number>> {
+  const h = settings.health_initial;
+  return { client_count: 0, starting_health: typeof h === "number" && Number.isFinite(h) && h >= 0 && h <= 100 ? h : DEFAULT_HEALTH_RULES.initial };
+}
 
 export interface Benchmark {
   low: number;

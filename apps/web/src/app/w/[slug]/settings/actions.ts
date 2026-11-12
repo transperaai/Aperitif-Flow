@@ -10,7 +10,7 @@ import {
   CLIENT_GROUP_FIELDS,
   isBenchmarkBound,
   isClientGroupField,
-  NEW_GROUP_DEFAULTS,
+  newGroupDefaults,
   type ClientGroupField,
 } from "@/lib/client-groups";
 import { isTagList, parseNewService, parseServiceField, type ServiceField } from "@/lib/services";
@@ -256,13 +256,15 @@ export async function saveClientGroupField(
     .executeTakeFirst()
     .catch(() => undefined);
   if (!service) return { status: "not_found" };
+  const ws = await db.selectFrom("workspaces").select("settings").where("id", "=", workspaceId).executeTakeFirst().catch(() => undefined);
+  if (!ws) return { status: "not_found" };
   // Counted clients are set up on a tier, whose fee, churn and stay they take. A service that isn't a tier would bill and churn at
   // the group row's own columns, which this screen no longer writes, so it is refused rather than given a fee and churn of 0.
   if (service.tier_id === null) return { status: "error", message: "Counted clients belong to a tier. Add them on a tier's row." };
   try {
     await db
       .insertInto("client_groups")
-      .values({ workspace_id: workspaceId, service_id: serviceId, ...NEW_GROUP_DEFAULTS, [field]: value })
+      .values({ workspace_id: workspaceId, service_id: serviceId, ...newGroupDefaults((ws.settings ?? {}) as { health_initial?: number | null }), [field]: value })
       .execute();
   } catch (e) {
     const code = pgCode(e);

@@ -4,7 +4,7 @@ import type { ServiceRow } from "@transpera-flow/db";
 import { NumberField } from "@/components/fields";
 import { Help, type HelpProps } from "@/components/help";
 import type { WorkspaceSettingsData } from "@/lib/data";
-import { NEW_GROUP_DEFAULTS, MAX_GROUP_COUNT, type ClientGroupField } from "@/lib/client-groups";
+import { newGroupDefaults, MAX_GROUP_COUNT, type ClientGroupField } from "@/lib/client-groups";
 import { saveClientGroupField, saveClientHealthBenchmark } from "./actions";
 
 // Settings, counted clients (issue #120): the clients counted per tier instead of named. The simulation creates unnamed clients
@@ -89,7 +89,7 @@ export function GroupFields({ service, data }: { service: ServiceRow; data: Work
       help={HELP[GROUP_FIELD[f]]}
       value={group ? Number(group[f]) : null}
       save={(base, next) => saveClientGroupField(data.workspace.id, service.id, f, base, next)}
-      placeholder={group ? undefined : String(NEW_GROUP_DEFAULTS[f])}
+      placeholder={group ? undefined : String(newGroupDefaults(data.workspace.settings)[f])}
       disabled={!data.canEdit}
       {...extra}
     />

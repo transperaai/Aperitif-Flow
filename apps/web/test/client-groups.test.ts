@@ -6,7 +6,7 @@ import {
   benchmarkOf,
   isBenchmarkBound,
   isClientGroupField,
-  NEW_GROUP_DEFAULTS,
+  newGroupDefaults,
   positionAgainst,
 } from "@/lib/client-groups";
 import { BUSY_LIMIT, personRows, teamSummary } from "@/lib/people";
@@ -30,8 +30,10 @@ describe("client group fields", () => {
     expect([-1, 101].map(CLIENT_GROUP_FIELDS.starting_health)).toEqual([false, false]);
   });
 
-  it("starts a new group at health 80 with no clients", () => {
-    expect(NEW_GROUP_DEFAULTS).toEqual({ client_count: 0, starting_health: 80 });
+  it("starts a new group with no clients at the workspace's starting health, 80 unless set", () => {
+    expect(newGroupDefaults({})).toEqual({ client_count: 0, starting_health: 80 });
+    expect(newGroupDefaults({ health_initial: null })).toEqual({ client_count: 0, starting_health: 80 });
+    expect(newGroupDefaults({ health_initial: 62 })).toEqual({ client_count: 0, starting_health: 62 });
   });
 });
 
