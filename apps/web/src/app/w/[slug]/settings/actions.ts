@@ -3,7 +3,9 @@
 import { refresh } from "next/cache";
 import type { SaveOutcome } from "@/lib/fields/field-controller";
 import { saveCapacityFactor, saveCapacityFactorSwitch, saveField, saveFields, saveLinks } from "@/lib/fields/server";
-import { DEFAULT_PURPOSES, MAX_PURPOSE_DESCRIPTION, MAX_PURPOSE_NAME, MAX_PURPOSES, newPurposeKey, parsePurposes, type PurposeCategory } from "@transpera-flow/db";
+import { DEFAULT_PURPOSES, MAX_PURPOSE_DESCRIPTION, MAX_PURPOSE_NAME, MAX_PURPOSES, loadAnalysisRules, newPurposeKey, parsePurposes, saveAnalysisRules, type PurposeCategory } from "@transpera-flow/db";
+import { assumptionValues, isAssumptionKey, validAssumption, withAssumption, type AssumptionKey } from "@/lib/analysis/assumptions";
+import { horizonWeeks, isHorizonMonths, monthsForWeeks } from "@/lib/horizon";
 import { isGrowth, isMonth, isMultiplier, parseLeadSourceField, parseNewLeadSource, type LeadSourceField } from "@/lib/demand";
 import { parseNewRole, parseRoleField, type RoleField } from "@/lib/roles";
 import {
@@ -580,4 +582,74 @@ export async function saveGrowth(workspaceId: string, base: number | null, value
   );
   if (outcome.status === "saved") refresh();
   return outcome;
+}
+
+/**
+ * The DLER the agency aims for (`settings.dler_goal`, customisability audit 3 and 12): more than 0 and at most 50, or null for the
+ * default (4.5). The database checks the same range (`workspaces_dler_goal`). Refreshes: the Overview, Capacity and the Sandbox read it.
+ */
+export async function saveDlerGoal(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const goal = (v: unknown) => v === null || (number(v) && (v as number) > 0 && (v as number) <= 50);
+  if (!isId(workspaceId) || !goal(value) || !(base === null || isFiniteNumber(base))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.dler_goal", base, value);
+  if (out.status === "saved") refresh();
+  return out;
+}
+
+/**
+ * How far under their own utilisation threshold someone counts as at risk (`settings.at_risk_margin`, customisability audit 48): a share
+ * from 0 to 0.5, or null for the default (0.1). The database checks the same range (`workspaces_at_risk_margin`).
+ */
+export async function saveAtRiskMargin(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const share = (v: unknown) => v === null || (number(v) && (v as number) >= 0 && (v as number) <= 0.5);
+  if (!isId(workspaceId) || !share(value) || !(base === null || isFiniteNumber(base))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.at_risk_margin", base, value);
+  if (out.status === "saved") refresh();
+  return out;
+}
+
+/**
+ * The workspace's default forecast length (`settings.horizon_weeks`, customisability audit 50): one of the horizon picker's lengths in
+ * months (1, 3, 6, 12 or 24), stored in weeks. `base` is the stored weeks. Until now only the new-workspace form set it.
+ */
+export async function saveForecastLength(workspaceId: string, baseWeeks: number | null, months: string | null): Promise<SaveOutcome<string | null>> {
+  const m = months === null ? NaN : Number(months);
+  if (!isId(workspaceId) || !isHorizonMonths(m) || !(baseWeeks === null || isFiniteNumber(baseWeeks))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.horizon_weeks", baseWeeks, horizonWeeks(m));
+  if (out.status === "saved") {
+    refresh();
+    return { status: "saved", value: String(m) };
+  }
+  if (out.status === "conflict") return { status: "conflict", theirs: typeof out.theirs === "number" ? String(monthsForWeeks(out.theirs) ?? "") || null : null };
+  return out;
+}
+
+/**
+ * One analysis assumption (customisability audit 32 and 45): a lost client's value cap, the absence test, or a busy band, in the
+ * workspace's stored analysis settings. `base` is the value the field showed; when someone has saved another since, they are asked.
+ */
+export async function saveAnalysisAssumption(workspaceId: string, key: AssumptionKey, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  if (!isId(workspaceId) || !isAssumptionKey(key) || !(base === null || isFiniteNumber(base)) || !(value === null || validAssumption(key, value))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const db = await getDb();
+  let current;
+  try {
+    current = await loadAnalysisRules(db, workspaceId);
+  } catch {
+    return { status: "error", message: "Couldn't save. Try again." };
+  }
+  const stored = assumptionValues(current.settings)[key];
+  if (base !== null && Math.abs(base - stored) > 1e-9) return { status: "conflict", theirs: stored };
+  const out = await saveAnalysisRules(db, workspaceId, withAssumption(current.settings, key, value), current.version);
+  if (out.status === "saved") {
+    refresh();
+    return { status: "saved", value: assumptionValues(out.rules.settings)[key] };
+  }
+  if (out.status === "conflict") return { status: "conflict", theirs: assumptionValues(out.rules.settings)[key] };
+  if (out.status === "forbidden") return { status: "error", message: "Only Agency admins can change this." };
+  if (out.status === "invalid") return invalid;
+  return out;
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { loadCapacitySetup, uniqueClients, workspacePurposes } from "@transpera-flow/db";
+import { loadAnalysisRules, loadCapacitySetup, uniqueClients, workspacePurposes } from "@transpera-flow/db";
+import { assumptionValues } from "@/lib/analysis/assumptions";
 import { PurposesSettings } from "@/components/purposes/purposes-settings";
 import { SettingsBand } from "@/components/settings/settings-band";
 import { SettingsPage } from "@/components/settings/settings-page";
@@ -33,13 +34,14 @@ export default async function WorkspaceSettingsPage(props: PageProps<"/w/[slug]/
   const [data, bundle] = await Promise.all([loadWorkspaceSettings(slug), loadLiveProcess(slug)]);
   if (!data) notFound();
   const ws = data.workspace.id;
-  const [purposes, purposeUse, setup, roster, access] = await Promise.all([
+  const [purposes, purposeUse, setup, roster, access, analysis] = await Promise.all([
     loadStoredPurposes(ws),
     loadPurposeUse(ws),
     getDb().then((db) => loadCapacitySetup(db, ws)),
     loadWorkspaceClients(ws),
     // Access is for owners and Agency admins only: loadAccessSettings answers null without can_manage_workspace.
     data.canManage ? Promise.all([loadAccessSettings(slug), currentUserId(), loadDeploymentAccess(), props.searchParams]) : null,
+    getDb().then((db) => loadAnalysisRules(db, ws)),
   ]);
   if (!setup) notFound();
   const u = uniqueClients(setup);
@@ -63,7 +65,7 @@ export default async function WorkspaceSettingsPage(props: PageProps<"/w/[slug]/
         saveCurrency={saveWorkspaceCurrency}
         saveOverhead={saveOverheadMonthly}
       />
-      <SimulationSettings data={data} />
+      <SimulationSettings data={data} assumptions={assumptionValues(analysis.settings)} />
       <PurposesSettings
         mode={data.canEdit ? "live" : "readonly"}
         workspaceId={ws}
