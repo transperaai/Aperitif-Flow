@@ -179,6 +179,13 @@ describe("Capacity page", { timeout: 180_000 }, () => {
     await page.locator("[data-leaver-options]").waitFor({ state: "detached" });
     expect(await page.locator("[data-leaver-options]").count()).toBe(0);
     expect(await page.evaluate(() => document.activeElement?.hasAttribute("data-leaver-select"))).toBe(true);
+    // Escape closes it even while focus is still on the button (focus only moves into the list a frame after it opens).
+    await button.click();
+    await page.waitForSelector("[data-leaver-options]");
+    await button.focus();
+    await page.keyboard.press("Escape");
+    await page.locator("[data-leaver-options]").waitFor({ state: "detached" });
+    expect(await button.getAttribute("aria-expanded")).toBe("false");
 
     // Keyboard: open with ArrowDown, the checked person has focus; Space unticks them.
     await page.keyboard.press("ArrowDown");

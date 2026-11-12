@@ -62,6 +62,12 @@ export function PeoplePicker({ groups, value, onChange, label }: { groups: Picke
   const toggle = (pid: string) => onChange(picked.has(pid) ? value.filter((v) => v !== pid) : order.filter((p) => picked.has(p.id) || p.id === pid).map((p) => p.id));
 
   const onButtonKey = (e: KeyboardEvent<HTMLButtonElement>) => {
+    // Escape closes it from the button too: focus only moves into the list a frame after it opens.
+    if (e.key === "Escape" && open) {
+      e.preventDefault();
+      setOpen(false);
+      return;
+    }
     if (e.key === "ArrowDown" || (!open && (e.key === "Enter" || e.key === " "))) {
       e.preventDefault();
       setOpen(true);
