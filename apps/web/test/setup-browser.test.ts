@@ -449,6 +449,8 @@ describe("People & roles", { timeout: 120_000 }, () => {
     await page.getByRole("button", { name: "+ Add person" }).click();
     expect(await page.getByRole("dialog").getByLabel("Name").count()).toBe(1);
     await page.keyboard.press("Escape");
+    // A click while the dialog is still closing lands on its overlay, so wait for it to go.
+    await page.getByRole("dialog").waitFor({ state: "detached" });
     await page.getByRole("button", { name: "+ Add role" }).click();
     expect(await page.getByRole("dialog").getByRole("button", { name: "Add role" }).count()).toBe(1);
     await page.close();

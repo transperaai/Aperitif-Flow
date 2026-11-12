@@ -141,6 +141,7 @@ describe("the Editor tour", () => {
     const first = await open({ userId: "user-a" });
     await card(first.page).waitFor();
     await first.page.keyboard.press("Escape");
+    await card(first.page).waitFor({ state: "detached" });
     expect(await card(first.page).count()).toBe(0);
     await first.page.close();
     const again = await open({ userId: "user-a" }, { context: first.context });
@@ -157,6 +158,7 @@ describe("the Editor tour", () => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     expect(await card(page).evaluate((el) => el.contains(document.activeElement))).toBe(false);
     await page.keyboard.press("Escape");
+    await card(page).waitFor({ state: "detached" });
     expect(await card(page).count()).toBe(0);
     await page.waitForFunction(() => document.activeElement?.hasAttribute("data-take-tour"));
     await page.context().close();
