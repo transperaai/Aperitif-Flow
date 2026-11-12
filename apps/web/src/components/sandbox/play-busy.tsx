@@ -21,7 +21,7 @@ const WORDS: Record<BusyTone, string> = { ok: "under the utilisation threshold",
 
 export type HeatView = "scene" | "today";
 
-export function Heatmap({ rows, months, view, worst = null }: { rows: HeatRow[]; months: string[]; view: HeatView; worst?: number | null }) {
+export function Heatmap({ rows, months, view, worst = null, margin }: { rows: HeatRow[]; months: string[]; view: HeatView; worst?: number | null; margin?: number }) {
   const [tip, setTip] = useState<{ row: HeatRow; m: number; at: { x: number; y: number } } | null>(null);
   const grid = { display: "grid", gridTemplateColumns: `minmax(4.5rem, 7.5rem) repeat(${months.length}, minmax(0, 1fr))` } as const;
   const at = (e: React.PointerEvent) => ({ x: e.clientX, y: e.clientY });
@@ -45,7 +45,7 @@ export function Heatmap({ rows, months, view, worst = null }: { rows: HeatRow[];
               <span className="truncate">{r.name}</span>
             </span>
             {r.busy.map((v, m) => {
-              const tone = v === null ? null : busyTone(v, r.line);
+              const tone = v === null ? null : busyTone(v, r.line, margin);
               return (
                 <span
                   key={m}
@@ -84,7 +84,7 @@ export function Heatmap({ rows, months, view, worst = null }: { rows: HeatRow[];
             ) : (
               <>
                 <div>
-                  <b className="font-semibold">{formatPercent(tip.row.busy[tip.m]!)}</b> busy, {WORDS[busyTone(tip.row.busy[tip.m]!, tip.row.line)]} ({formatPercent(tip.row.line)})
+                  <b className="font-semibold">{formatPercent(tip.row.busy[tip.m]!)}</b> busy, {WORDS[busyTone(tip.row.busy[tip.m]!, tip.row.line, margin)]} ({formatPercent(tip.row.line)})
                 </div>
                 {tip.row.p90[tip.m] != null && <div className="text-muted-foreground">In 9 of 10 runs, {formatPercent(tip.row.p90[tip.m]!)} or less</div>}
               </>
@@ -110,7 +110,7 @@ export function Heatmap({ rows, months, view, worst = null }: { rows: HeatRow[];
               <tr key={r.id}>
                 <th scope="row">{r.name}</th>
                 {r.busy.map((v, m) => (
-                  <td key={m}>{v === null ? "" : `${formatPercent(v)} (${WORDS[busyTone(v, r.line)]})`}</td>
+                  <td key={m}>{v === null ? "" : `${formatPercent(v)} (${WORDS[busyTone(v, r.line, margin)]})`}</td>
                 ))}
               </tr>
             ))}

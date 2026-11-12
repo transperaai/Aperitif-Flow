@@ -25,7 +25,7 @@ import {
   type SimulationResult,
 } from "@transpera-flow/engine";
 import type { CapacitySetup, SetupPerson, SetupRole } from "./capacity-setup";
-import { tierCount, uniqueClients } from "./capacity-setup";
+import { DEFAULT_AT_RISK_MARGIN, tierCount, uniqueClients } from "./capacity-setup";
 
 /**
  * Months to hire a replacement before the market stretches it (the prototype's `hiringDelay`; the Sandbox's "Hiring delay" lever starts
@@ -39,8 +39,6 @@ export function hiringDelayAt(market: EngineMarket | undefined, i: number, base 
   if (!months?.length) return base;
   return Math.max(0, Math.round(base * (months[Math.min(Math.max(0, i), months.length - 1)]!.hire ?? 1)));
 }
-/** The busy share a "goal" DLER is measured against (D24). */
-export const DLER_GOAL = 4.5;
 const MONTH_WEEKS = CAPACITY_WEEKS_PER_MONTH;
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -441,12 +439,13 @@ export function personFees(setup: CapacitySetup): Map<string, number> {
  *
  * `retainers` (the Sandbox): the retainers a month each department takes in a month of a run, in place of today's. A department's pool is
  * shared among its people in proportion to the fees they manage today (a hire or anyone with none takes the department's average share),
- * so a leaver's clients and a hire's work move the average the way the run says.
+ * so a leaver's clients and a hire's work move the average the way the run says. With `newcomers` (the Sandbox's hires), only they take
+ * the average share and everyone else exactly their own share, so a pool equal to today's fees gives today's DLER.
  */
-export function dler(setup: CapacitySetup, retainers?: Record<string, number>): { departments: DlerRow[]; whole: DlerRow } {
+export function dler(setup: CapacitySetup, retainers?: Record<string, number>, newcomers?: ReadonlySet<string>): { departments: DlerRow[]; whole: DlerRow } {
   const { personRole, deptOf } = lookups(setup);
   const fees = personFees(setup);
-  type Member = { dept: string; fee: number; salary: number };
+  type Member = { id: string; dept: string; fee: number; salary: number };
   const members: Member[] = [];
   for (const p of activePeople(setup)) {
     const role = personRole(p);
@@ -454,15 +453,16 @@ export function dler(setup: CapacitySetup, retainers?: Record<string, number>): 
     if (!dept || role?.kind !== "client_facing" || !inDler(setup, p, role)) continue;
     const salary = p.salary_monthly;
     if (!setup.payHidden && !(salary !== null && salary > 0)) continue;
-    members.push({ dept, fee: fees.get(p.id) ?? 0, salary: salary ?? 0 });
+    members.push({ id: p.id, dept, fee: fees.get(p.id) ?? 0, salary: salary ?? 0 });
   }
   const hidden = setup.payHidden;
   // Each member's fee this month: their own, or their share of the department's pool from the run.
   const feeOf = (m: Member, mine: Member[]): number => {
     const pool = retainers?.[m.dept];
     if (pool === undefined) return m.fee;
-    const mean = mine.reduce((a, x) => a + x.fee, 0) / (mine.length || 1);
-    const weight = (x: Member) => (x.fee > 0 ? x.fee : mean);
+    const known = newcomers ? mine.filter((x) => !newcomers.has(x.id)) : mine;
+    const mean = known.reduce((a, x) => a + x.fee, 0) / (known.length || 1);
+    const weight = (x: Member) => (newcomers ? (newcomers.has(x.id) ? mean : x.fee) : x.fee > 0 ? x.fee : mean);
     const sum = mine.reduce((a, x) => a + weight(x), 0);
     return sum > 0 ? (pool * weight(m)) / sum : pool / (mine.length || 1);
   };
@@ -478,19 +478,27 @@ export function dler(setup: CapacitySetup, retainers?: Record<string, number>): 
 export interface PerEmployee {
   departmentId: string;
   clients: number;
+  /** Full-time equivalents: each counted person's FTE, so a 0.4 part-timer is 0.4 of an employee. */
   employees: number;
   clientsPerEmployee: number | null;
-  /** Retainers a month ÷ employees. */
+  /** Retainers a month ÷ employees (FTE). */
   revenuePerEmployee: number | null;
 }
 
-/** Clients and revenue per employee (D22): the department's clients and retainers ÷ everyone in it, contractors and leadership out. */
+/**
+ * Whether a person counts as an employee for clients and revenue per employee (D22): active and not a contractor; leadership follows the
+ * same setting as DLER (`dler_includes_leadership`, off unless set), so the two figures count the same people.
+ */
+function isEmployee(setup: CapacitySetup, p: SetupPerson, role: SetupRole | null): boolean {
+  return p.active && p.label !== "contractor" && (setup.dlerIncludesLeadership || !(role && isLeadershipRole(role)));
+}
+
+/** Clients and revenue per employee (D22): the department's clients and retainers ÷ the FTE of everyone in it who counts (`isEmployee`). */
 export function perEmployee(setup: CapacitySetup, departmentId: string): PerEmployee {
   const { personRole, deptOf } = lookups(setup);
-  const employees = activePeople(setup).filter((p) => {
-    const role = personRole(p);
-    return deptOf(p) === departmentId && p.label !== "contractor" && !(role && isLeadershipRole(role));
-  }).length;
+  const employees = activePeople(setup)
+    .filter((p) => deptOf(p) === departmentId && isEmployee(setup, p, personRole(p)))
+    .reduce((sum, p) => sum + (Number.isFinite(p.fte) && p.fte > 0 ? p.fte : 0), 0);
   const clients = uniqueClients(setup).byDepartment[departmentId] ?? 0;
   return {
     departmentId,
@@ -767,17 +775,14 @@ export function bottleneck(setup: CapacitySetup, model: EngineModel, result: Sim
   return { person: top, over: top.busy - top.line, steps, next: ranked.slice(1, 5), ranking: rankBottlenecks(model, result) };
 }
 
-/**
- * How close under their own utilisation threshold someone can be before they count as at risk ("near"): 10 percentage points, so a
- * threshold of 85% puts everyone from 75% up at risk. At or over the threshold is "over".
- */
-export const AT_RISK_MARGIN = 0.1;
-
 export type RiskStatus = "over" | "near";
 
-/** Over (at or past the threshold), near (within `AT_RISK_MARGIN` under it), or null (fine). */
-export function riskOf(busy: number, line: number): RiskStatus | null {
-  return busy >= line ? "over" : busy >= line - AT_RISK_MARGIN - 1e-9 ? "near" : null;
+/**
+ * Over (at or past the threshold), near (within `margin` under it: the workspace's `settings.at_risk_margin`, 10 points unless set, so a
+ * threshold of 85% puts everyone from 75% up at risk), or null (fine).
+ */
+export function riskOf(busy: number, line: number, margin: number = DEFAULT_AT_RISK_MARGIN): RiskStatus | null {
+  return busy >= line ? "over" : busy >= line - margin - 1e-9 ? "near" : null;
 }
 
 export interface AtRiskPerson {
@@ -790,7 +795,7 @@ export interface AtRiskPerson {
 }
 
 /**
- * Everyone at risk, client-facing and shared teams alike: over their own utilisation threshold or within `AT_RISK_MARGIN` under it, over
+ * Everyone at risk, client-facing and shared teams alike: over their own utilisation threshold or within the workspace's at-risk margin under it, over
  * first, then busiest first. Each with the hours the run gave them, by the purpose of the steps.
  */
 export function atRisk(setup: CapacitySetup, model: EngineModel, result: SimulationResult, topSteps = 3): { over: number; near: number; people: AtRiskPerson[] } {
@@ -799,7 +804,7 @@ export function atRisk(setup: CapacitySetup, model: EngineModel, result: Simulat
   const nameOf = new Map(model.steps.map((s) => [s.id, s.name]));
   const out: AtRiskPerson[] = [];
   for (const p of people) {
-    const status = riskOf(p.busy, p.line);
+    const status = riskOf(p.busy, p.line, setup.atRiskMargin);
     if (!status) continue;
     const hours: Record<string, number> = {};
     for (const [stepId, h] of Object.entries(result.personTime?.stepHours[p.id] ?? {})) {
@@ -882,7 +887,7 @@ export interface WholeBusiness {
   byDepartment: { name: string; clients: number }[];
   both: number;
   employees: number;
-  /** All retainers a month ÷ all employees (D22's definition of an employee). */
+  /** All retainers a month ÷ all employees' FTE (D22's definition of an employee, leadership as in DLER). */
   revenuePerEmployee: number | null;
   /** The average of every client-facing person's DLER (D40). */
   dler: DlerRow;

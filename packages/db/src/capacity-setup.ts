@@ -215,10 +215,31 @@ export interface CapacitySetup {
   /** `settings.dler_includes_leadership`; false when never set (D48: directors and managers are not counted in DLER). */
   dlerIncludesLeadership: boolean;
   dlerProvenance: unknown;
+  /** `settings.dler_goal`: the DLER every figure is judged against; `DEFAULT_DLER_GOAL` (4.5) when never set. */
+  dlerGoal: number;
+  /** `settings.at_risk_margin`: how far under their threshold someone is "near" (at risk); `DEFAULT_AT_RISK_MARGIN` (0.1) when never set. */
+  atRiskMargin: number;
   /** Whether the viewer may change anything here (Owner and Agency admins). */
   canEdit: boolean;
   /** True when the viewer can't see pay: every salary is null and the column is not shown. */
   payHidden: boolean;
+}
+
+/** The DLER a workspace is judged against until it sets its own (`settings.dler_goal`; D24). */
+export const DEFAULT_DLER_GOAL = 4.5;
+/** How far under their threshold someone counts as at risk until the workspace sets its own (`settings.at_risk_margin`): 10 points. */
+export const DEFAULT_AT_RISK_MARGIN = 0.1;
+
+/** `settings.dler_goal` if it is a usable number, else the default. */
+export function dlerGoalOf(settings: Record<string, unknown> | null | undefined): number {
+  const v = settings?.dler_goal;
+  return typeof v === "number" && Number.isFinite(v) && v > 0 && v <= 50 ? v : DEFAULT_DLER_GOAL;
+}
+
+/** `settings.at_risk_margin` if it is a usable share, else the default. */
+export function atRiskMarginOf(settings: Record<string, unknown> | null | undefined): number {
+  const v = settings?.at_risk_margin;
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 0.5 ? v : DEFAULT_AT_RISK_MARGIN;
 }
 
 /** New starters reach about 80% in three months (the prototype: 40%, 60%, 80% in months 1 to 3, then full). */
@@ -383,6 +404,8 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
     rampDefaultProvenance: wsProv["settings.ramp_default"] ?? null,
     dlerIncludesLeadership: settings.dler_includes_leadership === true,
     dlerProvenance: wsProv["settings.dler_includes_leadership"] ?? null,
+    dlerGoal: dlerGoalOf(settings),
+    atRiskMargin: atRiskMarginOf(settings),
     canEdit: canEdit === true,
     payHidden: hidden,
   };

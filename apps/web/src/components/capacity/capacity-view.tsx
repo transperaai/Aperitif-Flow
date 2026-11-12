@@ -7,11 +7,9 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
-  AT_RISK_MARGIN,
   atRisk,
   busyShares,
   departmentCeiling,
-  DLER_GOAL,
   dler,
   leavers,
   limitedBy,
@@ -213,7 +211,8 @@ function Headline({ setup }: { setup: CapacitySetup }) {
   const d = useMemo(() => dler(setup), [setup]);
   const dlerKpi = (label: string, row: (typeof d)["whole"]) => {
     const shown = !row.hidden && row.ratio !== null;
-    const status: KpiStatus | undefined = shown ? (row.ratio! >= DLER_GOAL ? { tone: "good", words: `At or above the ${f1(DLER_GOAL)} goal` } : { tone: "warn", words: `Below the ${f1(DLER_GOAL)} goal` }) : undefined;
+    const goal = setup.dlerGoal;
+    const status: KpiStatus | undefined = shown ? (row.ratio! >= goal ? { tone: "good", words: `At or above the ${f1(goal)} goal` } : { tone: "warn", words: `Below the ${f1(goal)} goal` }) : undefined;
     return (
       <KpiTile
         key={label}
@@ -238,7 +237,7 @@ function Headline({ setup }: { setup: CapacitySetup }) {
         </KpiStrip>
       </div>
       <div className="flex min-w-0 flex-col gap-2">
-        <h2 className={group}>DLER, fees against salaries (the goal is {f1(DLER_GOAL)})</h2>
+        <h2 className={group}>DLER, fees against salaries (the goal is {f1(setup.dlerGoal)})</h2>
         <KpiStrip>
           {d.departments.map((row) => dlerKpi(`DLER ${row.name}`, row))}
           {dlerKpi("DLER whole business", d.whole)}
@@ -397,7 +396,7 @@ function ClientFacingPeople({ name, setup, ceiling, people, showChannels }: { na
                   <span className="truncate">{p.name}</span>
                   <div className="flex items-center gap-2">
                     <div className="flex-1">
-                      <ThresholdBar busy={p.busy} line={p.line} />
+                      <ThresholdBar busy={p.busy} line={p.line} margin={setup.atRiskMargin} />
                     </div>
                     <span className="w-9 text-right text-xs text-muted-foreground tabular-nums">{formatPercent(p.busy)}</span>
                   </div>
@@ -427,8 +426,6 @@ function channelsOf(setup: CapacitySetup, p: PersonBusy): number {
   return total;
 }
 
-const MARGIN_POINTS = Math.round(AT_RISK_MARGIN * 100);
-
 function Bottleneck({
   setup,
   risk,
@@ -445,6 +442,7 @@ function Bottleneck({
   stepProcess: Record<string, string>;
 }) {
   const deptName = (p: PersonBusy) => setup.departments.find((d) => d.id === p.departmentId)?.name ?? p.roleName;
+  const MARGIN_POINTS = Math.round(setup.atRiskMargin * 100);
   const used = new Map([...colours].filter(([n]) => risk.people.some((r) => parts.get(r.person.id)?.some((x) => x.name === n))));
   return (
     <Section title="Bottleneck: who is at risk" data-bottleneck
@@ -593,7 +591,7 @@ function Leaver({ setup, model, result, people }: { setup: CapacitySetup; model:
               {res.rows.map((r) => (
                 <div key={r.id} className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-2.5 text-sm md:grid-cols-[8rem_minmax(0,40rem)]">
                   <span className="truncate">{r.name}</span>
-                  <Dumbbell before={r.before} after={r.after} line={r.line} />
+                  <Dumbbell before={r.before} after={r.after} line={r.line} margin={setup.atRiskMargin} />
                 </div>
               ))}
             </div>

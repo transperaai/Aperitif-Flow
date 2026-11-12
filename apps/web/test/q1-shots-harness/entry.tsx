@@ -38,7 +38,7 @@ function Departments({ setup, model, purposeNames }: { setup: CapacitySetup; mod
   return (
     <>
       <WholeBusinessHero setup={setup} base="/w/example" />
-      <DepartmentTiles figures={figures} base="/w/example" currency={setup.currency} />
+      <DepartmentTiles figures={figures} base="/w/example" currency={setup.currency} dlerGoal={setup.dlerGoal} />
       <div className="grid gap-6 lg:grid-cols-2">
         <BusiestPeople people={figures.people} failed={!!figures.failure} capacityHref="/w/example/capacity" />
         <WhereTimeGoes rows={figures.rows} failed={!!figures.failure} />

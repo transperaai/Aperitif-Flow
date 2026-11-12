@@ -18,7 +18,7 @@ import {
   leavers,
   atRisk,
   riskOf,
-  AT_RISK_MARGIN,
+  DEFAULT_AT_RISK_MARGIN,
   perEmployee,
   personMax,
   plannedServiceHours,
@@ -336,7 +336,7 @@ describe("leavers (several people leave at once)", () => {
 });
 
 describe("atRisk", () => {
-  test(`over (at or past the threshold) first, then near (within ${AT_RISK_MARGIN * 100} points under it), busiest first; with hours by purpose`, () => {
+  test(`over (at or past the threshold) first, then near (within ${DEFAULT_AT_RISK_MARGIN * 100} points under it), busiest first; with hours by purpose`, () => {
     const model = tinyModel();
     const setup = capacitySetupFromModel(model);
     const { people } = busyShares(setup, model, fakeResult({ d: 0, a: 0, b: 0, c: 0, free: 0 }, {}, {}, {}, model));
@@ -416,6 +416,19 @@ describe("dler (D40: the average of each client-facing person's DLER)", () => {
   });
 });
 
+describe("the at-risk margin (customisability audit 48)", () => {
+  test("is the workspace's: a wider margin puts more people near", () => {
+    expect(riskOf(0.7, 0.85)).toBeNull();
+    expect(riskOf(0.7, 0.85, 0.2)).toBe("near");
+    expect(riskOf(0.86, 0.85, 0.2)).toBe("over");
+    const model = tinyModel();
+    const line = 0.85;
+    const r = fakeResult({ d: 0, a: line - 0.15, b: 0, c: 0, free: 0 }, {}, {}, {}, model);
+    expect(atRisk(capacitySetupFromModel(model), model, r).people.some((x) => x.person.id === "a")).toBe(false);
+    expect(atRisk(capacitySetupFromModel(model, { atRiskMargin: 0.2 }), model, r).people.find((x) => x.person.id === "a")?.status).toBe("near");
+  });
+});
+
 describe("serviceLines and perEmployee", () => {
   test("unique clients are the departments' clients less those taking both", () => {
     const model = tinyModel();
@@ -431,6 +444,14 @@ describe("serviceLines and perEmployee", () => {
     expect(pe.employees).toBe(3); // Ann, Bo, Cy (Dee leads; the freelancer is a contractor)
     expect(pe.clientsPerEmployee).toBeCloseTo(20 / 3, 10);
     expect(pe.revenuePerEmployee).toBeCloseTo(20000 / 3, 10);
+  });
+  test("employees are counted by FTE, and leadership follows the DLER setting (customisability audit 40)", () => {
+    const setup = capacitySetupFromModel(tinyModel());
+    const ann = setup.people.find((p) => p.name === "Ann")!;
+    const part = { ...setup, people: setup.people.map((p) => (p.id === ann.id ? { ...p, fte: 0.4 } : p)) };
+    expect(perEmployee(part, "org").employees).toBeCloseTo(2.4, 10);
+    expect(perEmployee(part, "org").revenuePerEmployee).toBeCloseTo(20000 / 2.4, 10);
+    expect(perEmployee({ ...setup, dlerIncludesLeadership: true }, "org").employees).toBe(4);
   });
 });
 
@@ -546,12 +567,12 @@ describe("the Overview's figures (P6)", () => {
     expect(w.revenuePerEmployee).toBeCloseTo(20000 / 3, 10);
     expect(w.dler.ratio).toBeCloseTo((10000 / 7500 + 6000 / 7500 + 0) / 3, 10);
   });
-  test("DLER follows the leadership switch; per-employee does not", () => {
+  test("DLER and per-employee both follow the leadership switch", () => {
     const withLead = wholeBusiness(capacitySetupFromModel(tinyModel(), { dlerIncludesLeadership: true }));
     const without = wholeBusiness(capacitySetupFromModel(tinyModel(), { dlerIncludesLeadership: false }));
     expect(withLead.dler.ratio).toBeCloseTo((4000 / 12500 + 10000 / 7500 + 6000 / 7500 + 0) / 4, 10);
     expect(without.dler.ratio).toBeCloseTo((10000 / 7500 + 6000 / 7500 + 0) / 3, 10);
-    expect(without.employees).toBe(withLead.employees);
+    expect(withLead.employees).toBe(without.employees + 1);
   });
   test("a missing salary of someone in DLER is flagged; a contractor's is not; hidden pay is never flagged", () => {
     const setup = capacitySetupFromModel(tinyModel());

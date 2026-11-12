@@ -4,7 +4,7 @@
 // bottom fail the typecheck if they drift from it.
 
 import type { ProcessCategory } from "./process-category";
-import type { IssueType, ScenarioPatch, StoredSeverity } from "@transpera-flow/engine";
+import type { AnalysisSettings, IssueType, ScenarioPatch, StoredSeverity } from "@transpera-flow/engine";
 import type { Selectable } from "kysely";
 import type { DB } from "./db-types";
 import type { Viewer } from "./queries";
@@ -93,6 +93,16 @@ export interface WorkspaceSettings {
    * Stored only. Checked by `workspaces_dler_includes_leadership`.
    */
   dler_includes_leadership?: boolean | null;
+  /**
+   * The DLER the agency aims for (fees a month ÷ salaries a month), more than 0 and at most 50, e.g. 3 for 3:1. Every DLER on the
+   * Overview, Capacity and the Sandbox is judged against it. Absent or null: `DEFAULT_DLER_GOAL` (4.5). Checked by `workspaces_dler_goal`.
+   */
+  dler_goal?: number | null;
+  /**
+   * How far under their own utilisation threshold someone counts as at risk ("near"), as a share from 0 to 0.5 (0.1 is 10 points).
+   * Absent or null: `DEFAULT_AT_RISK_MARGIN` (0.1). Checked by `workspaces_at_risk_margin`.
+   */
+  at_risk_margin?: number | null;
 }
 
 /** One per-person time as `team_capacity` returns it (`step_id` null is the person's time on every step). */
@@ -723,6 +733,11 @@ export interface ProcessPart {
 export interface ProcessBundle {
   /** Who loaded it (B1 2/3). Absent means "sees everyone" (demo fixtures, tests, the golden models). */
   viewer?: Viewer;
+  /**
+   * The workspace's analysis rules as stored (`analysis_rules.settings`, parsed): the assumptions Settings edits (a lost client's value cap,
+   * the absence test, the busy bands). Every page rates a run with these. Absent or {}: the documented defaults.
+   */
+  analysisRules?: AnalysisSettings;
   /** Pay is hidden even though the viewer may see everyone (a share link, B3). */
   payHidden?: true;
   workspace: WorkspaceRow;
