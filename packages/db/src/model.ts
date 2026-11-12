@@ -8,6 +8,8 @@ import {
   afterSaleSteps,
   MAX_REWORK,
   ModelError,
+  pooledChurnMonthly,
+  tenureFromChurn,
   type EngineMarket,
   type EngineDemand,
   type Distribution as EngineDistribution,
@@ -24,7 +26,7 @@ import {
   type EngineStep,
 } from "@transpera-flow/engine";
 import { resolvePurpose, workspacePurposes, type PurposeSource } from "./purposes";
-import { engineClientCapacity, enginePersonCapacity, engineRoleUnit, engineTierClientGroups, engineTierService, tierContext, type TierContext } from "./capacity-model";
+import { engineClientCapacity, enginePersonCapacity, engineRoleUnit, engineTierClientGroups, engineTierService, namedClientFee, tierContext, type TierContext } from "./capacity-model";
 import { engineRecurrence } from "./servicing";
 import { effectiveMonthlySalary, hourlyCostFromSalary } from "./salary";
 import { COMPANY_DONE, STEP_SOURCE_LABELS, type DistParams, type Distribution, type EdgeRow, type LeadSourceRow, type PersonRow, type ProcessBundle, type ProcessPart, type SeasonalityRow, type StepRow, type StepSourceLabel, type WorkspaceSettings } from "./types";
@@ -353,7 +355,9 @@ function engineModelOf(bundle: ProcessBundle, options: ModelOptions): { model: E
         : clients
           ? Object.keys(clients).length
           : s.active_clients,
-    churnMonthly: s.churn_monthly,
+    // Clients kept as one pool (no named or counted clients) churn at the services' base churn (mix-weighted), the rate their new
+    // clients churn at; the interim workspace churn is only for a workspace with no monthly service.
+    churnMonthly: clients || clientGroups ? s.churn_monthly : pooledChurnMonthly(services, s.churn_monthly),
     retainer: s.retainer,
     roles: engineRoles,
     ...(services ? { services } : {}),
@@ -548,7 +552,8 @@ function engineServices(bundle: ProcessBundle, processId: string): Record<string
       pricingModel: sv.pricing_model,
       price: Number(sv.price),
       margin: Number(sv.margin),
-      tenureMonths: Number(sv.tenure_months),
+      // A blank expected tenure is worked out from churn (finding 30), so the stay that values a deal moves with the churn.
+      tenureMonths: sv.tenure_months === null || sv.tenure_months === undefined ? tenureFromChurn(Number(sv.churn_monthly_base)) : Number(sv.tenure_months),
       churnMonthly: Number(sv.churn_monthly_base),
       // Rows written before it existed may not carry it: then health doesn't move churn.
       ...(sv.churn_health_sensitivity != null && Number.isFinite(Number(sv.churn_health_sensitivity))
@@ -690,13 +695,15 @@ function engineClients(
       .sort((a, b) => (a.role_id < b.role_id ? -1 : a.role_id > b.role_id ? 1 : 0))) {
       assignments[a.role_id] = a.person_id;
     }
+    const takes = (bundle.clientServices ?? [])
+      .filter((cs) => cs.client_id === c.id && services && cs.service_id in services)
+      .map((cs) => cs.service_id)
+      .sort();
     clients[c.id] = {
       name: c.name,
-      services: (bundle.clientServices ?? [])
-        .filter((cs) => cs.client_id === c.id && services && cs.service_id in services)
-        .map((cs) => cs.service_id)
-        .sort(),
-      mrr: Number(c.mrr),
+      services: takes,
+      // A blank fee (0) in a tier workspace is the tier's fee, as the Settings screen shows it.
+      mrr: tier ? namedClientFee(Number(c.mrr), takes.filter((sid) => tier.tierServices.has(sid)).map((sid) => services![sid]!.price)) : Number(c.mrr),
       ...(c.health !== null && c.health !== undefined ? { health: Number(c.health) } : {}),
       assignments,
       // A tier workspace: its own values, its manager and its hand-holding hours (capacity-model.ts).

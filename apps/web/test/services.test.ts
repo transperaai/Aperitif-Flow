@@ -18,6 +18,8 @@ describe("parseServiceField", () => {
     expect(parseServiceField(seo, "price", 3500, 0)?.value).toBe(0);
     expect(parseServiceField(seo, "margin", 0.45, 1)?.value).toBe(1);
     expect(parseServiceField(seo, "tenure_months", 18, 0)?.value).toBe(0);
+    // Blank: worked out from churn.
+    expect(parseServiceField(seo, "tenure_months", 18, null)).toEqual({ serviceId: seo, field: "tenure_months", base: 18, value: null });
     expect(parseServiceField(seo, "churn_monthly_base", 0.03, 0.5)?.value).toBe(0.5);
     expect(parseServiceField(seo, "mix_share", 0.55, 0)?.value).toBe(0);
     expect(parseServiceField(seo, "entry_process_id", null, "c0000000-0000-4000-8000-000000000001")).not.toBeNull();

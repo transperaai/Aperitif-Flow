@@ -15,6 +15,7 @@ import {
   EFFECT_MONTHS,
   MAX_GROUP_CLIENTS,
   healthRules,
+  pooledChurnMonthly,
   type EngineChurnDriver,
   type EngineClient,
   type EngineClientGroup,
@@ -134,7 +135,11 @@ function baseChurn(model: EngineModel, c: SandboxChange, problems: ChangeProblem
     groups = { ...groups };
     for (const sid of ids) if (groups[sid]) groups[sid] = { ...groups[sid]!, churnMonthly: clamp(combine(groups[sid]!.churnMonthly, c.op, c.value)) };
   }
-  return { ...model, services: nextServices, ...(groups ? { clientGroups: groups } : {}) };
+  // Clients kept as one pool churn at the services' mix-weighted base churn (model.ts): a type's change moves them by the same ratio.
+  const before = pooledChurnMonthly(services, model.churnMonthly);
+  const after = pooledChurnMonthly(nextServices, model.churnMonthly);
+  const churnMonthly = !hasClientRoster(model) && before > 0 ? clamp((model.churnMonthly * after) / before) : model.churnMonthly;
+  return { ...model, churnMonthly, services: nextServices, ...(groups ? { clientGroups: groups } : {}) };
 }
 
 /** The driver `id` as the model has it (or its default, switched on). */

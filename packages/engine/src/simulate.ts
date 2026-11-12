@@ -420,6 +420,26 @@ export function pooledMonthlyFee(model: EngineModel): number {
 }
 
 /**
+ * The monthly churn of clients kept as one pool, by the same rule as `pooledMonthlyFee`: the mix-share-weighted base churn of the
+ * retainer services (a plain average when the shares sum to 0), or `fallback` (the workspace's interim churn) when there is none. So
+ * editing a service's base churn moves the clients you have today as well as the clients you win.
+ */
+export function pooledChurnMonthly(services: Readonly<Record<string, Pick<EngineService, "pricingModel" | "mixShare" | "churnMonthly">>> | undefined, fallback: number): number {
+  const retainers = Object.values(services ?? {}).filter((s) => s.pricingModel === "retainer");
+  if (!retainers.length) return fallback;
+  const share = retainers.reduce((sum, s) => sum + s.mixShare, 0);
+  return share > 0 ? retainers.reduce((sum, s) => sum + s.churnMonthly * s.mixShare, 0) / share : retainers.reduce((sum, s) => sum + s.churnMonthly, 0) / retainers.length;
+}
+
+/**
+ * How long a client stays, in months, worked out from its monthly churn: 1 / churn (a 2% churn is a 50-month stay), and 0 when
+ * churn is 0 (no stay to value). A service with no expected tenure entered uses this, as does the implicit retainer.
+ */
+export function tenureFromChurn(churnMonthly: number): number {
+  return Number.isFinite(churnMonthly) && churnMonthly > 0 ? 1 / churnMonthly : 0;
+}
+
+/**
  * The model's services, or one implicit retainer at `model.retainer` when it
  * has none, so such a model's revenue is `won × retainer` as before.
  */
@@ -436,7 +456,7 @@ function resolveServices(model: EngineModel): ServiceState[] {
             pricingModel: "retainer",
             price: model.retainer,
             margin: 0,
-            tenureMonths: churn > 0 ? 1 / churn : 0,
+            tenureMonths: tenureFromChurn(churn),
             churnMonthly: churn,
             mixShare: 1,
             pathTags: [],

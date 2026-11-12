@@ -39,6 +39,17 @@ const DELIVERABLE_KEYS: readonly (readonly [keyof CapacityDeliverableColumns, ke
 /** A finite number, or null (a column that was never entered, or junk). */
 const finite = (v: number | null | undefined): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
+/**
+ * A named client's fee a month: its own when one is entered (more than 0), else its tier's: the sum of the fees of the tiers it takes
+ * (a client on both services pays both). The Settings screen shows a blank fee with the tier's as its default; the engine, Overview,
+ * Capacity and the Sandbox all use this one rule.
+ */
+export function namedClientFee(mrr: number, tierFees: readonly number[]): number {
+  const own = Number(mrr);
+  if (Number.isFinite(own) && own > 0) return own;
+  return tierFees.reduce((a, f) => a + (Number.isFinite(f) ? f : 0), 0);
+}
+
 /** What the mapping reads of a tier workspace, worked out once per model. */
 export interface TierContext {
   cap: CapacityInputs;
@@ -174,9 +185,10 @@ export function enginePersonCapacity(
 
 /**
  * Counted clients per service in a tier workspace: a tier service's count is its group's `client_count` (counted clients nobody's
- * portfolio holds yet) plus everyone's portfolio for it; the rest of the group's numbers are the group's row, else the service's own
- * (fee, base churn, tenure) and the default health of a client with none entered. A service that is not a tier service keeps its
- * group row as it is. Undefined when no client is counted.
+ * portfolio holds yet) plus everyone's portfolio for it. Its fee, base churn and stay are always the tier's own (services.price,
+ * churn_monthly_base, tenure_months): the one place an owner edits them, read alike by Overview, Capacity and the Sandbox. The
+ * group's own fee, churn and stay columns are not read for a tier. Starting health is the group's, else the default of a client with
+ * none entered. A service that is not a tier service keeps its group row as it is. Undefined when no client is counted.
  */
 export function engineTierClientGroups(
   ctx: TierContext,
@@ -197,9 +209,9 @@ export function engineTierClientGroups(
     const sv = services[sid]!;
     groups[sid] = {
       count: total !== null ? held + Math.max(0, total - namedOn(sid) - held) : (row ? Number(row.client_count) : 0) + (isTier ? held : 0),
-      fee: row ? Number(row.fee) : sv.price,
-      churnMonthly: row ? Number(row.churn_monthly) : sv.churnMonthly,
-      stayMonths: row ? Number(row.stay_months) : sv.tenureMonths,
+      fee: row && !isTier ? Number(row.fee) : sv.price,
+      churnMonthly: row && !isTier ? Number(row.churn_monthly) : sv.churnMonthly,
+      stayMonths: row && !isTier ? Number(row.stay_months) : sv.tenureMonths,
       health: row ? Number(row.starting_health) : 80,
     };
   }

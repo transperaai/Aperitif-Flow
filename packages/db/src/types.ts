@@ -348,8 +348,8 @@ export interface ServiceRow {
   price: number;
   /** Gross margin as a share of price (0–1). */
   margin: number;
-  /** Expected tenure of a retainer client, in months. */
-  tenure_months: number;
+  /** Expected tenure of a retainer client, in months. Null: worked out from churn (`tenureFromChurn`). */
+  tenure_months: number | null;
   /** Base monthly churn (0–1): at full health, the churn of a client on this service. */
   churn_monthly_base: number;
   /**
