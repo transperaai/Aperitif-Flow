@@ -6,7 +6,7 @@
 
 import type { EngineModel, SimulationResult } from "@transpera-flow/engine";
 import type { CapacitySetup, SetupPerson } from "./capacity-setup";
-import { tierCount, uniqueClients } from "./capacity-setup";
+import { personSalary, tierCount, uniqueClients } from "./capacity-setup";
 import { busyShares, dler, hiringAdvice, DEFAULT_HIRING_DELAY_MONTHS } from "./capacity-figures";
 import { playChangeId, type PlayState } from "./sandbox-play";
 import type { PlayPersonSeries, PlaySeries } from "./sandbox-verdict";
@@ -52,8 +52,10 @@ export function setupInMonth(setup: CapacitySetup, play: Pick<PlayState, "leaver
   const people: SetupPerson[] = setup.people.map((p) => (gone.has(p.id) ? { ...p, active: false } : p));
   play.hires.forEach((h, i) => {
     if (h.month > m) return;
-    const same = setup.people.filter((p) => p.active && p.role_ids.includes(h.role) && p.salary_monthly !== null);
-    const salary = setup.payHidden || !same.length ? null : same.reduce((s, p) => s + (p.salary_monthly ?? 0), 0) / same.length;
+    // The mean of the role's people's salaries (their own, or the role's pro rata, D73). None: null, and the hire, full-time in the role,
+    // takes the role's salary as anyone without their own does.
+    const same = setup.people.map((p) => (p.active && p.role_ids.includes(h.role) ? personSalary(setup, p) : null)).filter((v): v is number => v !== null);
+    const salary = setup.payHidden || !same.length ? null : same.reduce((s, v) => s + v, 0) / same.length;
     people.push({
       id: playChangeId("D1", i),
       name: "New hire",

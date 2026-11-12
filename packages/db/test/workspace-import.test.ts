@@ -867,3 +867,25 @@ describe("process notes (migration 20270202000000)", () => {
     }
   });
 });
+
+describe("role salaries (migration 20270203000500)", () => {
+  const salariesOf = async (ws: string) => (await q("select name, salary_monthly from roles where workspace_id = $1 order by name", [ws])).map((r) => [r.name, r.salary_monthly]);
+
+  it("a backup carries each role's salary and restores it; one from before role salaries restores null", async () => {
+    await q("update roles set salary_monthly = 6500 where workspace_id = $1 and name = 'SEO specialist'", [NORTHBEAM_WORKSPACE_ID]);
+    try {
+      const original = await salariesOf(NORTHBEAM_WORKSPACE_ID);
+      expect(original.some((r) => Number(r[1]) === 6500)).toBe(true);
+      const bundle = await exportOf(NORTHBEAM_WORKSPACE_ID);
+      const restored = await restoreInto(bundle);
+      expect(await salariesOf(restored.ws)).toEqual(original);
+
+      const old = structuredClone(bundle);
+      for (const r of old.company_model.roles as Record<string, unknown>[]) delete r.salary_monthly;
+      const without = await restoreInto(old);
+      for (const [name, salary] of await salariesOf(without.ws)) expect(salary, String(name)).toBeNull();
+    } finally {
+      await q("update roles set salary_monthly = null where workspace_id = $1", [NORTHBEAM_WORKSPACE_ID]);
+    }
+  });
+});

@@ -62,6 +62,7 @@ export function capacitySetupFromModel(model: EngineModel, options: { payHidden?
     rule_of_thumb: RULE[id] ?? null,
     leadership: looksLikeLeadership(r.name),
     unit: r.unit?.label ?? null,
+    salary_monthly: null,
     provenance: {},
   }));
   const people: SetupPerson[] = Object.entries(model.people ?? {}).map(([id, p]) => ({

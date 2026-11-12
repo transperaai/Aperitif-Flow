@@ -198,6 +198,14 @@ export async function loadTeam(db: Db, workspaceId: string): Promise<TeamInputs>
 }
 
 /**
+ * Roles as `viewer` may have them: a role's salary is pay (D73), so whoever doesn't see everyone gets it as null, as `team_capacity`
+ * gives them no one else's salary or rate. Every member may read the table's rows, so this is where a loader drops it.
+ */
+export function rolesForViewer<R extends { salary_monthly?: number | null }>(roles: R[], viewer: Viewer): R[] {
+  return viewer.seesEveryone ? roles : roles.map((r) => ({ ...r, salary_monthly: null }));
+}
+
+/**
  * A workspace's client roster: clients by name, their services and assignments. Pass `team` when the caller has already
  * loaded it, so `team_capacity` runs once.
  */
@@ -367,7 +375,7 @@ export async function loadProcessBundle(
     },
     process,
     revision: revision as ProcessRevisionRow,
-    roles,
+    roles: rolesForViewer(roles, team.viewer),
     steps: inUse,
     retired,
     edges: edges as unknown as EdgeRow[],
@@ -1186,7 +1194,7 @@ export async function loadCompanyModel(
       settings: workspace.settings as WorkspaceSettings,
       ...(workspace.provenance ? { provenance: workspace.provenance as ProvenanceMap } : {}),
     },
-    roles,
+    roles: rolesForViewer(roles, team.viewer),
     people: team.people,
     personRoles: team.personRoles,
     personLeave: team.personLeave,
