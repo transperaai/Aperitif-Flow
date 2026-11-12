@@ -236,7 +236,7 @@ describe("the free-play Sandbox", { timeout: 240_000 }, () => {
     await page.locator(`[data-version-popover="${id}"] [data-version-option="sol-${id}"]`).click();
     await page.keyboard.press("Escape");
     await page.locator('[data-lever="add:org"]').fill("2");
-    await page.locator('[data-lever="churn"] input').fill("20");
+    await page.locator('[data-lever="churn"] input[type=range]').fill("20");
     await settled(page);
     expect(await text(page, "[data-levers-count]")).toBe("2 changes");
     await page.locator("[data-levers-reset]").click();
@@ -255,7 +255,7 @@ describe("the free-play Sandbox", { timeout: 240_000 }, () => {
     const { page, errors } = await mount();
     await ready(page);
     await page.locator('[data-lever="add:org"]').fill("3");
-    await page.locator('[data-lever="leads"] input').fill("20");
+    await page.locator('[data-lever="leads"] input[type=range]').fill("20");
     await settled(page);
     expect(await page.locator('[data-lever="add:org"]').inputValue()).toBe("3");
     // Leaving the page unmounts it; coming back opens it fresh.
@@ -319,7 +319,7 @@ describe("the free-play Sandbox", { timeout: 240_000 }, () => {
     const { page, errors } = await mount();
     await ready(page);
     expect(await page.locator("[data-price-loss]").count()).toBe(0);
-    await page.locator('[data-lever="price"] input').fill("10");
+    await page.locator('[data-lever="price"] input[type=range]').fill("10");
     await page.locator('[data-lever="priceFrom"]').selectOption("1");
     await page.locator('[data-lever="priceReaction"]').selectOption("barely");
     await settled(page);
@@ -402,7 +402,7 @@ describe("the free-play Sandbox", { timeout: 240_000 }, () => {
         await page.locator("[data-version-popover] [data-version-option]").nth(1).click();
         if (shotPopover) await page.screenshot({ path: `${shots}/sandbox-popover-${scheme}-${width}.png`, fullPage: false });
         await page.keyboard.press("Escape");
-        await page.locator('[data-lever="price"] input').fill("8");
+        await page.locator('[data-lever="price"] input[type=range]').fill("8");
         await settled(page);
         await page.evaluate(() => document.fonts.ready);
         await page.screenshot({ path: `${shots}/sandbox-${scheme}-${width}.png`, fullPage: true });
