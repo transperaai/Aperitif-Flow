@@ -62,6 +62,11 @@ const HELP = {
   line: { label: "Utilisation threshold %", description: "The utilisation threshold is how busy this role can be before it counts as full. Past it, more clients won't fit.", example: "85%: a person booked at 85% of their hours is at their utilisation threshold." },
   rule: { label: "Rule of thumb", description: "A rule of thumb: the most clients one person in this role holds. Shown as a line to compare the real counts against.", example: "SEO Manager: 10 clients." },
   unit: { label: "Unit of work", description: "What a shared team counts its work in. Rates for each unit come later.", example: "Content team: words. Link outreach: links." },
+  ongoing: {
+    label: "Hours per client a week",
+    description: "Hours one person in this role spends on each client a week, for clients whose service has no servicing process or ongoing load of its own. 0: none.",
+    example: "Account manager: 1.5 hours per client a week for check-ins and reporting.",
+  },
   headcount: { label: "People", description: "How many people have this role.", example: "SEO Manager: 3." },
 } satisfies Record<string, FieldHelp & { label: string }>;
 
@@ -710,6 +715,10 @@ function RolePanel({ setup, data, role: r, missingUnit }: { setup: CapacitySetup
           <div className="flex flex-col">
             <NumberField label="Utilisation threshold %" value={r.line} save={field("roles", key, "line")} scale={100} min={1} max={150} step={5} disabled={!canEdit} help={HELP.line} />
             <Marks provenance={r.provenance} column="line" value={r.line} />
+          </div>
+          <div className="flex flex-col">
+            <NumberField label="Hours per client a week" value={r.ongoing_hours_per_client_week} save={field("roles", key, "ongoing_hours_per_client_week")} min={0} max={168} step={0.5} unit="h" disabled={!canEdit} help={HELP.ongoing} />
+            <Marks provenance={r.provenance} column="ongoing_hours_per_client_week" value={r.ongoing_hours_per_client_week} />
           </div>
           {r.kind === "client_facing" && (
             <div className="flex flex-col">

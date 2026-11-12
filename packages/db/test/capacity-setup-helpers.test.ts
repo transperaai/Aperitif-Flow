@@ -173,6 +173,10 @@ describe("the field rules", () => {
     expect(checkSetupValue(share, 0.9).ok).toBe(true);
     expect(checkSetupValue(share, 0.91).ok).toBe(false);
     expect(checkSetupValue(share, null).ok).toBe(false);
+    const ongoing = setupFieldRule("roles", "ongoing_hours_per_client_week")!;
+    expect(checkSetupValue(ongoing, 1.5).ok).toBe(true);
+    expect(checkSetupValue(ongoing, -1).ok).toBe(false);
+    expect(checkSetupValue(ongoing, null).ok).toBe(false);
     const count = setupFieldRule("person_portfolio", "client_count")!;
     expect(checkSetupValue(count, 3).ok).toBe(true);
     expect(checkSetupValue(count, 2.5).ok).toBe(false);

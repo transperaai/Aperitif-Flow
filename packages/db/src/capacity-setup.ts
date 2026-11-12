@@ -354,6 +354,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
     roles: roles.map((r) => ({
       ...r,
       default_cost_rate: Number(r.default_cost_rate),
+      ongoing_hours_per_client_week: Number(r.ongoing_hours_per_client_week),
       line: Number(r.line),
       leadership: r.leadership === true,
       kind: r.kind === "shared" ? "shared" : "client_facing",
@@ -485,6 +486,7 @@ export const SETUP_FIELDS = {
     department_id: { type: "id", nullable: true },
     kind: { type: "enum", values: ROLE_KINDS },
     line: n(0.01, 1.5),
+    ongoing_hours_per_client_week: n(0, 168),
     rule_of_thumb: n(1, 10_000, true, true),
     unit: text(60, true),
     leadership: { type: "boolean" },
