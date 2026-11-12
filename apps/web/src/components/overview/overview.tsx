@@ -262,8 +262,11 @@ export function Overview({
     [facts, parts, live.process.id, state.issues, solutionsData.solutions],
   );
 
-  // The company map: open groups in place; opening one moves its neighbours.
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  // The company map: open groups in place; opening one moves its neighbours. It opens with every process (and every group
+  // inside one) expanded, so the whole business shows at once in its department lanes; Collapse all closes them.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(
+    () => new Set(companyMap(live, parts, new Set(), company).bundle.steps.filter((s) => s.kind === "group").map((s) => s.id)),
+  );
   const map = useMemo(() => companyMap(live, parts, expanded, company), [live, parts, expanded, company]);
   // Department lanes (Q4): Sales and whole business first, then each department; always on here.
   const departmentLanes = useMemo(
@@ -603,6 +606,8 @@ export function Overview({
                   expanded={expanded}
                   onExpandedChange={setExpanded}
                   playbackRollUp
+                  // Opened in full, the whole business is wide: Fit and the - button may go down to 5% to show all of it.
+                  minZoom={0.05}
                   toolbarStart={mapToolbar}
                   showLanes={false}
                   departmentLanes={departmentLanes}

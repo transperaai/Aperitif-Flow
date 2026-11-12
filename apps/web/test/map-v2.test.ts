@@ -72,6 +72,13 @@ describe("fitting the map to its panel", () => {
     expect(stepZoom(MAX_ZOOM, "in")).toBe(MAX_ZOOM);
     expect(stepZoom(MIN_ZOOM, "out")).toBe(MIN_ZOOM);
   });
+
+  it("goes below 30% only for a map given a lower floor (the company map, opened in full)", () => {
+    expect(stepZoom(0.3, "out", 0.05)).toBe(0.15);
+    expect(stepZoom(0.1, "out", 0.05)).toBe(0.05);
+    expect(stepZoom(0.3, "out")).toBe(MIN_ZOOM);
+    expect(fitZoom({ width: 20000, height: 2000 }, { width: 1000, height: 1000 }, 0.05)).toBe(0.05);
+  });
 });
 
 /** What the latest run detects: the single points of failure, two of them (Audit is tracked already; Kickoff is not). */
