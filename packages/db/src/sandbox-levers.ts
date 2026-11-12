@@ -269,7 +269,7 @@ export const SANDBOX_LEVERS: readonly SandboxLever[] = [
     description: "The chance a client leaves in a month when nothing is going wrong.",
     target: "service_or_none",
     ops: ["set", "multiply", "add"],
-    range: { set: { min: 0, max: 1, step: 0.005 }, multiply: { min: 0, max: 5, step: 0.05 } },
+    range: { set: { min: 0, max: 1, step: 0.005 }, multiply: { min: 0, max: 5, step: 0.01 } },
     unit: "share",
     wholeRun: true,
     ...CHANNEL,
