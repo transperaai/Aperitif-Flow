@@ -4,13 +4,17 @@
 // leave, each with a weight and an on/off switch, plus your own. Every row has a Delete: one of your own is deleted for good; a
 // built-in is switched off and taken off the list (`settings.churn_drivers_removed`), and + Add driver puts it back. The simulation measures the ones it can; this section
 // shows each one's value now, its weight and how much of the churn it explains, and projects churn as the weights
-// move (no new simulation: it works from what the latest run measured).
+// move (no new simulation: it works from what the latest run measured). Above the drivers: each tier's normal churn (`normalChurn`, set
+// only there); each measured driver has the numbers where it starts and is full (CHURN_LIMIT_SETTINGS, workspace settings); below them
+// the Client health rules and bands (`health`).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Trash2 } from "lucide-react";
-import { ModelError, toEngineModel, type ChurnDriverRow, type ProcessBundle, type Viewer } from "@transpera-flow/db";
+import { ModelError, churnLimitsOf, toEngineModel, type ChurnDriverRow, type ProcessBundle, type Viewer, type WorkspaceSettings } from "@transpera-flow/db";
 import { CHURN_DRIVER_SPECS, CHURN_WEIGHT_MAX, CHURN_WEIGHT_MIN, CUSTOM_DRIVER_VALUE, equivalentEvents, projectChurn, type ChurnCauses, type EngineModel } from "@transpera-flow/engine";
+import { NumberField } from "@/components/fields";
 import { Help } from "@/components/help";
+import { SettingsBand } from "@/components/settings/settings-band";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -19,6 +23,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { ConfirmDialog } from "@/components/sandbox/scenario-bar";
 import {
   CHANCE_HELP,
+  CHURN_LIMIT_KEYS,
+  CHURN_LIMIT_SETTINGS,
   CONTROL_HELP,
   DRIVER_HELP,
   MAX_CUSTOM_DRIVERS,
@@ -27,17 +33,20 @@ import {
   VALUE_HELP,
   driverStates,
   engineIdOf,
+  limitsOf,
   parseDriverPatch,
   pressureKey,
   sourceLabel,
   toEngineDrivers,
   valueNow,
+  type ChurnLimitSetting,
   type DriverPatch,
   type DriverState,
 } from "@/lib/churn-drivers";
+import type { SaveOutcome } from "@/lib/fields/field-controller";
 import { useSimulation } from "@/lib/sim/use-simulation";
 import { cn } from "@/lib/utils";
-import { addChurnDriver, removeChurnDriver, saveChurnDriver, saveRemovedDrivers } from "./churn-drivers-actions";
+import { addChurnDriver, removeChurnDriver, saveChurnDriver, saveChurnLimit, saveRemovedDrivers } from "./churn-drivers-actions";
 import { SettingsSection } from "./section";
 
 export type DriversMode = "live" | "readonly" | "demo";
@@ -52,6 +61,8 @@ export function ChurnDriversSettings({
   bundle,
   rows,
   removed: removedStored = null,
+  normalChurn,
+  health,
 }: {
   mode: DriversMode;
   workspaceId: string | null;
@@ -61,6 +72,10 @@ export function ChurnDriversSettings({
   rows: readonly ChurnDriverRow[];
   /** The built-ins deleted from the list (`settings.churn_drivers_removed`); null: none. */
   removed?: readonly string[] | null;
+  /** Normal churn by tier, shown above the drivers (`NormalChurnByTier`). */
+  normalChurn?: ReactNode;
+  /** The Client health rules and bands, shown below them (`HealthSettings`). */
+  health?: ReactNode;
 }) {
   const canEdit = mode !== "readonly";
   const [states, setStates] = useState<DriverState[]>(() => driverStates(rows));
@@ -70,6 +85,16 @@ export function ChurnDriversSettings({
   const [removed, setRemoved] = useState<string[]>(() => [...(removedStored ?? [])]);
   const removedBase = useRef<string[] | null>(removedStored ? [...removedStored] : null);
   const [confirm, setConfirm] = useState<DriverState | null>(null);
+  // Where each measured driver starts and is full: the stored settings, then what is saved here (a save also refreshes the page).
+  const [limits, setLimits] = useState<Partial<Record<ChurnLimitSetting, number | null>>>(() => storedLimits(bundle?.workspace.settings));
+  const saveLimit = useCallback(
+    async (key: ChurnLimitSetting, base: number | null, next: number | null): Promise<SaveOutcome<number | null>> => {
+      const out: SaveOutcome<number | null> = mode === "live" && workspaceId ? await saveChurnLimit(workspaceId, key, base, next) : { status: "saved", value: next };
+      if (out.status === "saved") setLimits((l) => ({ ...l, [key]: out.value }));
+      return out;
+    },
+    [mode, workspaceId],
+  );
 
   // Saves: edits to one driver are merged and sent after a short pause, one request at a time per driver.
   const pending = useRef(new Map<string, DriverPatch>());
@@ -198,14 +223,27 @@ export function ChurnDriversSettings({
     const t = setTimeout(() => setMeasured({ key, states }), 700);
     return () => clearTimeout(t);
   }, [key, states, measured.key]);
-  const simModel = useMemo(() => (model ? { ...model, churnDrivers: toEngineDrivers(measured.states) } : null), [model, measured]);
+  const [measuredLimits, setMeasuredLimits] = useState(limits);
+  useEffect(() => {
+    const t = setTimeout(() => setMeasuredLimits(limits), 700);
+    return () => clearTimeout(t);
+  }, [limits]);
+  const simModel = useMemo(() => {
+    if (!model) return null;
+    const next: EngineModel = { ...model, churnDrivers: toEngineDrivers(measured.states) };
+    const churnLimits = churnLimitsOf(measuredLimits as WorkspaceSettings);
+    if (churnLimits) next.churnLimits = churnLimits;
+    else delete next.churnLimits;
+    return next;
+  }, [model, measured, measuredLimits]);
+  const priceWeeks = simModel?.churnLimits?.priceWeeks;
   const sim = useSimulation(simModel);
   const causes: ChurnCauses | null = sim.run?.result.churnCauses ?? null;
   const causeOf = (d: DriverState) => causes?.causes.find((c) => c.id === engineIdOf(d));
 
   const projection = useMemo(
-    () => (causes ? projectChurn(causes, states.map((d) => ({ id: engineIdOf(d), weight: d.weight, enabled: d.enabled, ...(d.effect !== null ? { effect: d.effect / 100, chance: d.chance !== null ? d.chance / 100 : null, months: d.effectMonths ?? 3 } : {}) }))) : null),
-    [causes, states],
+    () => (causes ? projectChurn(causes, states.map((d) => ({ id: engineIdOf(d), weight: d.weight, enabled: d.enabled, ...(d.effect !== null ? { effect: d.effect / 100, chance: d.chance !== null ? d.chance / 100 : null, months: d.effectMonths ?? 3 } : {}) })), priceWeeks) : null),
+    [causes, states, priceWeeks],
   );
   const customs = states.filter((d) => !d.builtin).length;
   const isRemoved = (d: DriverState) => d.builtin !== null && removed.includes(d.key);
@@ -214,12 +252,13 @@ export function ChurnDriversSettings({
   const clientCount = model?.activeClients ?? 0;
 
   return (
-    <SettingsSection
+    <SettingsBand
       id="churn-drivers"
-      band
       title="Churn drivers"
-      description="Base churn per service is multiplied by these drivers. Weights are your estimates; the simulation measures the drivers marked Measured. Contribution shows how much of the churn in the latest run each driver explains."
+      description="Each tier's normal churn, then the drivers that raise or lower it. Weights are your estimates; the simulation measures the drivers marked Measured. Contribution shows how much of the churn in the latest run each driver explains."
     >
+      {normalChurn}
+      <SettingsSection id="churn-driver-list" title="Drivers that raise or lower it" description="Normal churn is multiplied by these drivers.">
       {mode === "live" && <SaveStatus state={save} />}
       {mode === "readonly" && (
         <p role="note" className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
@@ -313,6 +352,8 @@ export function ChurnDriversSettings({
               viewer={bundle?.viewer}
               share={projection ? (projection.shares[engineIdOf(d)] ?? 0) : null}
               canEdit={canEdit}
+              limits={limits}
+              saveLimit={saveLimit}
               onChange={(patch) => change(d.key, patch)}
               onDelete={() => askDelete(d)}
             />
@@ -349,7 +390,48 @@ export function ChurnDriversSettings({
           onCancel={() => setConfirm(null)}
         />
       )}
-    </SettingsSection>
+      </SettingsSection>
+      {health}
+    </SettingsBand>
+  );
+}
+
+/** The churn limits a workspace has stored (null or absent: the default). */
+function storedLimits(settings: WorkspaceSettings | undefined): Partial<Record<ChurnLimitSetting, number | null>> {
+  const out: Partial<Record<ChurnLimitSetting, number | null>> = {};
+  for (const k of CHURN_LIMIT_KEYS) {
+    const v = settings?.[k];
+    if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+  }
+  return out;
+}
+
+/** The numbers where a measured driver starts and is full, each saving on its own; blank is the default. */
+function LimitFields({ keys, limits, canEdit, save }: { keys: ChurnLimitSetting[]; limits: Partial<Record<ChurnLimitSetting, number | null>>; canEdit: boolean; save: (key: ChurnLimitSetting, base: number | null, next: number | null) => Promise<SaveOutcome<number | null>> }) {
+  return (
+    <div className="flex flex-wrap items-end gap-x-4 gap-y-2" data-churn-limits>
+      {keys.map((k) => {
+        const s = CHURN_LIMIT_SETTINGS[k];
+        return (
+          <div key={k} className="w-44">
+            <NumberField
+              label={s.label}
+              value={limits[k] ?? null}
+              save={(base, next) => save(k, base, next)}
+              optional
+              scale={s.scale}
+              unit={s.unit}
+              min={Math.round(s.min * s.scale * 1e6) / 1e6}
+              max={Math.round(s.max * s.scale * 1e6) / 1e6}
+              step={s.step}
+              placeholder={`${s.fallback} (default)`}
+              disabled={!canEdit}
+              help={{ description: s.description, example: s.example }}
+            />
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -378,6 +460,8 @@ function DriverRow({
   viewer,
   share,
   canEdit,
+  limits,
+  saveLimit,
   onChange,
   onDelete,
 }: {
@@ -387,9 +471,12 @@ function DriverRow({
   viewer?: Viewer;
   share: number | null;
   canEdit: boolean;
+  limits: Partial<Record<ChurnLimitSetting, number | null>>;
+  saveLimit: (key: ChurnLimitSetting, base: number | null, next: number | null) => Promise<SaveOutcome<number | null>>;
   onChange: (patch: DriverPatch) => void;
   onDelete: () => void;
 }) {
+  const limitKeys = limitsOf(d.builtin);
   const valueHelp = d.builtin ? VALUE_HELP[d.builtin] : undefined;
   const range = d.builtin ? CHURN_DRIVER_SPECS[d.builtin].valueRange : { min: CUSTOM_DRIVER_VALUE.min, max: CUSTOM_DRIVER_VALUE.max };
   const help = d.builtin ? DRIVER_HELP[d.builtin] : { description: d.description || "Your own cause of clients leaving.", example: d.example || "Add an example below." };
@@ -416,7 +503,7 @@ function DriverRow({
           {sourceLabel(d)} · now: {valueNow(d, cause, model, viewer)}
         </span>
         {d.builtin !== "tenure" && d.builtin !== "market" && (
-          <ChanceControls d={d} cause={cause} canEdit={canEdit} onChange={onChange} />
+          <ChanceControls d={d} cause={cause} canEdit={canEdit} onChange={onChange} priceWeeks={churnLimitsOf(limits as WorkspaceSettings)?.priceWeeks} />
         )}
         {(valueHelp || !d.builtin) && (
           <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
@@ -447,6 +534,7 @@ function DriverRow({
             )}
           </div>
         )}
+        {limitKeys.length > 0 && <LimitFields keys={limitKeys} limits={limits} canEdit={canEdit} save={saveLimit} />}
       </div>
       </TableCell>
 
@@ -655,7 +743,7 @@ function NumberBox({
  * How a cause is counted (sandbox phase 3, B4): by its weight, or as events (a chance a month and an effect while a hit lasts).
  * Switching to events pre-fills the chance and effect that give about the churn the weight gave in the last run.
  */
-function ChanceControls({ d, cause, canEdit, onChange }: { d: DriverState; cause: ChurnCauses["causes"][number] | undefined; canEdit: boolean; onChange: (patch: DriverPatch) => void }) {
+function ChanceControls({ d, cause, canEdit, onChange, priceWeeks }: { d: DriverState; cause: ChurnCauses["causes"][number] | undefined; canEdit: boolean; onChange: (patch: DriverPatch) => void; /** How long a price rise weighs (the workspace's setting), for the price driver's matching effect. */ priceWeeks?: number }) {
   const events = d.effect !== null;
   const isPrice = d.builtin === "price";
   const measured = d.builtin !== null && CHURN_DRIVER_SPECS[d.builtin].events === "measured";
@@ -666,7 +754,7 @@ function ChanceControls({ d, cause, canEdit, onChange }: { d: DriverState; cause
       return onChange({ chance: null, effect: null, effectMonths: null });
     }
     if (cause) {
-      const eq = equivalentEvents({ id: engineIdOf(d), custom: d.builtin === null, pressure: cause.pressure, chance: cause.chance, value: d.value }, d.weight);
+      const eq = equivalentEvents({ id: engineIdOf(d), custom: d.builtin === null, pressure: cause.pressure, chance: cause.chance, value: d.value }, d.weight, undefined, priceWeeks);
       onChange({ chance: eq.chance === null ? null : Math.round(eq.chance * 1e4) / 100, effect: Math.round(eq.effect * 1e4) / 100, effectMonths: eq.months });
       // A measured cause with nothing measured can't carry the weight's churn as a chance: say so rather than pre-filling an effect that does nothing.
       setNote(measured && !(cause.chance && cause.chance > 0) && cause.pressure > 0 ? CHANCE_HELP.noHits : CHANCE_HELP.same);

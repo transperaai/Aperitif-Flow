@@ -15,6 +15,8 @@ import { peopleMeta } from "@/lib/setup/people-meta";
 import { AccessSection, accessParams } from "./access/access-section";
 import { ChurnDriversSettings } from "./churn-drivers-settings";
 import { DemandSettings } from "./demand-settings";
+import { NormalChurnByTier } from "./normal-churn-settings";
+import { HealthSettings } from "./servicing-settings";
 import { SimulationSettings } from "./people-settings";
 import { saveOverheadMonthly, savePurposes } from "./actions";
 import { saveWorkspaceCurrency, saveWorkspaceName } from "./workspace-actions";
@@ -80,7 +82,15 @@ export default async function WorkspaceSettingsPage(props: PageProps<"/w/[slug]/
           and on the Overview.
         </p>
       </PurposesSettings>
-      <ChurnDriversSettings mode={data.canEdit ? "live" : "readonly"} workspaceId={ws} bundle={bundle} rows={data.churnDrivers} removed={data.workspace.settings.churn_drivers_removed} />
+      <ChurnDriversSettings
+        mode={data.canEdit ? "live" : "readonly"}
+        workspaceId={ws}
+        bundle={bundle}
+        rows={data.churnDrivers}
+        removed={data.workspace.settings.churn_drivers_removed}
+        normalChurn={<NormalChurnByTier setup={setup} />}
+        health={<HealthSettings data={data} />}
+      />
       <DemandSettings data={data} />
       <SettingsBand
         id="tiers-clients"

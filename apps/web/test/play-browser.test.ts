@@ -109,9 +109,9 @@ describe("the free-play Sandbox", { timeout: 240_000 }, () => {
       // The map, the levers band and the results share the page's width; the map is the star (about two thirds of the window, at least 28rem).
       expect(Math.max(...layout.fullWidth) - Math.min(...layout.fullWidth)).toBeLessThanOrEqual(1);
       expect(layout.mapHeight).toBeGreaterThanOrEqual(448);
-      // Every group of levers shows; all five on one row from 1440px, wrapped on a phone (one column each).
-      expect(layout.groupsOpen).toBe(5);
-      expect(layout.groupRows).toBe(width >= 1440 ? 1 : 5);
+      // Every group of levers shows; all six on one row from 1440px, wrapped on a phone (one column each).
+      expect(layout.groupsOpen).toBe(6);
+      expect(layout.groupRows).toBe(width >= 1440 ? 1 : 6);
       expect(layout.scrollers).toBe(0);
       expect(layout.pageScrolls).toBe(true);
       expect(await text(page, "[data-levers-count]")).toBe("No changes");
@@ -121,7 +121,7 @@ describe("the free-play Sandbox", { timeout: 240_000 }, () => {
       expect(await text(page, "[data-play-summary]")).toMatch(/^(Worst month is [A-Z][a-z]{2} \d{4}|Nobody goes over).+ By [A-Z][a-z]{2} \d{4}: \d+ clients and .+ profit a month\. Move a lever/);
 
       // Every group of levers the brief lists, and Reset.
-      for (const g of ["market", "add", "lose", "price", "people"]) expect(await page.locator(`[data-lever-group="${g}"]`).count(), g).toBe(1);
+      for (const g of ["market", "add", "lose", "price", "people", "service"]) expect(await page.locator(`[data-lever-group="${g}"]`).count(), g).toBe(1);
       expect(await text(page, "[data-play-levers]")).toMatch(/Win new clients[\s\S]*Lose clients[\s\S]*Prices[\s\S]*People/);
       // The levers are business conditions only (D53): an automation is part of a process version, picked on the map.
       expect(await page.locator('[data-lever-group="automation"], [data-automation-switch], [data-changes-manage], [data-change-add]').count()).toBe(0);

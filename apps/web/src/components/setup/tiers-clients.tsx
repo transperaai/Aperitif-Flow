@@ -54,7 +54,7 @@ const saver =
   };
 
 /** What each tier field is, in plain words, with an example from the prototype's data. */
-const FIELD_HELP: Record<TierField | "fee" | "churn" | "stay", { label: string; description: string; example: string; scale?: number; unit?: string; step: number; max?: number }> = {
+const FIELD_HELP: Record<TierField | "fee" | "stay", { label: string; description: string; example: string; scale?: number; unit?: string; step: number; max?: number }> = {
   fee: { label: "Fee a month", description: "What one client of this tier pays each month.", example: "Organic Tier 1: 11,000 a month.", step: 100 },
   words: { label: "Words", description: "Words of content one client of this tier gets each month. The content team's work is worked out from this.", example: "Organic Tier 2: 1,500 words a month.", step: 250 },
   links: { label: "Links", description: "Links built for one client of this tier each month.", example: "Organic Tier 2: 5 links a month.", step: 1 },
@@ -65,8 +65,7 @@ const FIELD_HELP: Record<TierField | "fee" | "churn" | "stay", { label: string; 
   creative_sets: { label: "Creative sets", description: "Creative sets made for one client of this tier each month.", example: "Performance Tier 1: 2 creative sets a month.", step: 0.5 },
   adhoc_chance: { label: "Chance of ad hoc", description: "The share of this tier's clients who send any ad hoc requests in a month. The size of each request is the step's time (Processes).", example: "90%: nine in ten Tier 1 Organic clients ask for something extra in a month.", scale: 100, unit: "%", step: 5, max: 100 },
   adhoc_requests: { label: "Requests if they ask", description: "How many ad hoc requests a client sends in a month when they do ask.", example: "6.5 for Organic Tier 1.", step: 0.5 },
-  churn: { label: "Churn a month", description: "The share of this tier's clients who leave in a month when everything is going well.", example: "1% a month for Tier 1: about one client in a hundred.", scale: 100, unit: "%", step: 0.5, max: 100 },
-  stay: { label: "Stay months", description: "How many months a client of this tier usually stays. A won client is worth the fee times this, and so is a lost one. Leave it blank to work it out from churn (1 ÷ churn a month).", example: "Blank at 2% churn: 50 months. Type 24 if clients really stay about two years.", step: 1, max: 600 },
+  stay: { label: "Stay months", description: "How many months a client of this tier usually stays. A won client is worth the fee times this, and so is a lost one. Leave it blank to work it out from the tier's normal churn (1 ÷ churn a month, set under Churn drivers).", example: "Blank at 2% churn: 50 months. Type 24 if clients really stay about two years.", step: 1, max: 600 },
 };
 
 /** The stay a blank "Stay months" stands for: 1 ÷ churn a month, up to the longest stay, rounded (the engine's `tenureFromChurn`). */
@@ -207,9 +206,9 @@ function DepartmentTable({ setup, data, department }: { setup: CapacitySetup; da
   const [open, setOpen] = useState<string | null>(null);
   const tiers = setup.tiers;
   const namedOn = (id: string) => setup.clients.filter((c) => c.active && c.service_ids.includes(id)).length;
-  const cols = 6 + fields.length;
+  const cols = 5 + fields.length;
   return (
-    <SettingsSection id={`tiers-${department.id}`} title={`${department.name} tiers`} description="Per client, a month. The defaults every client of the tier uses.">
+    <SettingsSection id={`tiers-${department.id}`} title={`${department.name} tiers`} description="Per client, a month. The defaults every client of the tier uses. Each tier's normal churn is set under Churn drivers.">
       <Table>
         <TableHeader>
           <TableRow>
@@ -226,7 +225,6 @@ function DepartmentTable({ setup, data, department }: { setup: CapacitySetup; da
                 {FIELD_HELP[f].unit ? ` ${FIELD_HELP[f].unit}` : ""}
               </HeadHelp>
             ))}
-            <HeadHelp help={FIELD_HELP.churn}>Churn a month %</HeadHelp>
             <HeadHelp help={FIELD_HELP.stay}>Stay months</HeadHelp>
             {/* A slot for "Hours a month": it needs the engine (P5). */}
             <HeadHelp align="left" help={{ label: "More", description: "The rest of this tier's service: pricing model, entry process, servicing steps, path tags and counted clients.", example: "Open More to set the servicing steps for Organic T1." }}>
@@ -302,9 +300,6 @@ function DepartmentTable({ setup, data, department }: { setup: CapacitySetup; da
                     );
                   })}
                   <TableCell>
-                    <NumberCell label={`${department.name} ${t.key}: Churn a month`} value={svc.churn_monthly_base} save={saver("services", key, "churn_monthly_base")} canEdit={setup.canEdit} optional={false} scale={100} unit="" min={0} max={100} step={0.5} provenance={svc.provenance} column="churn_monthly_base" />
-                  </TableCell>
-                  <TableCell>
                     <NumberCell label={`${department.name} ${t.key}: Stay months`} value={svc.tenure_months} save={saver("services", key, "tenure_months")} canEdit={setup.canEdit} min={0} max={FIELD_HELP.stay.max} step={FIELD_HELP.stay.step} digits={0} placeholder={stayPlaceholder(svc.churn_monthly_base, setup.maxStayMonths)} provenance={svc.provenance} column="tenure_months" />
                   </TableCell>
                   <TableCell>
@@ -332,7 +327,7 @@ function DepartmentTable({ setup, data, department }: { setup: CapacitySetup; da
                         )}
                         <GroupFields service={dataSvc} data={data} />
                       </div>
-                      <ServiceMore service={dataSvc} data={data} removable={false} />
+                      <ServiceMore service={dataSvc} data={data} removable={false} showChurn={false} />
                     </TableCell>
                   </TableRow>
                 )}

@@ -10,6 +10,9 @@ import {
   ModelError,
   DEFAULT_MAX_STAY_MONTHS,
   tenureFromChurn,
+  DEFAULT_HEALTH_RULES,
+  WEEKS_PER_MONTH,
+  type ChurnLimits,
   type EngineMarket,
   type EngineDemand,
   type Distribution as EngineDistribution,
@@ -17,6 +20,7 @@ import {
   type EngineChurnDriver,
   type EngineClientGroup,
   type EngineEnd,
+  type EngineHealthBands,
   type EngineHealthRules,
   type EngineGroup,
   type EngineModel,
@@ -334,7 +338,9 @@ function engineModelOf(bundle: ProcessBundle, options: ModelOptions): { model: E
   // A typed tier total (Q13) takes the named clients the engine will simulate off the counted remainder (active, and started by the run's start).
   const namedOn = (serviceId: string) =>
     (bundle.clients ?? []).filter((c) => c.active && !(c.start_date && c.start_date > startDate) && (bundle.clientServices ?? []).some((cs) => cs.client_id === c.id && cs.service_id === serviceId)).length;
-  const clientGroups = tier && services ? engineTierClientGroups(tier, bundle.clientGroups ?? [], services, namedOn) : engineClientGroups(bundle, services);
+  // A counted client with no group row starts at the workspace's starting health (finding 8), not a fixed 80.
+  const initialHealth = Math.min(100, healthRules(s)?.initial ?? DEFAULT_HEALTH_RULES.initial);
+  const clientGroups = tier && services ? engineTierClientGroups(tier, bundle.clientGroups ?? [], services, namedOn, initialHealth) : engineClientGroups(bundle, services);
   const clients = clientGroups && !tier ? undefined : engineClients(bundle, services, startDate, tier);
   const market = engineMarket(bundle);
   const churnDrivers = engineChurnDrivers(bundle);
@@ -372,6 +378,8 @@ function engineModelOf(bundle: ProcessBundle, options: ModelOptions): { model: E
     ...(tier ? { placeNewClients: "least-busy" as const, ...(clientGroups ? { clientMix: "groups-add" as const } : {}) } : {}),
     ...(Object.keys(servicing.processes).length ? { servicingProcesses: servicing.processes } : {}),
     ...optional("health", healthRules(s)),
+    ...optional("healthBands", healthBandsOf(s)),
+    ...optional("churnLimits", churnLimitsOf(s)),
     ...(targetCycleHours !== null ? { targetCycleHours } : {}),
     ...(Object.keys(groups).length ? { groups } : {}),
     entry,
@@ -680,6 +688,46 @@ function healthRules(s: WorkspaceSettings): EngineHealthRules | undefined {
   return Object.keys(rules).length ? rules : undefined;
 }
 
+/** Months from `from` to `to` (YYYY-MM-DD), as a fraction (an average month of 365.25 / 12 days); 0 when `to` is not later or a date is bad. */
+export function monthsBetween(from: string, to: string): number {
+  const a = Date.parse(`${from}T00:00:00Z`);
+  const b = Date.parse(`${to}T00:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return 0;
+  return (b - a) / DAY_MS / (365.25 / 12);
+}
+
+/** Health bands from the workspace settings (findings 34 and 38); undefined when none is set, so 75, 65 and 50 apply. */
+function healthBandsOf(s: WorkspaceSettings): EngineHealthBands | undefined {
+  const pick = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 100 ? v : undefined);
+  const bands: EngineHealthBands = {
+    ...optional("healthy", pick(s.health_healthy_from)),
+    ...optional("watch", pick(s.health_watch_from)),
+    ...optional("atRisk", pick(s.health_at_risk)),
+  };
+  return Object.keys(bands).length ? bands : undefined;
+}
+
+/**
+ * Where the measured churn drivers start and are full, from the workspace settings (findings 1 and 2). Months are turned into weeks
+ * here; anything not set is left out, so the engine's defaults apply and a workspace that sets nothing simulates as before.
+ */
+export function churnLimitsOf(s: WorkspaceSettings): Partial<ChurnLimits> | undefined {
+  const pick = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const weeks = (v: unknown) => (pick(v) === undefined ? undefined : pick(v)! * WEEKS_PER_MONTH);
+  const limits: Partial<ChurnLimits> = {
+    ...optional("loadThreshold", pick(s.utilisation_threshold)),
+    ...optional("loadFull", pick(s.churn_load_full)),
+    ...optional("responseFullShare", pick(s.churn_response_full_share)),
+    ...optional("reworkFullShare", pick(s.churn_rework_full_share)),
+    ...optional("onboardingFullMultiple", pick(s.churn_onboarding_full_multiple)),
+    ...optional("earlyTenureWeeks", weeks(s.churn_early_tenure_months)),
+    ...optional("awayPressure", pick(s.churn_away_pressure)),
+    ...optional("resultsNormal", pick(s.churn_results_normal)),
+    ...optional("priceWeeks", weeks(s.churn_price_months)),
+  };
+  return Object.keys(limits).length ? limits : undefined;
+}
+
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
@@ -718,6 +766,8 @@ function engineClients(
       services: takes,
       // A blank fee (0) in a tier workspace is the tier's fee, as the Settings screen shows it.
       mrr: tier ? namedClientFee(Number(c.mrr), takes.filter((sid) => tier.tierServices.has(sid)).map((sid) => services![sid]!.price)) : Number(c.mrr),
+      // Its start date counts (finding 16): how long it has been a client when the run starts, for the early-tenure driver and what losing it is worth.
+      ...(c.start_date ? { monthsActive: monthsBetween(c.start_date, startDate) } : {}),
       ...(c.health !== null && c.health !== undefined ? { health: Number(c.health) } : {}),
       assignments,
       // A tier workspace: its own values, its manager and its hand-holding hours (capacity-model.ts).

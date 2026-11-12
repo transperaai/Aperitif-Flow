@@ -4,7 +4,7 @@
 // tested.
 
 import { engineRecurrence, parseRecurrence, type RecurrenceDriver, type RecurrenceJson } from "@transpera-flow/db";
-import { DEFAULT_HEALTH_RULES, recurrenceLabel, type ClientResult } from "@transpera-flow/engine";
+import { DEFAULT_HEALTH_BANDS, DEFAULT_HEALTH_RULES, recurrenceLabel, type ClientResult } from "@transpera-flow/engine";
 
 /** Recurrences offered in settings, most common first. Stored values that aren't one of these are offered too. */
 export const RECURRENCE_PRESETS: RecurrenceJson[] = [
@@ -76,8 +76,14 @@ export const HEALTH_SETTINGS = {
   health_recover: { label: "Task on time", unit: "health +", max: 100, fallback: DEFAULT_HEALTH_RULES.recover, hint: "Added (up to 100) for each servicing task done within its SLA." },
   health_late_penalty: { label: "Task late", unit: "health −", max: 100, fallback: DEFAULT_HEALTH_RULES.latePenalty, hint: "Taken off for a task done after its SLA." },
   health_missed_penalty: { label: "Task missed", unit: "health −", max: 100, fallback: DEFAULT_HEALTH_RULES.missedPenalty, hint: "Taken off for a task not done within twice its SLA." },
+  health_healthy_from: { label: "Healthy from", unit: "of 100", max: 100, fallback: DEFAULT_HEALTH_BANDS.healthy, hint: "At or above this, a client group is rated Great." },
+  health_watch_from: { label: "Watch from", unit: "of 100", max: 100, fallback: DEFAULT_HEALTH_BANDS.watch, hint: "At or above this, Good; below it, a client needs watching." },
+  health_at_risk: { label: "At risk below", unit: "of 100", max: 100, fallback: DEFAULT_HEALTH_BANDS.atRisk, hint: "Below this, a client is at risk of leaving." },
 } as const;
 export type HealthSetting = keyof typeof HEALTH_SETTINGS;
+/** The four rules that move health, then the three bands that rate it. */
+export const HEALTH_RULE_SETTINGS = ["health_initial", "health_recover", "health_late_penalty", "health_missed_penalty"] as const satisfies readonly HealthSetting[];
+export const HEALTH_BAND_SETTINGS = ["health_healthy_from", "health_watch_from", "health_at_risk"] as const satisfies readonly HealthSetting[];
 
 /** One client's simulated retention, as the Clients page shows it. */
 export interface ClientRetention {
@@ -93,13 +99,13 @@ export interface ClientRetention {
   onTime: number;
   late: number;
   missed: number;
-  /** Health ends below 50 on average. */
+  /** Health ends below the at-risk line (50 unless the workspace sets it) on average. */
   atRisk: boolean;
   /** Weekly mean health, for a sparkline. */
   trajectory: number[];
 }
 
-export function clientRetention(r: ClientResult): ClientRetention {
+export function clientRetention(r: ClientResult, atRiskBelow: number = DEFAULT_HEALTH_BANDS.atRisk): ClientRetention {
   return {
     start: r.trajectory[0] ?? r.health.mean,
     end: r.health.mean,
@@ -110,7 +116,7 @@ export function clientRetention(r: ClientResult): ClientRetention {
     onTime: r.touchpoints.onTime,
     late: r.touchpoints.late,
     missed: r.touchpoints.missed,
-    atRisk: r.health.mean < 50,
+    atRisk: r.health.mean < atRiskBelow,
     trajectory: r.trajectory,
   };
 }

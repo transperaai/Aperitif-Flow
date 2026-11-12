@@ -58,6 +58,30 @@ export interface WorkspaceSettings {
   health_missed_penalty?: number;
   health_initial?: number;
   /**
+   * Client health bands, 0–100 (customisability audit, findings 34 and 38): healthy from, watch from, and at risk below. Left out: 75,
+   * 65 and 50. Saved with the health rules (`save_health_rules`); checked by `workspaces_health_bands`.
+   */
+  health_healthy_from?: number | null;
+  health_watch_from?: number | null;
+  health_at_risk?: number | null;
+  /**
+   * Where the measured churn drivers start and are full (customisability audit, findings 1 and 2), read into
+   * `EngineModel.churnLimits`. Left out: the engine's defaults. `utilisation_threshold` is the busy share above which a team is
+   * overloaded (0.85); `churn_load_full` where overload is full (1); the response and rework shares that are full pressure (0.5,
+   * 0.25); a first delivery this many times normal is full (2); months of early tenure (26 weeks); what an away team adds to
+   * handoffs (0.5); the results rating that adds nothing (8); months a price rise weighs (13 weeks). Saved with the health rules
+   * (`save_health_rules`), so editors can change them with the drivers; checked by `workspaces_churn_limits`.
+   */
+  utilisation_threshold?: number | null;
+  churn_load_full?: number | null;
+  churn_response_full_share?: number | null;
+  churn_rework_full_share?: number | null;
+  churn_onboarding_full_multiple?: number | null;
+  churn_early_tenure_months?: number | null;
+  churn_away_pressure?: number | null;
+  churn_results_normal?: number | null;
+  churn_price_months?: number | null;
+  /**
    * The range of company client health that is normal for the business, 0–100
    * (for example 70 to 80 for a small agency). The People page shows the
    * company's simulated client health against it. Left out: no benchmark.

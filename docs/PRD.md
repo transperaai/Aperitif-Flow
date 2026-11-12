@@ -221,7 +221,11 @@ workspaces          id, name, slug, plan, branding jsonb (logo_url, accent, repo
 > **Cut by D70 (Q19): the `branding` column and the `workspace_logos` table are dropped.**
                     settings jsonb (hours_per_week, working_days, currency, fy_start, overhead_monthly, target_margin,
                     overtime_cap default 0, availability_floor default 0.08, utilisation_threshold default 0.85,
-                    capacity_factor_enabled default false)                                   (changed)
+                    capacity_factor_enabled default false,
+                    churn-driver limits churn_load_full 1, churn_response_full_share 0.5, churn_rework_full_share 0.25,
+                    churn_onboarding_full_multiple 2, churn_early_tenure_months (26 weeks), churn_away_pressure 0.5,
+                    churn_results_normal 8, churn_price_months (13 weeks), with utilisation_threshold as the overload line;
+                    health bands health_healthy_from 75, health_watch_from 65, health_at_risk 50)   (changed)
 memberships         id, workspace_id, user_id, role (agency_admin|owner|editor|member|viewer), person_id (nullable link to people)
 api_tokens          id, user_id, token_hash, label, last_used_at, revoked_at                  (new)
 share_links         id, workspace_id, token, mode (view|play), show_people bool, show_financials bool, show_clients bool,

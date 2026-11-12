@@ -160,7 +160,7 @@ function ServiceItem({ service: sv, share, data }: { service: ServiceRow; share:
 }
 
 /** Everything about one service that can be edited (the part of a row that opens): Set up shows it under "More" for a tier's service. */
-export function ServiceMore({ service: sv, share, data, removable = true }: { service: ServiceRow; share?: number | undefined; data: WorkspaceSettingsData; /** A tier's service goes with its tier (Remove tier), not on its own. */ removable?: boolean }) {
+export function ServiceMore({ service: sv, share, data, removable = true, showChurn = true }: { service: ServiceRow; share?: number | undefined; data: WorkspaceSettingsData; /** A tier's service goes with its tier (Remove tier), not on its own. */ removable?: boolean; /** False for a tier's service: its normal churn is set on Settings, Churn drivers (Normal churn by tier). */ showChurn?: boolean }) {
   const disabled = !data.canEdit;
   const currency = data.workspace.settings.currency;
   const pipelines = data.processes.filter((p) => p.kind === "pipeline");
@@ -230,6 +230,7 @@ export function ServiceMore({ service: sv, share, data, removable = true }: { se
           placeholder={String(Math.round(tenureFromChurn(Number(sv.churn_monthly_base), data.workspace.settings.max_stay_months ?? DEFAULT_MAX_STAY_MONTHS)))}
           disabled={disabled}
           hint={retainer ? "How long a client stays: LTV and lost revenue use price × tenure. Blank: worked out from base churn (1 ÷ churn)." : "Used for retainers only."} help={{ description: "How many months a client typically stays. Lifetime value and lost revenue use price times tenure. Leave it blank to work it out from base churn. Retainers only.", example: "At 2,500 a month and 18 months, a client is worth 45,000. Blank at 2% churn: 50 months." }} />
+        {showChurn && (
         <NumberField
           label="Base churn"
           value={Number(sv.churn_monthly_base)}
@@ -241,6 +242,7 @@ export function ServiceMore({ service: sv, share, data, removable = true }: { se
           step={0.5}
           disabled={disabled}
           hint="Monthly churn of a client in full health; revenue billed in the horizon stops when a client leaves. Named and counted clients on this service both churn at this rate." help={{ description: "The chance each month that a perfectly healthy client leaves. Revenue stops when a client leaves.", example: "At 2% a month, about 1 in 50 healthy clients leaves each month." }} />
+        )}
         <NumberField
           label="Churn sensitivity to health"
           value={sv.churn_health_sensitivity === undefined ? null : Number(sv.churn_health_sensitivity)}

@@ -1,9 +1,11 @@
 "use server";
 
 import { BUILTIN_CHURN_DRIVER_IDS, CHURN_DRIVER_SPECS, CUSTOM_DRIVER_VALUE, type BuiltinChurnDriverId } from "@transpera-flow/engine";
-import { saveField } from "@/lib/fields/server";
+import { refresh } from "next/cache";
+import { saveField, saveHealthRule } from "@/lib/fields/server";
 import type { SaveOutcome } from "@/lib/fields/field-controller";
-import { MAX_CUSTOM_DRIVERS, NEW_DRIVER_NAME, parseDriverPatch } from "@/lib/churn-drivers";
+import { CHURN_LIMIT_SETTINGS, MAX_CUSTOM_DRIVERS, NEW_DRIVER_NAME, isChurnLimitValue, parseDriverPatch, type ChurnLimitSetting } from "@/lib/churn-drivers";
+import { saveSetupField } from "./setup-actions";
 import { isId } from "@/lib/services";
 import { pgCode } from "@/app/action-db";
 import { getDb, getSessionUser } from "@/lib/auth/session";
@@ -153,4 +155,31 @@ export async function saveRemovedDrivers(workspaceId: string, base: string[] | n
   if (!isId(workspaceId) || !(base === null || isBuiltinList(base)) || !isBuiltinList(value)) return { status: "error", message: "That value isn't valid." };
   if (!(await signedIn())) return { status: "error", message: "Your session has ended. Sign in again." };
   return saveField<string[] | null>("workspaces", { id: workspaceId }, "settings.churn_drivers_removed", base, value);
+}
+
+/**
+ * One churn-driver limit (a `settings` key, CHURN_LIMIT_SETTINGS) if its stored value is still `base`; null restores the default.
+ * Owners and editors, as for the drivers (`save_health_rules`, which checks the same range). Refreshes on a save: the simulation reads it.
+ */
+export async function saveChurnLimit(workspaceId: string, key: ChurnLimitSetting, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const known = Object.hasOwn(CHURN_LIMIT_SETTINGS, key);
+  if (!isId(workspaceId) || !known || !isChurnLimitValue(key, value) || !(base === null || (typeof base === "number" && Number.isFinite(base)))) {
+    return { status: "error", message: "That value isn't valid." };
+  }
+  if (!(await signedIn())) return { status: "error", message: "Your session has ended. Sign in again." };
+  const out = await saveHealthRule(workspaceId, key, base, value);
+  if (out.status === "saved") refresh();
+  return out;
+}
+
+/**
+ * A tier's normal churn a month (`services.churn_monthly_base`, a share from 0 to 1), edited on Settings, Churn drivers under Normal
+ * churn by tier: the same Set up save as the other tier numbers (Agency admins and the Owner). Refreshes on a save, so the projected
+ * churn on the page is worked out again.
+ */
+export async function saveNormalChurn(serviceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  if (!isId(serviceId) || value === null) return { status: "error", message: "That value isn't valid." };
+  const out = (await saveSetupField("services", { id: serviceId }, "churn_monthly_base", base, value)) as SaveOutcome<number | null>;
+  if (out.status === "saved") refresh();
+  return out;
 }

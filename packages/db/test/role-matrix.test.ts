@@ -682,6 +682,45 @@ describe("client health rules (B1 3/3)", () => {
     });
   });
 
+  it("the churn-driver limits and health bands save in their own ranges (20270203002000), and nothing out of range", async () => {
+    const cases: [string, number, number[]][] = [
+      ["health_at_risk", 60, [-1, 101]],
+      ["health_watch_from", 70, [101]],
+      ["health_healthy_from", 80, [101]],
+      ["utilisation_threshold", 0.95, [0, 1.6]],
+      ["churn_load_full", 1.2, [0.01, 2.5]],
+      ["churn_response_full_share", 0.4, [0, 1.5]],
+      ["churn_rework_full_share", 0.3, [0, 2]],
+      ["churn_onboarding_full_multiple", 3, [1, 21]],
+      ["churn_early_tenure_months", 3, [-1, 61]],
+      ["churn_away_pressure", 1, [-0.1, 6]],
+      ["churn_results_normal", 7, [-1, 11]],
+      ["churn_price_months", 6, [0, 25]],
+    ];
+    await db.as(callers["admin, linked"]!.claims, async (c) => {
+      for (const [key, ok, bad] of cases) {
+        for (const v of bad) await raises(c, "23514", `{"${key}": null}`, `{"${key}": ${v}}`);
+        const r = (await save(c, `{"${key}": null}`, `{"${key}": ${ok}}`)).rows[0].r;
+        expect(r, key).toMatchObject({ status: "saved", row: { settings: { [key]: ok } } });
+        expect((await save(c, `{"${key}": ${ok}}`, `{"${key}": null}`)).rows[0].r.status, key).toBe("saved");
+      }
+    });
+  });
+
+  it("an owner writing settings directly can't store a limit out of its range either (workspaces_churn_limits, workspaces_health_bands)", async () => {
+    await db.client.query("begin");
+    try {
+      for (const [key, v] of [["utilisation_threshold", 2], ["health_at_risk", 150], ["churn_results_normal", "8"]] as const) {
+        await db.client.query("savepoint s");
+        await expect(db.client.query(`update workspaces set settings = settings || jsonb_build_object($2::text, $3::jsonb) where id = $1`, [ws, key, JSON.stringify(v)]), key).rejects.toMatchObject({ code: "23514" });
+        await db.client.query("rollback to savepoint s");
+      }
+      await db.client.query(`update workspaces set settings = settings || '{"utilisation_threshold": 0.9}' where id = $1`, [ws]);
+    } finally {
+      await db.client.query("rollback");
+    }
+  });
+
   it("a viewer can't rename the workspace or write its settings directly (the update policy is unchanged)", async () => {
     await db.as(callers["viewer, Leah"]!.claims, async (c) => {
       expect(await refused(c, () => c.query("update workspaces set name = name || '!' where id = $1", [ws]))).toMatch(/refused|no rows/);

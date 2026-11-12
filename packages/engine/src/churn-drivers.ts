@@ -96,7 +96,7 @@ export const CHURN_DRIVER_SPECS: Record<BuiltinChurnDriverId, ChurnDriverSpec> =
     events: "measured",
   },
   rework: { id: "rework", name: "Rework or errors on deliverables", source: "measured", defaultEnabled: false, defaultValue: null, valueRange: null, valueLabel: null, events: "measured" },
-  load: { id: "load", name: "Account team overload (above 85% busy)", source: "measured", defaultEnabled: false, defaultValue: null, valueRange: null, valueLabel: null, events: "measured" },
+  load: { id: "load", name: "Account team overload", source: "measured", defaultEnabled: false, defaultValue: null, valueRange: null, valueLabel: null, events: "measured" },
   handoff: {
     id: "handoff",
     name: "Account manager changes",
@@ -119,12 +119,12 @@ export const CHURN_DRIVER_SPECS: Record<BuiltinChurnDriverId, ChurnDriverSpec> =
   },
   tenure: {
     id: "tenure",
-    name: "Early tenure (first 6 months)",
+    name: "Early tenure",
     source: "entered",
     defaultEnabled: false,
     defaultValue: 1.6,
     valueRange: { min: 1, max: 5 },
-    valueLabel: "Times as likely to leave in months 1 to 6",
+    valueLabel: "Times as likely to leave in early tenure",
     events: "none",
   },
   price: {
@@ -301,18 +301,79 @@ export const RESULTS_NORMAL_SCORE = 8;
 export const RESULTS_PRESSURE_PER_POINT = 0.25;
 /** An account manager change adds this much for a client whose people are away. */
 export const AWAY_PRESSURE = 0.5;
+/** A first delivery this many times as late as normal is full onboarding pressure. */
+export const ONBOARDING_FULL_MULTIPLE = 2;
 
+/**
+ * Where each measured driver starts and where its pressure is full (customisability audit, finding 1). Every number is a
+ * workspace setting (`settings.utilisation_threshold`, `settings.churn_*`); the constants above are only the defaults.
+ */
+export interface ChurnLimits {
+  /** Busy share (1 = 100%) above which a client's team is overloaded. */
+  loadThreshold: number;
+  /** Busy share at which overload is full pressure; always above `loadThreshold`. */
+  loadFull: number;
+  /** Share of ad-hoc requests late or missed that is full pressure. */
+  responseFullShare: number;
+  /** Share of servicing visits redone that is full pressure. */
+  reworkFullShare: number;
+  /** A first delivery this many times its normal wait is full pressure (above 1). */
+  onboardingFullMultiple: number;
+  /** Weeks of a client's life that count as early tenure. */
+  earlyTenureWeeks: number;
+  /** What an away account team adds to the handoff driver's pressure. */
+  awayPressure: number;
+  /** A results rating (out of 10) at or above which results add nothing. */
+  resultsNormal: number;
+  /** Weeks a price rise weighs on churn (weight mode). */
+  priceWeeks: number;
+}
+
+export const DEFAULT_CHURN_LIMITS: Readonly<ChurnLimits> = {
+  loadThreshold: LOAD_THRESHOLD,
+  loadFull: LOAD_FULL,
+  responseFullShare: RESPONSE_FULL_SHARE,
+  reworkFullShare: REWORK_FULL_SHARE,
+  onboardingFullMultiple: ONBOARDING_FULL_MULTIPLE,
+  earlyTenureWeeks: EARLY_TENURE_WEEKS,
+  awayPressure: AWAY_PRESSURE,
+  resultsNormal: RESULTS_NORMAL_SCORE,
+  priceWeeks: PRICE_WEIGHT_WEEKS,
+};
+
+/** The limits a model runs with: each one set, or its default; a number out of range falls back to the default. */
+export function churnLimits(model: Pick<EngineModel, "churnLimits">): ChurnLimits {
+  const g = model.churnLimits ?? {};
+  const pick = (v: number | undefined, d: number, lo: number, hi: number) => (finite(v) && v >= lo && v <= hi ? v : d);
+  const D = DEFAULT_CHURN_LIMITS;
+  const loadThreshold = pick(g.loadThreshold, D.loadThreshold, 0.01, 2);
+  const loadFull = pick(g.loadFull, D.loadFull, 0.01, 3);
+  return {
+    loadThreshold,
+    // Full pressure sits above where it starts; set at or below it, overload goes from nothing to full over the default's 15 points.
+    loadFull: loadFull > loadThreshold ? loadFull : loadThreshold + (D.loadFull - D.loadThreshold),
+    responseFullShare: pick(g.responseFullShare, D.responseFullShare, 0.01, 1),
+    reworkFullShare: pick(g.reworkFullShare, D.reworkFullShare, 0.01, 1),
+    onboardingFullMultiple: pick(g.onboardingFullMultiple, D.onboardingFullMultiple, 1.01, 20),
+    earlyTenureWeeks: pick(g.earlyTenureWeeks, D.earlyTenureWeeks, 0, 520),
+    awayPressure: pick(g.awayPressure, D.awayPressure, 0, 5),
+    resultsNormal: pick(g.resultsNormal, D.resultsNormal, 0, 10),
+    priceWeeks: pick(g.priceWeeks, D.priceWeeks, 1, 260),
+  };
+}
+
+const L = DEFAULT_CHURN_LIMITS;
 /** Late or missed share of ad-hoc requests, 0 to 1 pressure. */
-export const responsePressure = (badShare: number): number => clamp(badShare / RESPONSE_FULL_SHARE, 0, 1);
+export const responsePressure = (badShare: number, full: number = L.responseFullShare): number => clamp(badShare / full, 0, 1);
 /** Share of visits done again, 0 to 1 pressure. */
-export const reworkPressure = (share: number): number => clamp(share / REWORK_FULL_SHARE, 0, 1);
-/** How busy a team is (1 = 100%), above the 85% line. */
-export const loadPressure = (util: number): number => clamp((util - LOAD_THRESHOLD) / (LOAD_FULL - LOAD_THRESHOLD), 0, 1);
-/** Waiting longer than normal for the first delivery: twice as long as normal is full pressure. */
-export const onboardingPressure = (delayHours: number, normalHours: number): number =>
-  normalHours > 0 && delayHours > normalHours ? Math.min(1, (delayHours - normalHours) / normalHours) : 0;
+export const reworkPressure = (share: number, full: number = L.reworkFullShare): number => clamp(share / full, 0, 1);
+/** How busy a team is (1 = 100%), above the overload line (85% by default). */
+export const loadPressure = (util: number, threshold: number = L.loadThreshold, full: number = L.loadFull): number => clamp((util - threshold) / (full - threshold), 0, 1);
+/** Waiting longer than normal for the first delivery: `fullMultiple` times as long as normal (twice by default) is full pressure. */
+export const onboardingPressure = (delayHours: number, normalHours: number, fullMultiple: number = L.onboardingFullMultiple): number =>
+  normalHours > 0 && delayHours > normalHours ? Math.min(1, (delayHours - normalHours) / ((fullMultiple - 1) * normalHours)) : 0;
 /** An average rating out of 10. */
-export const resultsPressure = (score: number): number => clamp((RESULTS_NORMAL_SCORE - score) * RESULTS_PRESSURE_PER_POINT, 0, 1);
+export const resultsPressure = (score: number, normal: number = L.resultsNormal): number => clamp((normal - score) * RESULTS_PRESSURE_PER_POINT, 0, 1);
 /** A price rise in percent. */
 export const pricePressure = (risePercent: number): number => Math.max(0, risePercent / 100) * PRICE_PRESSURE_PER_UNIT;
 
@@ -540,7 +601,7 @@ export interface ChurnProjection {
  * run: it holds the measured pressures fixed, so it ignores how churn itself
  * changes who is left.
  */
-export function projectChurn(causes: ChurnCauses, choices: readonly DriverWeightChoice[]): ChurnProjection {
+export function projectChurn(causes: ChurnCauses, choices: readonly DriverWeightChoice[], priceWeeks: number = PRICE_WEIGHT_WEEKS): ChurnProjection {
   const by = new Map(choices.map((c) => [c.id, c]));
   let add = 0;
   const parts: [string, number][] = [];
@@ -567,7 +628,7 @@ export function projectChurn(causes: ChurnCauses, choices: readonly DriverWeight
       v =
         c.mode === "chance"
           ? Math.max(0, choice.effect * c.pressure)
-          : Math.max(0, choice.effect * chance * (c.pressure / (PRICE_PRESSURE_PER_UNIT * PRICE_EFFECT_PER)) * ((months * WEEKS_PER_MONTH) / PRICE_WEIGHT_WEEKS));
+          : Math.max(0, choice.effect * chance * (c.pressure / (PRICE_PRESSURE_PER_UNIT * PRICE_EFFECT_PER)) * ((months * WEEKS_PER_MONTH) / priceWeeks));
     } else if (choice.effect !== undefined && choice.effect !== null && Number.isFinite(choice.effect)) {
       // Chance mode: the chance of being under a hit's effect, times the effect. A run that was itself in chance mode with no new chance keeps its measured exposure.
       const months = choice.months ?? EFFECT_MONTHS.default;
@@ -596,11 +657,11 @@ export function projectChurn(causes: ChurnCauses, choices: readonly DriverWeight
  * for handoff; the effect is weight × the run's pressure ÷ the share of time under a hit (capped at 5). The expected churn
  * matches in expectation, not draw for draw.
  */
-export function equivalentEvents(cause: Pick<ChurnCause, "id" | "custom" | "pressure" | "chance" | "value">, weight: number, months: number = EFFECT_MONTHS.default): DriverEvents {
+export function equivalentEvents(cause: Pick<ChurnCause, "id" | "custom" | "pressure" | "chance" | "value">, weight: number, months: number = EFFECT_MONTHS.default, priceWeeks: number = PRICE_WEIGHT_WEEKS): DriverEvents {
   const spec = cause.custom ? "entered" : (CHURN_DRIVER_SPECS[cause.id as BuiltinChurnDriverId]?.events ?? "none");
   // The price driver: a rise's pressure in weight mode is 2 per unit for 13 weeks, as events it is effect per 10% for the months, so the
   // effect that matches doesn't depend on the last run (which may have had no rise to measure).
-  if (cause.id === "price" && !cause.custom) return { chance: 1, effect: priceEffectOfWeight(weight, months), months };
+  if (cause.id === "price" && !cause.custom) return { chance: 1, effect: priceEffectOfWeight(weight, months, priceWeeks), months };
   const target = Math.max(0, weight * cause.pressure);
   if (spec === "measured") {
     const exposure = eventExposure(cause.chance ?? 0, months);
@@ -612,8 +673,8 @@ export function equivalentEvents(cause: Pick<ChurnCause, "id" | "custom" | "pres
   return { chance: cause.id === "handoff" ? chance : spec === "entered" ? 1 : null, effect: exposure > 0 ? Math.min(CHURN_EFFECT_MAX, target / exposure) : 0, months };
 }
 
-/** The price driver's effect (per 10% rise, for `months`) that gives a rise the churn the weight gives it: 2 × weight per unit of rise for 13 weeks. */
-export function priceEffectOfWeight(weight: number, months: number = EFFECT_MONTHS.default): number {
-  const effect = (Math.max(0, weight) * PRICE_PRESSURE_PER_UNIT * PRICE_EFFECT_PER * PRICE_WEIGHT_WEEKS) / (months * WEEKS_PER_MONTH);
+/** The price driver's effect (per 10% rise, for `months`) that gives a rise the churn the weight gives it: 2 × weight per unit of rise for 13 weeks (or the workspace's `priceWeeks`). */
+export function priceEffectOfWeight(weight: number, months: number = EFFECT_MONTHS.default, priceWeeks: number = PRICE_WEIGHT_WEEKS): number {
+  const effect = (Math.max(0, weight) * PRICE_PRESSURE_PER_UNIT * PRICE_EFFECT_PER * priceWeeks) / (months * WEEKS_PER_MONTH);
   return Math.min(CHURN_EFFECT_MAX, effect);
 }

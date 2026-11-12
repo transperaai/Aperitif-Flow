@@ -544,7 +544,8 @@ export const SANDBOX_LEVERS: readonly SandboxLever[] = [
     pay: "none",
     offered: true,
   },
-  // Kept for migrated rows: they run when saved and are never offered.
+  // Not offered in the scenario dialog (migrated rows run when saved). X1 is offered in free play instead, one rule at a time (Client service); X3 the
+  // same, as a change to every service at once (`applyPlay`).
   {
     id: "X1",
     group: "X",
@@ -552,7 +553,8 @@ export const SANDBOX_LEVERS: readonly SandboxLever[] = [
     description: "A workspace health rule (starting health, recovery, late and missed penalties).",
     target: "health_rule",
     ops: ["set", "multiply", "add"],
-    range: {},
+    // Health points (findings 15 and 27): the free-play Sandbox sets one rule at a time (Client service, `playChanges`).
+    range: { set: { min: 0, max: 100, step: 1 } },
     unit: "none",
     wholeRun: true,
     timed: false,
@@ -587,7 +589,7 @@ export const SANDBOX_LEVERS: readonly SandboxLever[] = [
     description: "How much a client's health moves its chance of leaving.",
     target: "service",
     ops: ["set", "multiply", "add"],
-    range: {},
+    range: { set: { min: 0, max: 20, step: 0.5 }, multiply: { min: 0, max: 3, step: 0.05 } },
     unit: "none",
     wholeRun: true,
     timed: false,
