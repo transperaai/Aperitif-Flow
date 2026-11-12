@@ -511,6 +511,10 @@ export interface Roles {
   ongoing_hours_per_client_week: Generated<Numeric>;
   provenance: Generated<Json>;
   rule_of_thumb: number | null;
+  /**
+   * Monthly salary of a full-time person in the role: pay. People without their own salary use it pro rata to their fte; contractors never do.
+   */
+  salary_monthly: Numeric | null;
   unit: string | null;
   updated_at: Generated<string>;
   workspace_id: string;

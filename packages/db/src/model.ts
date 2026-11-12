@@ -26,7 +26,8 @@ import {
 import { resolvePurpose, workspacePurposes, type PurposeSource } from "./purposes";
 import { engineClientCapacity, enginePersonCapacity, engineRoleUnit, engineTierClientGroups, engineTierService, tierContext, type TierContext } from "./capacity-model";
 import { engineRecurrence } from "./servicing";
-import { COMPANY_DONE, STEP_SOURCE_LABELS, type DistParams, type Distribution, type EdgeRow, type LeadSourceRow, type ProcessBundle, type ProcessPart, type SeasonalityRow, type StepRow, type StepSourceLabel, type WorkspaceSettings } from "./types";
+import { effectiveMonthlySalary, hourlyCostFromSalary } from "./salary";
+import { COMPANY_DONE, STEP_SOURCE_LABELS, type DistParams, type Distribution, type EdgeRow, type LeadSourceRow, type PersonRow, type ProcessBundle, type ProcessPart, type SeasonalityRow, type StepRow, type StepSourceLabel, type WorkspaceSettings } from "./types";
 
 const WORKING_DAYS_PER_WEEK = 5;
 const DAY_MS = 86_400_000;
@@ -863,6 +864,7 @@ function resolvePeopleRows(bundle: ProcessBundle, working: EngineStep[], startDa
     // dropped, as are steps outside the model; keys in sorted id order so the model is the same however the rows came.
     const factorRows = useFactors ? (bundle.personCapacityFactors ?? []).filter((f) => f.person_id === p.id) : [];
     const defaultFactor = factorRows.find((f) => f.step_id === null && Number(f.factor) !== 1);
+    const capacity = p.capacity_hours_week != null ? Number(p.capacity_hours_week) : Number(p.fte) * s.hours_per_week;
     const stepFactors = factorRows
       .filter((f) => f.step_id !== null && stepIds.has(f.step_id) && Number(f.factor) !== 1)
       .sort((a, b) => (a.step_id! < b.step_id! ? -1 : a.step_id! > b.step_id! ? 1 : 0));
@@ -872,9 +874,9 @@ function resolvePeopleRows(bundle: ProcessBundle, working: EngineStep[], startDa
         .filter((r) => r.person_id === p.id && roleIds.has(r.role_id))
         .map((r) => r.role_id)
         .sort(),
-      capacity: p.capacity_hours_week != null ? Number(p.capacity_hours_week) : Number(p.fte) * s.hours_per_week,
+      capacity,
       // A hidden rate is never used: not as 0, not as the role's default (`model.payHidden` marks what depends on it).
-      ...(p.cost_rate != null && !hidesPay(bundle) ? { cost: Number(p.cost_rate) } : {}),
+      ...personCost(bundle, p, capacity),
       ...(skillRows.length ? { skills: skillRows.map((k) => k.step_id).filter((id) => stepIds.has(id)).sort() } : {}),
       ...(leave.length ? { leave } : {}),
       ...(defaultFactor || stepFactors.length
@@ -898,6 +900,21 @@ function resolvePeopleRows(bundle: ProcessBundle, working: EngineStep[], startDa
     };
   }
   return people;
+}
+
+/**
+ * A person's hourly cost for the engine (D73), in order: their own cost rate; else their monthly salary (their own, or their roles'
+ * pro rata to fte; never a role's for a contractor, see `effectiveMonthlySalary`) over their weekly hours × 52/12; else none, so the
+ * engine uses their role's `default_cost_rate`. Nothing at all when pay is hidden: a hidden rate or salary is never used, not as 0 and
+ * not through the role's salary or default (`model.payHidden` marks what depends on it).
+ */
+export function personCost(bundle: ProcessBundle, p: PersonRow, weeklyHours: number): { cost?: number } {
+  if (hidesPay(bundle)) return {};
+  if (p.cost_rate != null) return { cost: Number(p.cost_rate) };
+  const held = new Set(bundle.personRoles.filter((r) => r.person_id === p.id).map((r) => r.role_id));
+  const roleSalaries = bundle.roles.filter((r) => held.has(r.id)).map((r) => r.salary_monthly);
+  const hourly = hourlyCostFromSalary(effectiveMonthlySalary(p, roleSalaries), weeklyHours);
+  return hourly !== null ? { cost: hourly } : {};
 }
 
 /**

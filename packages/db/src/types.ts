@@ -124,6 +124,11 @@ export interface RoleRow {
   active: boolean;
   /** Leadership: left out of clients and revenue per employee (D22). */
   leadership: boolean;
+  /**
+   * Monthly salary of a full-time person in the role (D73): pay. Null when not entered, and for anyone who can't see pay. Optional, so
+   * fixtures and older snapshots still type-check.
+   */
+  salary_monthly?: number | null;
 }
 
 export interface PersonRow {
@@ -136,6 +141,12 @@ export interface PersonRow {
   active: boolean;
   start_date: string | null;
   end_date: string | null;
+  /**
+   * Their own monthly salary and their label (`contractor` or `offshore`), as `team_capacity` gives them: like `cost_rate`, null for
+   * anyone but the caller's own person unless the caller sees everyone. Optional, so fixtures and older snapshots still type-check.
+   */
+  salary_monthly?: number | null;
+  label?: string | null;
   /** Provenance of fte, capacity, cost rate and dates (issue #25); loaded only where shown. */
   provenance?: ProvenanceMap;
 }
@@ -1107,8 +1118,11 @@ export type _SchemaDriftChecks = [
   // settings is jsonb; WorkspaceSettings is its app-side shape.
   // provenance is loaded only where shown (optional here, required in the table).
   Assert<Matches<Omit<WorkspaceRow, "settings" | "provenance">, "workspaces">>,
-  Assert<Matches<RoleRow, "roles">>,
-  Assert<Matches<Omit<PersonRow, "provenance">, "people">>,
+  // salary_monthly (and a person's label) are optional here (absent on fixtures).
+  Assert<Matches<Omit<RoleRow, "salary_monthly">, "roles">>,
+  Assert<Matches<Required<Pick<RoleRow, "salary_monthly">>, "roles">>,
+  Assert<Matches<Omit<PersonRow, "provenance" | "salary_monthly" | "label">, "people">>,
+  Assert<Matches<Required<Pick<PersonRow, "salary_monthly" | "label">>, "people">>,
   Assert<Matches<PersonRoleRow, "person_roles">>,
   Assert<Matches<PersonSkillRow, "person_skills">>,
   Assert<Matches<PersonLeaveRow, "person_leave">>,

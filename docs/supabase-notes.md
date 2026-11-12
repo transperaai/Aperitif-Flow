@@ -655,3 +655,16 @@ it. To check on Neon:
       `run_scenario` over the connector stamps `api_tokens.sim_window_count`.
 - [ ] Production must have `APP_DATABASE_URL` (the `authenticator` login) set and different from `DATABASE_URL`: `lib/auth/env.ts`
       now throws in production (NODE_ENV or VERCEL_ENV production, so Preview too) when it isn't.
+
+## Role salaries (`20270203000500_role_salary.sql`)
+
+Verified only against plain Postgres 16 (`packages/db/test/role-salary-db.test.ts`, the `workspace-import*` tests' "SQL and TS agree",
+live-body md5 and "role salaries" round-trip checks, `team-capacity.test.ts`). Check on Neon, once, after the apply:
+
+- [ ] `select count(*) from public.roles where salary_monthly is not null` is 0; `update public.roles set salary_monthly = -1 ...` is
+  refused by `roles_salary_monthly` (in a rolled-back transaction).
+- [ ] `select pg_get_triggerdef(oid) from pg_trigger where tgname = 'stamp_entered' and tgrelid = 'public.roles'::regclass` names
+  `salary_monthly`.
+- [ ] `select proname, md5(prosrc) from pg_proc where proname in ('team_capacity', 'import_workspace_bundle')` matches the md5s in the
+  migration's post-apply check.
+- [ ] As a Viewer linked to a person, `select public.team_capacity('<ws>')` gives a `salary_monthly` and `label` only on their own row.

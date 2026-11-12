@@ -435,7 +435,9 @@ describe("the migration file", () => {
       expect(after).not.toHaveProperty("person_capacity_factors");
       // Everything else it gave is unchanged (the same labels, the same order).
       const { person_capacity_factors: _gone, ...rest } = before;
-      expect(after).toEqual(rest);
+      // Role salaries (20270203000500) added each person's salary and label, which the old body never gave.
+      const people = (rest.people as Record<string, unknown>[]).map(({ salary_monthly: _s, label: _l, ...p }) => p);
+      expect(after).toEqual({ ...rest, people });
       expect(await q("select version from supabase_migrations.schema_migrations where version = '20261223000000'")).toEqual([]);
       // team_capacity keeps its grants.
       expect(await q("select has_function_privilege('authenticated', 'public.team_capacity(uuid)', 'execute') a, has_function_privilege('anon', 'public.team_capacity(uuid)', 'execute') b")).toEqual([{ a: true, b: false }]);

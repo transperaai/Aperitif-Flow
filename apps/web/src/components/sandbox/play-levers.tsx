@@ -188,7 +188,7 @@ export function PlayLevers({
         </Group>
 
         <Group title="Lose clients" id="lose">
-          <Slider id="churn" label="Churn" value={play.churn} min={-50} max={100} step={5} unit="%" onChange={(v) => set({ churn: v })} />
+          <Slider id="churn" label="Churn" value={play.churn} min={-50} max={100} step={1} unit="%" onChange={(v) => set({ churn: v })} />
           {play.lose.map((x, i) => (
             <div key={i} className={ROW} data-lose-row>
               <NativeSelect className="col-span-full" value={x.id} onChange={(e) => listEdit<{ id: string }>("lose", i, { id: e.target.value })} aria-label="Client who leaves">

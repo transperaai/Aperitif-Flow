@@ -168,7 +168,9 @@ describe("team_capacity per-person times (C6)", () => {
       await db.client.query(rollback.slice(start, end));
       const old = (await db.as(editor.claims, async (c) => (await c.query("select public.team_capacity($1) as t", [ws])).rows[0].t)) as Record<string, unknown>;
       const { person_capacity_factors: _new, ...rest } = t;
-      expect(old).toEqual(rest);
+      // Role salaries (20270203000500) added each person's salary and label, shown as their cost rate is: left out here too.
+      const people = (rest.people as Record<string, unknown>[]).map(({ salary_monthly: _s, label: _l, ...p }) => p);
+      expect(old).toEqual({ ...rest, people });
     } finally {
       await db.client.query("rollback");
     }

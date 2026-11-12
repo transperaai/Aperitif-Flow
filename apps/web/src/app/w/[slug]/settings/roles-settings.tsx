@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import type { RoleRow } from "@transpera-flow/db";
 import { TextField, ToggleField } from "@/components/fields";
 import { HelpLabel } from "@/components/help";
@@ -46,11 +46,26 @@ export function AddRole({ workspaceId, onAdded, className }: { workspaceId: stri
 }
 
 /** What else a role has (the part of a row that opens): Set up shows it under "More". */
-export function RoleMore({ role, usage, canEdit, hideName }: { role: Pick<RoleRow, "id" | "name" | "color" | "active" | "leadership">; usage: RoleUsage; canEdit: boolean; /** The Set up panel shows the name at the top. */ hideName?: boolean }) {
+export function RoleMore({
+  role,
+  usage,
+  canEdit,
+  hideName,
+  salaryField,
+}: {
+  role: Pick<RoleRow, "id" | "name" | "color" | "active" | "leadership">;
+  usage: RoleUsage;
+  canEdit: boolean;
+  /** The Set up panel shows the name at the top. */
+  hideName?: boolean;
+  /** The role's "Salary a month" (D73), which Set up saves and passes only to whoever can see pay. */
+  salaryField?: ReactNode;
+}) {
   const disabled = !canEdit;
   return (
     <div className="grid gap-4 px-1 pt-3 pb-2 sm:grid-cols-2">
         {!hideName && <TextField label="Name" value={role.name} save={roleSaver(role.id, "name")} disabled={disabled} help={{ description: "The kind of work, as your team says it. Steps and people name roles.", example: "Strategist" }} />}
+        {salaryField}
         <ToggleField
           label="Status"
           value={role.active}

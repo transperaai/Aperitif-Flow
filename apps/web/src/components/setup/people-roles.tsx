@@ -9,7 +9,7 @@
 import { ChevronRight, Users } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { missingForCapacity, tierDiscrepancies, type CapacitySetup, type SetupPerson, type SetupRole } from "@transpera-flow/db";
+import { missingForCapacity, personSalary, tierDiscrepancies, type CapacitySetup, type SetupPerson, type SetupRole } from "@transpera-flow/db";
 import { ClearFilters, EmptyState, FilterMenu, Toolbar, ToolbarSearch } from "@/components/page-kit";
 import { SettingsSection } from "@/app/w/[slug]/settings/section";
 import { AddRole, RoleMore } from "@/app/w/[slug]/settings/roles-settings";
@@ -53,7 +53,8 @@ const HELP = {
   department: { label: "Department", description: "The service line their role works in. It is read from the role, so change the role to change it.", example: "SEO Director: Organic (SEO)." },
   hours: { label: "Hours a week", description: "The hours they can work in a week. Blank: working time times the workspace week.", example: "38 for a full week." },
   teamTime: { label: "Team time", description: "The share of their hours kept for leading, mentoring and reviews. The rest is available for client work.", example: "Laura 35%: about 13 of her 38 hours go on leading the team." },
-  salary: { label: "Salary a month", description: "What they cost each month. DLER (direct labour expense ratio) counts salaries; directors, managers and contractors are not counted.", example: "SEO Manager: 7,500 a month." },
+  salary: { label: "Salary a month", description: "What they cost each month. It counts in profit and DLER (direct labour expense ratio), and overrides their role's salary. Blank: their role's salary, pro rata to their working time. Directors, managers and contractors are not counted in DLER.", example: "SEO Manager: 7,500 a month." },
+  roleSalary: { label: "Salary a month", description: "What a full-time person in this role is paid a month. Anyone without their own salary uses it, pro rata to their working time. It counts in profit and DLER. Contractors keep their hourly cost rate.", example: "SEO Manager: 7,000 a month." },
   label: { label: "Label", description: "Contractor or offshore. Contractors aren't in DLER; offshore people are labelled in reports.", example: "Tonie: offshore." },
   servesTiers: { label: "Serves tiers", description: "The tiers this person can look after. New clients are placed with someone who serves the tier. Nothing ticked: every tier.", example: "Karl serves T1, T2 and T3; Khaselyn only T3." },
   named: { label: "Named clients", description: "Named clients this person looks after, from the Tiers & clients page. Read only.", example: "Laura: Harbourline Group, Meridian Finance." },
@@ -319,7 +320,16 @@ function PeopleList({ setup, data }: { setup: CapacitySetup; data: WorkspaceSett
                     </TableCell>
                     {showSalary && (
                       <TableCell className={cn(CELL, "text-right tabular-nums max-sm:hidden")} data-cell="salary">
-                        {p.salary_monthly !== null ? formatWholeCurrency(p.salary_monthly, setup.currency) : noSalary.has(p.id) ? <span data-missing className="text-xs font-medium text-warn">missing</span> : <Muted>–</Muted>}
+                        {p.salary_monthly !== null ? (
+                          formatWholeCurrency(p.salary_monthly, setup.currency)
+                        ) : noSalary.has(p.id) ? (
+                          <span data-missing className="text-xs font-medium text-warn">missing</span>
+                        ) : personSalary(setup, p) !== null ? (
+                          // Their role's salary, pro rata (D73): shown muted, as a blank's default is.
+                          <Muted>{formatWholeCurrency(personSalary(setup, p)!, setup.currency)}</Muted>
+                        ) : (
+                          <Muted>–</Muted>
+                        )}
                       </TableCell>
                     )}
                     <TableCell className={cn(CELL, "max-xl:hidden")} data-cell="label">
@@ -438,6 +448,8 @@ function PersonPanel({
   const deptName = setup.departments.find((d) => d.id === deptId)?.name;
   const detail = data.people.find((x) => x.id === p.id);
   const named = setup.clients.filter((c) => c.active && Object.values(c.assignments).includes(p.id));
+  // What a blank salary means: their role's, pro rata (D73), shown as the field's placeholder.
+  const roleSalary = personSalary(setup, { ...p, salary_monthly: null });
   const facingDeptId = roles.filter((r) => r.kind === "client_facing" && r.active).find((r) => r.department_id)?.department_id ?? null;
 
   return (
@@ -462,7 +474,7 @@ function PersonPanel({
           </div>
           {showSalary && (
             <div className="flex flex-col">
-              <NumberField label="Salary a month" value={p.salary_monthly} save={field("people", key, "salary_monthly")} optional min={0} step={100} disabled={!canEdit} help={HELP.salary} />
+              <NumberField label="Salary a month" value={p.salary_monthly} save={field("people", key, "salary_monthly")} optional min={0} step={100} placeholder={roleSalary !== null ? String(Math.round(roleSalary)) : undefined} disabled={!canEdit} help={HELP.salary} />
               <Marks provenance={p.provenance} column="salary_monthly" value={p.salary_monthly} missing={noSalary && p.salary_monthly === null} />
             </div>
           )}
@@ -726,7 +738,21 @@ function RolePanel({ setup, data, role: r, missingUnit }: { setup: CapacitySetup
         </div>
       </Group>
       <Group id="more" title="More">
-        <RoleMore role={r} usage={usage} canEdit={canEdit} hideName />
+        <RoleMore
+          role={r}
+          usage={usage}
+          canEdit={canEdit}
+          hideName
+          salaryField={
+            // A role's salary is pay: only whoever can see pay gets the field (D73).
+            !setup.payHidden && (
+              <div className="flex flex-col">
+                <NumberField label="Salary a month" value={r.salary_monthly} save={field("roles", key, "salary_monthly")} optional min={0} step={100} disabled={!canEdit} help={HELP.roleSalary} />
+                <Marks provenance={r.provenance} column="salary_monthly" value={r.salary_monthly} />
+              </div>
+            )
+          }
+        />
       </Group>
     </div>
   );

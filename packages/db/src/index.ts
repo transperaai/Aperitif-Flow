@@ -28,6 +28,7 @@ export {
 export { loadAnalysisRules, saveAnalysisRules, type AnalysisRules, type SaveAnalysisRulesOutcome } from "./analysis-rules";
 export * from "./process-category";
 export * from "./capacity-setup";
+export { effectiveMonthlySalary, hourlyCostFromSalary, WEEKS_PER_MONTH, type SalaryPerson } from "./salary";
 export * from "./capacity-figures";
 export * from "./process-department";
 export * from "./capacity-changes";
@@ -153,6 +154,7 @@ export {
   loadClientGroups,
   loadClients,
   loadTeam,
+  rolesForViewer,
   loadIssues,
   loadIssuesForReader,
   readerSeesPeople,

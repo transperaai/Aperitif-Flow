@@ -22,6 +22,7 @@
 
 import type { Db } from "./queries";
 import { rpc } from "./rpc";
+import { effectiveMonthlySalary } from "./salary";
 import type { Json } from "./db-types";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -168,6 +169,8 @@ export interface SetupRole {
   /** Leadership: left out of clients and revenue per employee (D22). */
   leadership: boolean;
   unit: string | null;
+  /** A full-time person's monthly salary in the role (D73). Null when not entered, and for everyone when the viewer can't see pay. */
+  salary_monthly: number | null;
   provenance: Prov;
 }
 export interface SetupPerson {
@@ -263,7 +266,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
     db
       .selectFrom("roles")
       .select([
-        "id", "name", "color", "active", "default_cost_rate", "headcount", "ongoing_hours_per_client_week", "department_id", "kind", "line", "rule_of_thumb", "unit", "leadership", "provenance",
+        "id", "name", "color", "active", "default_cost_rate", "headcount", "ongoing_hours_per_client_week", "department_id", "kind", "line", "rule_of_thumb", "unit", "leadership", "salary_monthly", "provenance",
       ])
       .where("workspace_id", "=", workspaceId)
       .orderBy("created_at")
@@ -357,6 +360,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
       line: Number(r.line),
       leadership: r.leadership === true,
       kind: r.kind === "shared" ? "shared" : "client_facing",
+      salary_monthly: hidden ? null : num(r.salary_monthly),
       provenance: prov(r.provenance),
     })),
     people: people.map((p) => ({
@@ -488,6 +492,7 @@ export const SETUP_FIELDS = {
     rule_of_thumb: n(1, 10_000, true, true),
     unit: text(60, true),
     leadership: { type: "boolean" },
+    salary_monthly: amount(true),
   },
   person_portfolio: { client_count: n(0, 100_000, false, true) },
 } as const satisfies Record<string, Record<string, FieldRule>>;
@@ -704,10 +709,21 @@ export function missingForCapacity(
   }
   if (options.salariesVisible !== false) {
     for (const p of data.people) {
-      if (p.active && p.label !== "contractor" && p.salary_monthly === null) out.push({ kind: "person_salary", id: p.id, label: `${p.name}: no salary` });
+      // Someone a role's salary covers has one (D73).
+      if (p.active && p.label !== "contractor" && personSalary(data, p) === null) out.push({ kind: "person_salary", id: p.id, label: `${p.name}: no salary` });
     }
   }
   return out;
+}
+
+/**
+ * A person's monthly salary as DLER, the missing list and the Sandbox read it (D73): their own when entered, else their roles' (the mean
+ * of those entered) pro rata to their fte; never a role's for a contractor. Null when neither is entered, and always where pay is
+ * hidden (every salary in the setup is null then).
+ */
+export function personSalary(data: Pick<CapacitySetup, "roles">, p: Pick<SetupPerson, "salary_monthly" | "fte" | "label" | "role_ids">): number | null {
+  const held = new Set(p.role_ids);
+  return effectiveMonthlySalary(p, data.roles.filter((r) => held.has(r.id)).map((r) => r.salary_monthly));
 }
 
 /** How the missing list names a field. */

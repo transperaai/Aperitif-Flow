@@ -25,7 +25,7 @@ import {
   type SimulationResult,
 } from "@transpera-flow/engine";
 import type { CapacitySetup, SetupPerson, SetupRole } from "./capacity-setup";
-import { tierCount, uniqueClients } from "./capacity-setup";
+import { personSalary, tierCount, uniqueClients } from "./capacity-setup";
 
 /**
  * Months to hire a replacement before the market stretches it (the prototype's `hiringDelay`; the Sandbox's "Hiring delay" lever starts
@@ -436,7 +436,7 @@ export function personFees(setup: CapacitySetup): Map<string, number> {
 /**
  * DLER (D40, amending D9 and D24): the average of each client-facing person's DLER. A person's DLER is the monthly retainers of the
  * clients they manage (`personFees`) ÷ their monthly salary. A department's is the mean over its client-facing people; the whole business's is
- * the mean over all of them. People with no salary entered and contractors are left out; directors are in only when
+ * the mean over all of them. A person's salary is their own, else their role's pro rata to their fte (`personSalary`, D73). People with no salary and contractors are left out; directors are in only when
  * `dler_includes_leadership` is on (D48: off unless set). Where pay is hidden the ratios are null.
  *
  * `retainers` (the Sandbox): the retainers a month each department takes in a month of a run, in place of today's. A department's pool is
@@ -452,7 +452,8 @@ export function dler(setup: CapacitySetup, retainers?: Record<string, number>): 
     const role = personRole(p);
     const dept = deptOf(p);
     if (!dept || role?.kind !== "client_facing" || !inDler(setup, p, role)) continue;
-    const salary = p.salary_monthly;
+    // Their own salary, else their role's pro rata (D73).
+    const salary = personSalary(setup, p);
     if (!setup.payHidden && !(salary !== null && salary > 0)) continue;
     members.push({ dept, fee: fees.get(p.id) ?? 0, salary: salary ?? 0 });
   }
@@ -829,7 +830,7 @@ export function dlerSalariesMissing(setup: CapacitySetup, departmentId: string |
     const d = deptOf(p);
     if (!d || (departmentId !== null && d !== departmentId)) return false;
     const role = personRole(p);
-    return role?.kind === "client_facing" && inDler(setup, p, role) && p.salary_monthly === null;
+    return role?.kind === "client_facing" && inDler(setup, p, role) && personSalary(setup, p) === null;
   });
 }
 

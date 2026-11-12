@@ -20,7 +20,7 @@ const ORG = "d0000000-0000-4000-8000-000000000001";
 const PERF = "d0000000-0000-4000-8000-000000000002";
 const id = (prefix: string, n: number) => `${prefix}0000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
-type Scenario = "totals" | "no-named" | "other-services";
+type Scenario = "totals" | "no-named" | "other-services" | "role-salary";
 
 const tier = (n: number, over: Partial<SetupTier> = {}): SetupTier => ({ id: id("a", n), key: `T${n}`, name: `Tier ${n}`, sort: n, both_count: n === 2 ? 5 : 0, provenance: {}, ...over });
 
@@ -76,11 +76,13 @@ export function build(who: "owner" | "viewer", extraTiers: number, scenario?: Sc
   // D46: two active services that are not tiers.
   if (scenario === "other-services") services.push(service(ORG, tier(9), { id: id("9", 1), name: "Website project", tier_id: null, department_id: null }), service(ORG, tier(9), { id: id("9", 2), name: "Hourly work", tier_id: null, department_id: null }));
   const roles: SetupRole[] = [
-    { id: id("e", 1), name: "SEO Manager", color: null, active: true, default_cost_rate: 0, headcount: 1, ongoing_hours_per_client_week: 0, department_id: ORG, kind: "client_facing", line: 0.85, rule_of_thumb: 10, unit: null, leadership: false, provenance: { line: { source: "estimate" } } },
-    { id: id("e", 2), name: "Content team", color: null, active: true, default_cost_rate: 0, headcount: 1, ongoing_hours_per_client_week: 0, department_id: ORG, kind: "shared", line: 0.85, rule_of_thumb: null, unit: "words", leadership: false, provenance: {} },
-    { id: id("e", 4), name: "Old analyst", color: null, active: false, default_cost_rate: 0, headcount: 0, ongoing_hours_per_client_week: 0, department_id: ORG, kind: "client_facing", line: 0.85, rule_of_thumb: 10, unit: null, leadership: false, provenance: {} },
-    { id: id("e", 3), name: "Technical SEO", color: null, active: true, default_cost_rate: 0, headcount: 1, ongoing_hours_per_client_week: 0, department_id: ORG, kind: "shared", line: 0.85, rule_of_thumb: null, unit: null, leadership: false, provenance: {} },
+    { id: id("e", 1), name: "SEO Manager", color: null, active: true, default_cost_rate: 0, headcount: 1, ongoing_hours_per_client_week: 0, department_id: ORG, kind: "client_facing", line: 0.85, rule_of_thumb: 10, unit: null, leadership: false, salary_monthly: null, provenance: { line: { source: "estimate" } } },
+    { id: id("e", 2), name: "Content team", color: null, active: true, default_cost_rate: 0, headcount: 1, ongoing_hours_per_client_week: 0, department_id: ORG, kind: "shared", line: 0.85, rule_of_thumb: null, unit: "words", leadership: false, salary_monthly: null, provenance: {} },
+    { id: id("e", 4), name: "Old analyst", color: null, active: false, default_cost_rate: 0, headcount: 0, ongoing_hours_per_client_week: 0, department_id: ORG, kind: "client_facing", line: 0.85, rule_of_thumb: 10, unit: null, leadership: false, salary_monthly: null, provenance: {} },
+    { id: id("e", 3), name: "Technical SEO", color: null, active: true, default_cost_rate: 0, headcount: 1, ongoing_hours_per_client_week: 0, department_id: ORG, kind: "shared", line: 0.85, rule_of_thumb: null, unit: null, leadership: false, salary_monthly: null, provenance: {} },
   ];
+  // D73: the Content team has a salary (the Owner's read only: a Viewer's has none), so Sarah, who has none of her own, is covered.
+  if (scenario === "role-salary" && who === "owner") roles[1] = { ...roles[1]!, salary_monthly: 5000 };
   const person = (n: number, name: string, role: string, over: Partial<SetupPerson> = {}): SetupPerson => ({
     id: id("f", n), name, email: null, active: true, fte: 1, capacity_hours_week: 38, cost_rate: null, start_date: null, end_date: null, notes: null, reserved_share: 0,
     salary_monthly: who === "owner" ? 7500 : null, label: null, ramp: null, provenance: {}, role_ids: [role], tier_ids: [], ...over,
