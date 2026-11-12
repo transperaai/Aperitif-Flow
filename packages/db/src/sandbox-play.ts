@@ -7,9 +7,10 @@
 //        Leads %, Win rate %, market from a month   A1 (opportunities, a multiple, from a month), A3 (conversion), the market schedule (edit below)
 //        Churn %                                    B3 (base churn, a multiple, whole run)
 //        Prices, change % by tier, from a month     B5 (price rise) per service of the tier
-//        Someone leaves in a month                  D2        Hire a role from a month   D1 (one FTE)
+//        Someone leaves in a month                  D2        Hire a role from a month   D1 (its FTE; its pay goes to the runner, `preparePlay`)
 //        Client health rules (findings 15 and 27)    X1 (a health rule, set, whole run) per rule moved
 //        Costs: overheads a month, set or add       C2 (a channel from a month; hidden, and never sent, when pay is hidden)
+//        Work: hours a week %, a role or everyone   D6 (hours available, a multiple from a month)
 //        Costs: pay change %, a role or everyone    C1 (role cost, a multiple from a month, one change per role; the engine scales a
 //                                                   person's own rate by it too)
 //        Map version of a process from a month      E6 (a solution goes live from a month; spliced, so a switch part-way through a run works). The
@@ -27,7 +28,7 @@
 import { MARKET_PRESETS, STABLE_MARKET, type EngineChurnDriver, type EngineModel, type MarketFactors, type MarketPresetKey, type WonClientsEntry } from "@transpera-flow/engine";
 import type { CapacitySetup } from "./capacity-setup";
 import { tierCount } from "./capacity-setup";
-import { sandboxLever, type SandboxChange } from "./sandbox-levers";
+import { HIRE_FTE, sandboxLever, type SandboxChange } from "./sandbox-levers";
 
 /** The months a free-play run covers. */
 export const PLAY_MONTHS = 12;
@@ -78,7 +79,12 @@ export interface PlayState {
   /** How the levers' hires get up to speed: "none" is full speed from their first day; omitted, the workspace's new starter ramp. */
   hireRamp?: "workspace" | "none";
   leavers: { person: string; month: number }[];
-  hires: { role: string; month: number }[];
+  /**
+   * Hires: a role from a month, at an FTE (omitted: 1; clamped to the lever's offered range) and, optionally, what they'd be paid a month
+   * at that FTE (`pay`; omitted or null: the role's people's pay for a full-time week × the FTE, `hireMonthlySalary`). Profit and DLER
+   * cost the hire at the same salary (customisability audit 4, 5 and 25).
+   */
+  hires: PlayHire[];
   /** Named clients (client ids) who leave in a month. */
   lose: { id: string; month: number }[];
   /** Map versions: process id -> a solution of that process live from a month. A process not listed runs today's map. */
@@ -95,7 +101,28 @@ export interface PlayState {
   pay: number;
   payRole: "all" | string;
   payFrom: number;
+  /** Percent change to the hours people have a week from `hoursFrom`, for one role id or everyone ("all"); absent or 0 keeps them. */
+  hours?: number;
+  hoursRole?: "all" | string;
+  hoursFrom?: number;
 }
+
+/** A free-play hire (see `PlayState.hires`). */
+export interface PlayHire {
+  role: string;
+  month: number;
+  fte?: number;
+  pay?: number | null;
+}
+
+/** A hire's FTE: its own, clamped to what the hire lever offers; 1 when not set. */
+export const hireFte = (h: Pick<PlayHire, "fte">): number => {
+  const v = Number(h.fte);
+  return h.fte === undefined || !Number.isFinite(v) ? 1 : Math.round(Math.min(HIRE_FTE.offered.max, Math.max(HIRE_FTE.offered.min, v)) * 100) / 100;
+};
+
+/** A hire's typed pay a month, or null when none (a finite amount, 0 or more). */
+export const hirePay = (h: Pick<PlayHire, "pay">): number | null => (typeof h.pay === "number" && Number.isFinite(h.pay) && h.pay >= 0 ? h.pay : null);
 
 export function defaultPlay(): PlayState {
   return {
@@ -134,7 +161,7 @@ export function playIsDefault(p: PlayState): boolean {
   const d = defaultPlay();
   return (
     p.market === d.market && !p.leads && !p.win && !p.churn && !Object.values(p.add).some((n) => n > 0) && !p.price && (p.hiringDelay ?? null) === null && !p.leavers.length && !p.hires.length && !p.lose.length &&
-    !Object.keys(p.versions).length && !healthMoved(p).length && !(Number(p.sensitivity) || 0) && !overheadsMoved(p) && !(Number(p.pay) || 0)
+    !Object.keys(p.versions).length && !healthMoved(p).length && !(Number(p.sensitivity) || 0) && !overheadsMoved(p) && !(Number(p.pay) || 0) && !(Number(p.hours) || 0)
   );
 }
 
@@ -303,11 +330,18 @@ function percentRange(leverId: string, op: "multiply" | "set"): PlaySliderRange 
 
 /**
  * The free-play sliders' ranges, from the levers they map to (`playChanges`): Leads A1 and Win rate A3 (multiply), Churn B3 (multiply), Price
- * change B5 (a rise as a share), Pay change C1 (multiply). So the Sandbox offers every change the registry accepts, e.g. doubling leads (+100%)
+ * change B5 (a rise as a share), Pay change C1 and Hours a week D6 (multiply). So the Sandbox offers every change the registry accepts, e.g. doubling leads (+100%)
  * or a 50% price rise.
  */
-export function playSliderRanges(): Record<"leads" | "win" | "churn" | "price" | "pay", PlaySliderRange> {
-  return { leads: percentRange("A1", "multiply"), win: percentRange("A3", "multiply"), churn: percentRange("B3", "multiply"), price: percentRange("B5", "set"), pay: percentRange("C1", "multiply") };
+export function playSliderRanges(): Record<"leads" | "win" | "churn" | "price" | "pay" | "hours", PlaySliderRange> {
+  return {
+    leads: percentRange("A1", "multiply"),
+    win: percentRange("A3", "multiply"),
+    churn: percentRange("B3", "multiply"),
+    price: percentRange("B5", "set"),
+    pay: percentRange("C1", "multiply"),
+    hours: percentRange("D6", "multiply"),
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -339,9 +373,15 @@ export function playChanges(play: PlayState, ctx: Pick<PlayContext, "startDate" 
     else priceServices(play, ctx.setup).forEach((service, i) => out.push({ id: playChangeId("B5", i), lever: "B5", target: service, op: "set", value: round(price / 100), from: at(play.priceFrom) }));
   }
   play.leavers.forEach((l, i) => out.push({ id: playChangeId("D2", i), lever: "D2", target: l.person, op: "set", value: 0, from: at(l.month) }));
-  play.hires.forEach((h, i) => out.push({ id: playChangeId("D1", i), lever: "D1", target: h.role, op: "set", value: 1, from: at(h.month) }));
+  play.hires.forEach((h, i) => out.push({ id: playChangeId("D1", i), lever: "D1", target: h.role, op: "set", value: hireFte(h), from: at(h.month) }));
   Object.entries(play.versions).forEach(([, v], i) => out.push({ id: playChangeId("E6", i), lever: "E6", target: v.solution, op: "set", value: 1, from: at(v.month) }));
   healthMoved(play).forEach(([rule, value], i) => out.push({ id: playChangeId("X1", i), lever: "X1", target: rule, op: "set", value }));
+  // Work: the hours people have a week (D6, a multiple from a month), everyone's or a role's.
+  const hours = Number(play.hours) || 0;
+  if (hours) {
+    const role = play.hoursRole && play.hoursRole !== "all" ? play.hoursRole : null;
+    out.push({ id: playChangeId("D6"), lever: "D6", target: role, op: "multiply", value: round(Math.max(0, 1 + hours / 100)), from: at(play.hoursFrom ?? 0) });
+  }
   // Costs: never for someone who can't see pay (the levers are hidden from them too).
   if (!ctx.setup.payHidden) {
     if (overheadsMoved(play)) {

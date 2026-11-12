@@ -17,6 +17,7 @@ import type { PersonLeaveRow, PersonRoleRow, PersonRow, PersonSkillRow, PersonCa
 import { applyPatches, checkScenario, initialState, type EngineModel, type InitialState, type RetiredSteps, type ScenarioPatch } from "@transpera-flow/engine";
 import { retiredSteps } from "../retired";
 import { storedHiringDelay } from "../capacity-figures";
+import { effectiveMonthlySalary, hireMonthlySalary } from "../salary";
 import { addDays, addMonths, calendarMonthStarts, horizonWeeks, hoursToDate, monthBounds } from "./months";
 import { bundleFromSolution } from "./solution";
 import { toEngineStepChanges } from "../capacity-changes";
@@ -107,8 +108,9 @@ export function applyPeopleChanges(
   /**
    * `storedHiringDelay: false` leaves out the workspace's own months to hire when there is no D9 change: free play's hires start in the
    * month picked for them ("Month they start"), as its series and charts count them. Saved scenarios keep it (the default).
+   * `hirePay`: a hire's own monthly pay by its change id (free play's "Pay a month"); a hire not in it is paid as `hireMonthlySalary` says.
    */
-  o: { storedHiringDelay?: boolean } = {},
+  o: { storedHiringDelay?: boolean; hirePay?: ReadonlyMap<string, number> } = {},
 ): PeopleApplied {
   const problems: ChangeProblem[] = [];
   const handled = new Set<string>();
@@ -170,13 +172,24 @@ export function applyPeopleChanges(
 
   // 1. Hires.
   const hires: PersonRow[] = [];
+  /** A role's active people today with their effective salaries (null when none, or hidden), for a hire's default pay. */
+  const roleMembers = (roleId: string) =>
+    bundle.people
+      .filter((p) => p.active && bundle.personRoles.some((r) => r.person_id === p.id && r.role_id === roleId))
+      .map((p) => {
+        const held = new Set(bundle.personRoles.filter((r) => r.person_id === p.id).map((r) => r.role_id));
+        return { salary: effectiveMonthlySalary(p, bundle.roles.filter((r) => held.has(r.id)).map((r) => r.salary_monthly)), fte: p.fte };
+      });
   for (const c of changes) {
     if (c.lever !== "D1") continue;
     if (!roleName.has(c.target ?? "")) {
       problems.push({ changeId: c.id, message: `The role of “${c.params?.name?.trim() || "a new hire"}” isn't there any more` });
       continue;
     }
-    hires.push({ id: c.id, workspace_id, name: names.get(c.id)!, fte: c.value, capacity_hours_week: null, cost_rate: null, active: true, start_date: c.from ? startOf(c.from) : wholeRunStart(), end_date: null });
+    // One salary for the hire in profit and in DLER (customisability audit 5): their own pay, else the role's people's full-time pay ×
+    // the hire's FTE (the Sandbox's `setupInMonth` gives them the same); none: the role's salary pro rata, as for anyone without their own.
+    const salary = hireMonthlySalary(o.hirePay?.get(c.id), c.value, roleMembers(c.target!));
+    hires.push({ id: c.id, workspace_id, name: names.get(c.id)!, fte: c.value, capacity_hours_week: null, cost_rate: null, active: true, start_date: c.from ? startOf(c.from) : wholeRunStart(), end_date: null, ...(salary !== null ? { salary_monthly: salary } : {}) });
     personRoles.push({ person_id: c.id, role_id: c.target!, workspace_id });
     planPeople.add(c.id);
   }
@@ -371,7 +384,7 @@ export function scenarioSegments(
   bounds: readonly number[],
   hoursPerWeek: number,
   /** See `applyPeopleChanges`. */
-  o: { storedHiringDelay?: boolean } = {},
+  o: { storedHiringDelay?: boolean; hirePay?: ReadonlyMap<string, number> } = {},
 ): SegmentsResult {
   const list = changes.map((c) => c.change);
   const people = applyPeopleChanges(bundle, list, startDate, o);
@@ -584,7 +597,7 @@ export function prepareScenario(
    * `issueOf`: the issue a solution is for, put on its step changes (reporting only). `storedHiringDelay: false`: hires without a D9
    * change start in their own month, not the workspace's months to hire later (free play; see `applyPeopleChanges`).
    */
-  o: { pair?: boolean; issueOf?: (solutionId: string) => string | undefined; storedHiringDelay?: boolean } = {},
+  o: { pair?: boolean; issueOf?: (solutionId: string) => string | undefined; storedHiringDelay?: boolean; hirePay?: ReadonlyMap<string, number> } = {},
 ): PreparedScenario {
   const retired = retiredSteps(bundle);
   const live = scenarioModel(bundle, months, startDate);
@@ -595,7 +608,10 @@ export function prepareScenario(
   const names = new Map(solutions.map((x) => [x.id, x.name]));
 
   const build = (list: readonly EffectiveChange[], forcePriceDriver = false) => {
-    const plan = scenarioSegments(bundle, list, solutions, startDate, bounds, hpw, o.storedHiringDelay === false ? { storedHiringDelay: false } : {});
+    const plan = scenarioSegments(bundle, list, solutions, startDate, bounds, hpw, {
+      ...(o.storedHiringDelay === false ? { storedHiringDelay: false } : {}),
+      ...(o.hirePay ? { hirePay: o.hirePay } : {}),
+    });
     if (plan.error !== null) return { error: plan.error, plan, segments: [] as PreparedSegment[], problems: plan.problems };
     const all = list.map((c) => c.change);
     const segments: PreparedSegment[] = [];

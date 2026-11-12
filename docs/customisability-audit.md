@@ -40,6 +40,8 @@ Status: fixed in this branch
 - **Fix:** Add a 'Costs' group to play-levers.tsx with overheads a month (C2, set/add from a month), pay change % by role from a month (C1 multiply), and a salary field on each hire row. Carry them in PlayState and map them in playChanges to the existing C1/C2 changes.
 - **Where:** `apps/web/src/components/sandbox/play-levers.tsx:123-293 (the only groups are Market, Win new clients, Lose clients, Prices, People); packages/db/src/sandbox-play.ts:41-66 (PlayState has no cost field) and :231-246 (playChanges emits only A1, A3, B3, B5, D2, D1, E6)`
 
+Status: fixed in this branch. Free play has a Costs group (overheads a month, set or add, from a month; pay change % for a role or everyone, from a month) and each hire row has an FTE and an optional pay a month.
+
 ## 5. A Sandbox hire costs nothing in profit but counts at the role's average salary in DLER  
 *high · money*
 
@@ -48,6 +50,8 @@ Status: fixed in this branch
 - **Fix:** Give the hire one salary used by both: in run.ts set the hire row's salary_monthly to the same value setupInMonth computes (fte-normalised mean, or a salary typed on the hire row), so personCost costs it. Show that salary on the hire row in play-levers.
 - **Where:** `packages/db/src/sandbox/run.ts:166 (hire PersonRow: cost_rate null, no salary_monthly) -> packages/db/src/model.ts:912-917 personCost (role salary, else nothing) -> packages/engine/src/simulate.ts:3690-3694 rateOf falls back to roles.default_cost_rate, which defaults to 0 (packages/db/migrations/20260929000000_init.sql:53). DLER side: packages/db/src/sandbox-play-series.ts:55-58 gives the hire the mean of the role's people's effective salaries.`
 
+Status: fixed in this branch. A hire's salary is their typed pay, else the role's people's full-time pay (each salary over their FTE) times the hire's FTE; the runner (sandbox/run.ts) and the DLER setup (setupInMonth) use the same number.
+
 ## 6. Most Sandbox levers are hidden: the live Sandbox offers only 9 free-play levers  
 *high · sandbox*
 
@@ -55,6 +59,8 @@ Status: fixed in this branch
 - **Why it matters:** An owner can't ask 'what if rent goes up 2k', 'what if we pay designers 10% more', 'what if onboarding takes half the time' or 'what if hiring takes 4 months' in the Sandbox. The engine supports all of these, but the page offers none of them, so the Sandbox feels like a fixed demo and not a simulator.
 - **Fix:** In the free-play band, add a 'Costs' group (Overheads a month: C2; Role cost / pay: C1), a 'Work' group (Hours available: D6; Step time: E1 for a picked step) and a hiring-delay select (D9), all mapped in playChanges (packages/db/src/sandbox-play.ts:232). Or turn SANDBOX_SCENARIOS_SHOWN on, or put an 'Advanced change' button in play that opens change-dialog.tsx and adds the registry change to PlayState.
 - **Where:** `apps/web/src/lib/sandbox/scenarios-shown.ts:5 (SANDBOX_SCENARIOS_SHOWN = false); apps/web/src/app/w/[slug]/sandbox/page.tsx:48-71 renders PlayPage only; apps/web/src/lib/sandbox/analysis-shown.ts:4 (SANDBOX_ANALYSIS_SHOWN = false)`
+
+Status: partly fixed in this branch: free play has a Costs group (C1, C2), a Work group (hours a week, D6) and months to hire. Step time (E1) stays out of the levers: step changes are part of a process version on the company map (D53).
 
 ## 7. Free-play price rise overwrites the price churn driver set in Settings  
 *high · sandbox*
@@ -124,6 +130,8 @@ Status: fixed in this branch
 - **Fix:** Settings > People: add 'Overtime paid at' (x normal rate, default 1, 0 = unpaid) to workspace settings; pass as EngineModel.overtimeRateFactor from packages/db/src/model.ts:362 and multiply at simulate.ts:3774 and 3955.
 - **Where:** `packages/engine/src/simulate.ts:3774 (overtimeCostM[m] += ot[m] * rate) and simulate.ts:3955 (overtimeCost += ot * (paid.cost / paid.payHours or rateOf(p)))`
 
+Status: fixed in this branch (Overtime paid at, Settings > Simulation).
+
 ## 14. No Sandbox lever for overtime cap (or availability floor / new-starter ramp)  
 *medium · engine*
 
@@ -160,6 +168,8 @@ Status: fixed in this branch
 - **Fix:** Use one source of pay. Either drop 'Cost rate' for salaried staff (keep it only for contractors) or show the salary-derived hourly cost as the cost-rate placeholder and warn when both are set. Fix the help text to say it costs all paid hours.
 - **Where:** `packages/db/src/model.ts:913 (personCost: `if (p.cost_rate != null) return { cost: Number(p.cost_rate) }` before any salary); packages/db/src/capacity-figures.ts:455 (DLER uses personSalary, never cost_rate)`
 
+Status: fixed in this branch. In Set up, the Cost rate's blank shows the hourly cost the salary gives, and its help and hint say a Cost rate overrides the salary for profit, that employer on-costs are not added to it, and that DLER keeps the salary. DLER is not switched to the cost rate: DLER is retainers against salary (D40) and its goal is set against salaries, while a cost rate is an hourly cost that may already carry on-costs. Employer on-costs load only a cost worked out from a salary.
+
 ## 18. Sandbox DLER for today's path doesn't match the Overview/Capacity DLER  
 *medium · money*
 
@@ -178,6 +188,8 @@ Status: fixed in this branch
 - **Fix:** Add 'Overtime pay rate' (x normal rate, default 1, 0 = unpaid) next to the overtime cap in Settings > Simulation, map it to EngineModel.overtimePayFactor, and multiply it in at the two sites.
 - **Where:** `packages/engine/src/simulate.ts:3774 (`overtimeCostM[m] += ot[m] * rate`) and :3955 (`overtimeCost += ot * (paid.cost / paid.payHours || rateOf(p))`)`
 
+Status: fixed in this branch (Overtime paid at, default 1, 0 is unpaid).
+
 ## 20. Contractors are costed like employees: paid for contracted hours, including leave  
 *medium · money*
 
@@ -186,6 +198,8 @@ Status: fixed in this branch
 - **Fix:** Pass the label to EnginePerson (e.g. `paidFor: 'worked'` for contractors) and cost those people on hours worked (personWork) with no paid leave. Optionally add a per-person 'Paid for: contracted hours / hours worked' toggle.
 - **Where:** `packages/engine/src/simulate.ts:3764-3770 ('Paid hours are contracted capacity while on the team (leave is paid)') and :3708-3722 paidOver; packages/db/src/capacity-model.ts:20 (the people label is 'Not an engine input at all')`
 
+Status: fixed in this branch. Contractors are paid for the hours they work by default (agreed with the owner); a per-person Paid for puts anyone on contracted hours or hours worked.
+
 ## 21. Salary becomes hourly cost with no employer on-costs (super, payroll tax, benefits)  
 *medium · money*
 
@@ -193,6 +207,8 @@ Status: fixed in this branch
 - **Why it matters:** Profit is overstated by roughly 12-20% of payroll, and a hire looks cheaper in the Sandbox than it really is.
 - **Fix:** Add a workspace 'Employer on-costs %' (Settings > Workspace, default for example 12%) applied in hourlyCostFromSalary for non-contractors. Optionally use the loaded salary in DLER too, with a toggle.
 - **Where:** `packages/db/src/salary.ts hourlyCostFromSalary (`monthly / (weeklyHours * WEEKS_PER_MONTH)`), used by packages/db/src/model.ts:916`
+
+Status: fixed in this branch. Employer on-costs (default none) load an employee's salary-derived cost; a typed cost rate (a person's or a role's) and contractors never take them. DLER uses salaries without them.
 
 ## 22. Hiring delay is fixed at 2 months, and the Sandbox ignores the market stretch the Overview applies  
 *medium · money*
@@ -231,6 +247,8 @@ Status: fixed in this branch
 - **Why it matters:** 'Hire a 0.5 FTE senior at $9k a month' can't be tested. DLER and profit for a hire reflect someone else's average pay, not the offer the owner is weighing.
 - **Fix:** Add an FTE select (0.2-1.5) and an optional 'Pay a month' input to each play hire row. Store them in PlayState.hires and pass FTE as the D1 value and pay to setupInMonth (and to the engine's cost when person salary feeds profit).
 - **Where:** `packages/db/src/sandbox-play.ts:242 (D1 change value: 1); packages/db/src/sandbox-play-series.ts:54-72 (fte: 1, salary_monthly = mean of the role's people, name 'New hire')`
+
+Status: fixed in this branch (FTE choice and optional pay a month on each free-play hire; profit and DLER cost the hire at the same salary).
 
 ## 26. Lever months stop at month 12 even on a 3-5 year horizon  
 *medium · sandbox*
@@ -370,6 +388,8 @@ Status: partly fixed in this branch: the at-risk line and bands are settings; th
 - **Fix:** Multiply rateOf by the month's market pay factor (as price already scales won fees), or remove pay from the presets and stored conditions so it doesn't look like it does something.
 - **Where:** `packages/engine/src/market.ts:16 ('hire, pay stored and exposed, but ... change no simulated number') and :61-64 presets; rateOf at packages/engine/src/simulate.ts:3690-3694 never reads mkt(t).pay`
 
+Status: still open. In the market schedule `pay` is Late payments (packages/engine/src/market.ts, PRD D29), not wage pressure, and D29 says role cost inflation is the Sandbox's pay change, not the market. Scaling labour by it would change the profit of every workspace with a market schedule (35% more labour in a Downturn month, 10% less in a Boom) without an edit, so it waits for the owner's decision.
+
 ## 40. Revenue per employee counts heads, not FTE, and always leaves leadership out  
 *low · money*
 
@@ -387,6 +407,8 @@ Status: fixed in this branch
 - **Why it matters:** An editable number that does nothing adds to the 'it's hardcoded' feeling, and the owner can't model per-client direct costs that scale with clients.
 - **Fix:** Either remove the field, or repurpose it as a direct cost per client (a share of the fee, or an amount a month) that the engine subtracts in profit with each client.
 - **Where:** `packages/engine/src/model.ts:143-144 ('recorded for reference, not used'); mapped at packages/db/src/model.ts:550`
+
+Status: fixed in this branch (the field is gone from Settings; the column stays, and backups keep it).
 
 ## 42. Sandbox splits revenue by department using the service price, not the client group fee  
 *low · sandbox*
@@ -435,6 +457,8 @@ Status: fixed in this branch
 - **Why it matters:** The owner can enter a 40% target margin and expect profit or pricing to follow. Nothing moves, which feeds the 'fields that do nothing' feeling.
 - **Fix:** Remove the field. Otherwise turn it into a used input (for example a target margin the Sandbox and Overview compare actual profit against), or show it read-only as an 'achieved margin' computed from the simulation.
 - **Where:** `packages/db/src/model.ts:550 maps margin into EngineService, but no engine code reads it (grep '\.margin\b' packages/engine/src finds nothing outside the implicit retainer)`
+
+Status: fixed in this branch (the field is gone from Settings).
 
 ## 47. Which deliverables a department has depends on its name starting with 'Perf'  
 *low · settings*

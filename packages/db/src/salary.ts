@@ -34,3 +34,18 @@ export function hourlyCostFromSalary(monthly: number | null, weeklyHours: number
   if (monthly === null || !(weeklyHours > 0)) return null;
   return monthly / (weeklyHours * WEEKS_PER_MONTH);
 }
+
+/**
+ * A new hire's monthly salary (customisability audit 5 and 25), the one number the Sandbox costs them at in profit and in DLER: the pay
+ * typed on the hire when there is one; else what the role's people are paid for a full-time week (each one's salary ÷ their fte, the
+ * mean over those with one) × the hire's fte; else null, and the hire takes the role's salary pro rata as anyone without their own does.
+ * `members` are the role's active people with their effective salaries (`effectiveMonthlySalary`; null when none, or hidden).
+ */
+export function hireMonthlySalary(own: number | null | undefined, fte: number, members: readonly { salary: number | null; fte: number | string }[]): number | null {
+  if (own !== null && own !== undefined && Number.isFinite(own) && own >= 0) return own;
+  const full = members
+    .map((m) => (m.salary !== null && Number(m.fte) > 0 ? m.salary / Number(m.fte) : null))
+    .filter((v): v is number => v !== null && Number.isFinite(v));
+  if (!full.length || !(fte > 0)) return null;
+  return (full.reduce((a, b) => a + b, 0) / full.length) * fte;
+}

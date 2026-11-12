@@ -109,9 +109,10 @@ describe("the free-play Sandbox", { timeout: 240_000 }, () => {
       // The map, the levers band and the results share the page's width; the map is the star (about two thirds of the window, at least 28rem).
       expect(Math.max(...layout.fullWidth) - Math.min(...layout.fullWidth)).toBeLessThanOrEqual(1);
       expect(layout.mapHeight).toBeGreaterThanOrEqual(448);
-      // Every group of levers shows; all six on one row from 1440px, wrapped on a phone (one column each).
-      expect(layout.groupsOpen).toBe(6);
-      expect(layout.groupRows).toBe(width >= 1440 ? 1 : 6);
+      // Every group of levers shows (Work and Costs with the other six); two rows at most from 1440px, wrapped on a phone (one column each).
+      expect(layout.groupsOpen).toBe(8);
+      if (width >= 1440) expect(layout.groupRows).toBeLessThanOrEqual(2);
+      else expect(layout.groupRows).toBe(8);
       expect(layout.scrollers).toBe(0);
       expect(layout.pageScrolls).toBe(true);
       expect(await text(page, "[data-levers-count]")).toBe("No changes");

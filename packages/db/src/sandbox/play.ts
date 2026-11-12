@@ -3,7 +3,7 @@
 // each segment's model (`applyPlay`). Pure: no React, no worker. The web app runs the segments on its pool and joins them with `joinPlay`.
 
 import type { EngineModel, InitialState, SimulationResult } from "@transpera-flow/engine";
-import { applyPlay, playChanges, playIsDefault, type PlayContext, type PlayState } from "../sandbox-play";
+import { applyPlay, hirePay as hirePayOf, playChangeId, playChanges, playIsDefault, type PlayContext, type PlayState } from "../sandbox-play";
 import type { ProcessBundle, SolutionRow } from "../types";
 import { joinRun, type ScenarioRun } from "./execute";
 import { prepareScenario, type ChangeProblem, type PreparedScenario } from "./run";
@@ -29,7 +29,14 @@ export function preparePlay(bundle: ProcessBundle, play: PlayState, given: PlayC
   const ctx: PlayContext = { ...given, months: given.months ?? months };
   const effective = playChanges(play, ctx).map((change) => ({ change, scenarioId: "play", scenarioName: "Free play", inherited: false }));
   // A free-play hire starts in the month picked for it ("Month they start"): the workspace's months to hire only feed the hiring advice.
-  const prepared = prepareScenario(bundle, effective, solutions, months, ctx.startDate, { pair: false, storedHiringDelay: false, ...(ctx.issueOf ? { issueOf: ctx.issueOf } : {}) });
+  // A hire's typed pay a month (its row's "Pay a month"): the runner costs them at it, as the series' DLER does (`setupInMonth`).
+  const hirePay = new Map(play.hires.flatMap((h, i): [string, number][] => (hirePayOf(h) !== null ? [[playChangeId("D1", i), hirePayOf(h)!]] : [])));
+  const prepared = prepareScenario(bundle, effective, solutions, months, ctx.startDate, {
+    pair: false,
+    storedHiringDelay: false,
+    ...(ctx.issueOf ? { issueOf: ctx.issueOf } : {}),
+    ...(hirePay.size ? { hirePay } : {}),
+  });
   const edited = playIsDefault(play)
     ? prepared
     : { ...prepared, segments: prepared.segments.map((s) => ({ from: s.from, model: applyPlay(s.model, play, ctx, prepared.planPeople) })) };

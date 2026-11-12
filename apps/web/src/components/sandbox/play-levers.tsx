@@ -2,13 +2,14 @@
 
 // The free-play Sandbox's levers, one full-width band under the company map (capacity build P7, brief "The short version"; the prototype's `.levers`).
 // Every change is a new `PlayState`: the page re-runs, debounced, and nothing is saved. Market, Win new clients, Lose clients, Prices (with "Clients
-// react", D36), People, Client service (health rules and how much health moves churn) and Costs (only for those who see pay) sit side by side as columns (all seven on one row on wide screens, wrapping on smaller screens), divided by hairlines; every
+// react", D36), People, Client service (health rules and how much health moves churn), Work (hours a week) and Costs (only for those who see pay) sit side by side as columns (wrapping on smaller screens), divided by hairlines; every
 // group shows. The band's header counts the changes and resets them. The levers are business conditions only: an automation or augmentation is part
 // of a process version, picked on the company map (D53).
 
 import { MARKET_PRESETS, type MarketPresetKey } from "@transpera-flow/engine";
 import Link from "next/link";
 import {
+  HIRE_FTE,
   PLAY_HEALTH_RANGE,
   PLAY_HEALTH_RULES,
   PLAY_SENSITIVITY_RANGE,
@@ -17,7 +18,9 @@ import {
   defaultPlay,
   healthMoved,
   overheadsMoved,
+  hireFte,
   hiringDelayBase,
+  playHireSalary,
   playSliderRanges,
   type CapacitySetup,
   type PlayHealthRule,
@@ -29,7 +32,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, formatWholeCurrency } from "@/lib/format";
 import type { PlayMonths } from "./play-types";
 
 const FIELD = "flex min-w-0 flex-col gap-1 text-xs text-muted-foreground";
@@ -68,7 +71,8 @@ export function leverChanges(p: PlayState): number {
     healthMoved(p).length +
     (Number(p.sensitivity) ? 1 : 0) +
     (overheadsMoved(p) ? 1 : 0) +
-    (Number(p.pay) ? 1 : 0)
+    (Number(p.pay) ? 1 : 0) +
+    (Number(p.hours) ? 1 : 0)
   );
 }
 
@@ -122,6 +126,9 @@ const PRICE_SPANS = [1, 2, 3, 4, 6, 9, 12, 18, 24];
 
 /** "Months to hire" in People: the saved scenario's D9 range (0 to 6) and a little past it. */
 const HIRE_SPANS = [0, 1, 2, 3, 4, 5, 6, 9, 12];
+
+/** A hire's FTE choices: the hire lever's offered range, in tenths. */
+const HIRE_FTES = Array.from({ length: Math.round((HIRE_FTE.offered.max - HIRE_FTE.offered.min) * 10) + 1 }, (_, i) => Math.round((HIRE_FTE.offered.min + i / 10) * 10) / 10);
 
 /** The sliders' ranges, from the lever registry the levers map to. */
 const RANGES = playSliderRanges();
@@ -385,6 +392,41 @@ export function PlayLevers({
               <Button type="button" variant="ghost" size="icon-sm" onClick={() => listDel("hires", i)} aria-label="Remove">
                 ✕
               </Button>
+              <span className="text-xs">at</span>
+              <NativeSelect
+                className={setup.payHidden ? "col-span-2" : undefined}
+                value={String(hireFte(x))}
+                onChange={(e) => listEdit<{ fte: number }>("hires", i, { fte: Number(e.target.value) })}
+                aria-label="FTE of the hire"
+                data-lever="hireFte"
+              >
+                {HIRE_FTES.map((f) => (
+                  <option key={f} value={String(f)}>
+                    {formatNumber(f, 1)} FTE
+                  </option>
+                ))}
+              </NativeSelect>
+              {!setup.payHidden && (
+                <Input
+                  type="number"
+                  min={0}
+                  step={100}
+                  inputMode="decimal"
+                  value={typeof x.pay === "number" ? x.pay : ""}
+                  placeholder={(() => {
+                    const usual = playHireSalary(setup, { ...x, pay: null });
+                    return usual === null ? "Pay a month" : `${formatWholeCurrency(usual, setup.currency)} a month`;
+                  })()}
+                  title="What they'd be paid a month at this FTE. Blank: what the role's people are paid for a full-time week, times the FTE. Profit and DLER both cost the hire at it."
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    const v = Number(raw);
+                    listEdit<{ pay: number | null }>("hires", i, { pay: raw === "" || !Number.isFinite(v) || v < 0 ? null : v });
+                  }}
+                  aria-label="Pay a month"
+                  data-lever="hirePay"
+                />
+              )}
             </div>
           ))}
           <div className="flex flex-wrap gap-2">
@@ -480,6 +522,27 @@ export function PlayLevers({
             onChange={(v) => set({ sensitivity: v })}
           />
           <p className="text-xs text-muted-foreground">Blank keeps your own rules from Settings, under Churn drivers. -100% means health doesn&apos;t change churn at all.</p>
+        </Group>
+
+        <Group title="Work" id="work">
+          <Slider id="hours" label="Hours a week" value={Number(play.hours) || 0} range={RANGES.hours} unit="%" onChange={(v) => set({ hours: v })} />
+          <div className="grid grid-cols-2 gap-2">
+            <label className={FIELD}>
+              For
+              <NativeSelect value={play.hoursRole ?? "all"} onChange={(e) => set({ hoursRole: e.target.value })} data-lever="hoursRole" aria-label="Whose hours change">
+                <option value="all">Everyone</option>
+                {roles.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </label>
+            <MonthSelect value={play.hoursFrom ?? 0} months={months} onChange={(m) => set({ hoursFrom: m })} label="From" id="hoursFrom" />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            The hours people have for work each week, from a month: -20% is a four-day week. Step times are part of a process version, picked on the company map.
+          </p>
         </Group>
 
         {!setup.payHidden && (

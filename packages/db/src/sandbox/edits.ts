@@ -11,6 +11,7 @@ import { hasClientRoster, sandboxLever, type SandboxChange } from "../sandbox-le
 import type { ProcessBundle } from "../types";
 import {
   CUSTOM_DRIVER_PREFIX,
+  busiestRole,
   DEFAULT_HEALTH_RULES,
   DEFAULT_MAX_STAY_MONTHS,
   EFFECT_MONTHS,
@@ -199,6 +200,8 @@ export function applyModelChanges(
   const problems: ChangeProblem[] = [];
   // A price rise (any time) switches the price driver on, so the rise carries its churn; first, so the driver is the same in a pair's two runs.
   let m = forcePriceDriver || changes.some((c) => c.lever === "B5") ? withPriceDriver(model) : model;
+  /** Whole-run pay changes (C1, multiply) by role: applied to people's own costs after the loop. */
+  const payFactors = new Map<string, number>();
   for (const c of changes) {
     const lever = sandboxLever(c.lever);
     if (!lever) continue;
@@ -224,6 +227,14 @@ export function applyModelChanges(
         m = { ...m, services: { ...m.services, [c.target!]: { ...rest, price: c.value, ...(low < c.value || high > c.value ? { priceRange: { low, high } } : {}) } } };
         break;
       }
+      case "C1": {
+        // A pay change (a multiple) reaches the role's people priced from their own salary or rate too, as the same change from a month
+        // does (the engine's role-cost channel). The patch has already scaled the role's own rate. A set or add is the role's rate alone.
+        if (c.op !== "multiply") break;
+        const rid = c.target === "@busiest" ? busiestRole(m) : c.target;
+        if (rid && m.roles[rid]) payFactors.set(rid, (payFactors.get(rid) ?? 1) * Math.max(0, c.value));
+        break;
+      }
       case "B4": {
         const id = c.target ?? "";
         if (NO_EVENTS.has(id)) {
@@ -240,6 +251,19 @@ export function applyModelChanges(
         break;
       }
     }
+  }
+  if (payFactors.size && m.people) {
+    // A person's own cost × the mean of their roles' factors (1 for a role without one), as `rateOf` scales it from a month.
+    const people = { ...m.people };
+    let touched = false;
+    for (const [id, p] of Object.entries(people)) {
+      if (p.cost === undefined) continue;
+      const own = p.roles.filter((rid) => rid in m.roles);
+      if (!own.some((rid) => payFactors.has(rid))) continue;
+      people[id] = { ...p, cost: p.cost * (own.reduce((sum, rid) => sum + (payFactors.get(rid) ?? 1), 0) / own.length) };
+      touched = true;
+    }
+    if (touched) m = { ...m, people };
   }
   return { model: m, problems };
 }

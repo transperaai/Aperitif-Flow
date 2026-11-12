@@ -186,11 +186,12 @@ describe("personSalary in Set up", () => {
     expect(missing).toEqual(["bare"]);
   });
 
-  it("a Sandbox hire takes the mean of the role's people's salaries, or the role's own when none has one", () => {
+  it("a Sandbox hire takes the mean of the role's people's full-time salaries times its FTE, or the role's own when none has one", () => {
     const hires = { leavers: [], hires: [{ role: "mgr", month: 0 }] };
     const hireOf = (s: CapacitySetup) => setupInMonth(s, hires, 0).people.at(-1)!;
-    // own 8000 and half 3000 (contractor and bare have none): 5500.
-    expect(hireOf(setupOf(setup.roles, setup.people.slice(0, 2))).salary_monthly).toBe(5500);
+    // own 8000 and half 3000 at 0.5 FTE, 6000 full time (contractor and bare have none): 7000 for a full-time hire (audit 5).
+    expect(hireOf(setupOf(setup.roles, setup.people.slice(0, 2))).salary_monthly).toBe(7000);
+    expect(setupInMonth(setupOf(setup.roles, setup.people.slice(0, 2)), { leavers: [], hires: [{ role: "mgr", month: 0, fte: 0.5 }] }, 0).people.at(-1)!.salary_monthly).toBe(3500);
     const onlyRole = setupOf([role("mgr", { salary_monthly: 6000 })], []);
     const hire = hireOf(onlyRole);
     expect(hire.salary_monthly).toBeNull();
