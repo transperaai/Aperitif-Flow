@@ -45,6 +45,8 @@ export async function saveSetupField(table: SetupTable, key: Record<string, stri
   if (!checked.ok) return invalid;
   if (!(await signedIn())) return signedOut;
   const out = await saveField(table, key, field, base, checked.value as Scalar);
+  // A department's kind decides which columns its tier table and its named clients show.
+  if (out.status === "saved" && table === "departments" && field === "deliverable_kind") refresh();
   return out;
 }
 

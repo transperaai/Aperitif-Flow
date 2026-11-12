@@ -8,7 +8,10 @@
 
 import { Fragment, useState, useTransition } from "react";
 import {
+  DEPARTMENT_KINDS,
+  departmentKind,
   missingForCapacity,
+  type DepartmentKind,
   tierCount,
   tierDiscrepancies,
   tierFieldsFor,
@@ -28,6 +31,7 @@ import { ClientHealthBenchmark, GroupFields } from "@/app/w/[slug]/settings/clie
 import { ClientMore, type ClientOps, type ClientsSettingsProps } from "@/app/w/[slug]/settings/clients-settings";
 import { saveClientAssignment, saveClientField, saveClientServices } from "@/app/w/[slug]/settings/client-actions";
 import { addNamedClient, addTierAction, removeTierAction, saveClientLookedAfter, saveSetupField } from "@/app/w/[slug]/settings/setup-actions";
+import { SelectField } from "@/components/fields";
 import { HelpLabel } from "@/components/help";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +68,9 @@ const FIELD_HELP: Record<TierField | "fee" | "churn", { label: string; descripti
   adhoc_requests: { label: "Requests if they ask", description: "How many ad hoc requests a client sends in a month when they do ask.", example: "6.5 for Organic Tier 1.", step: 0.5 },
   churn: { label: "Churn a month", description: "The share of this tier's clients who leave in a month when everything is going well.", example: "1% a month for Tier 1: about one client in a hundred.", scale: 100, unit: "%", step: 0.5, max: 100 },
 };
+
+/** A department kind in words. */
+const KIND_LABEL: Record<DepartmentKind, string> = { organic: "Organic", performance: "Performance" };
 
 const plainName = (n: string) => n.replace(/\s*\(.*\)\s*$/, "");
 
@@ -165,7 +172,7 @@ function serviceOf(setup: CapacitySetup, deptId: string, tierId: string): SetupS
 }
 
 function DepartmentTable({ setup, data, department }: { setup: CapacitySetup; data: WorkspaceSettingsData; department: SetupDepartment }) {
-  const fields = tierFieldsFor(department.name);
+  const fields = tierFieldsFor(department);
   const missing = new Set(missingForCapacity(setup, { salariesVisible: !setup.payHidden }).filter((m) => m.kind === "tier_deliverable").map((m) => `${m.id}:${m.field}`));
   const discrepancies = tierDiscrepancies(setup);
   const [open, setOpen] = useState<string | null>(null);
@@ -174,6 +181,20 @@ function DepartmentTable({ setup, data, department }: { setup: CapacitySetup; da
   const cols = 5 + fields.length;
   return (
     <SettingsSection id={`tiers-${department.id}`} title={`${department.name} tiers`} description="Per client, a month. The defaults every client of the tier uses.">
+      <div className="max-w-xs" data-department-kind={department.id}>
+        <SelectField
+          label="Deliverables"
+          value={department.deliverable_kind ?? null}
+          save={saver<string | null>("departments", { id: department.id }, "deliverable_kind")}
+          disabled={!setup.canEdit}
+          noneLabel={`From the name: ${KIND_LABEL[departmentKind(department.name)]}`}
+          options={DEPARTMENT_KINDS.map((k) => ({ value: k, label: KIND_LABEL[k] }))}
+          help={{
+            description: "Which numbers this department's tiers have. Organic: words, links and tech hours. Performance: channels, builds and creative sets. Both have meetings and ad hoc requests.",
+            example: "A Paid Media department: Performance, so its tiers have channels, builds and creative sets.",
+          }}
+        />
+      </div>
       <Table>
         <TableHeader>
           <TableRow>
@@ -541,7 +562,7 @@ function ClientLine({ setup, client: c, tierService, open, onMore }: { setup: Ca
   const svc = c.primary ? tierService.get(c.primary) : undefined;
   const dept = setup.departments.find((d) => d.id === c.departmentId);
   const tier = setup.tiers.find((t) => t.id === c.tierId);
-  const performance = dept ? tierFieldsFor(dept.name).includes("channels") : false;
+  const performance = dept ? tierFieldsFor(dept).includes("channels") : false;
   const other = setup.departments.find((d) => d.id !== c.departmentId);
   const alsoService = other && c.tierId ? setup.services.find((s) => s.department_id === other.id && s.tier_id === c.tierId && s.active) : undefined;
   const also = alsoService ? c.service_ids.includes(alsoService.id) : false;

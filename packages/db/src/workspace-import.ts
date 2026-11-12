@@ -76,7 +76,7 @@ const cols = <T extends keyof DB>(_table: T, ...c: (keyof Selectable<DB[T]> & st
  * source_ids; `market_schedule` may carry `condition_preset` in place of `condition_id`.
  */
 export const IMPORT_COLUMNS = {
-  departments: cols("departments", "id", "name", "sort", "created_at"),
+  departments: cols("departments", "id", "name", "sort", "created_at", "deliverable_kind"),
   tiers: cols("tiers", "id", "key", "name", "sort", "both_count", "provenance", "created_at"),
   roles: cols(
     "roles", "id", "name", "color", "default_cost_rate", "headcount", "ongoing_hours_per_client_week", "active", "provenance", "created_at",

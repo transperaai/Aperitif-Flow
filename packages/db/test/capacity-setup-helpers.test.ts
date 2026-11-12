@@ -11,6 +11,7 @@ import {
   tierCount,
   tierDiscrepancies,
   tierFieldsFor,
+  departmentKind,
   uniqueClients,
   type CapacitySetup,
   type SetupClient,
@@ -150,6 +151,17 @@ describe("tierFieldsFor and effectiveClientValue", () => {
   it("gives Performance its own fields and any other department the Organic ones", () => {
     expect(tierFieldsFor("Performance")).toEqual(["channels", "builds", "creative_sets", "meetings", "adhoc_chance", "adhoc_requests"]);
     expect(tierFieldsFor("Organic (SEO)")).toEqual(["words", "links", "tech_hours", "meetings", "adhoc_chance", "adhoc_requests"]);
+  });
+  it("a department's picked kind wins over its name (customisability audit 47); unpicked, the name decides as before", () => {
+    expect(tierFieldsFor({ name: "Paid Media", deliverable_kind: "performance" })).toContain("builds");
+    expect(tierFieldsFor({ name: "Performance", deliverable_kind: "organic" })).toContain("words");
+    expect(tierFieldsFor({ name: "Paid Media", deliverable_kind: null })).toContain("words");
+    expect(departmentKind({ name: "Performance (PPC)" })).toBe("performance");
+    expect(departmentKind("Social")).toBe("organic");
+    const kind = setupFieldRule("departments", "deliverable_kind")!;
+    expect(checkSetupValue(kind, "performance").ok).toBe(true);
+    expect(checkSetupValue(kind, null).ok).toBe(true);
+    expect(checkSetupValue(kind, "paid").ok).toBe(false);
   });
   it("a client's own value wins; blank takes its tier's", () => {
     const services = [svc("perf-t1", "perf", "t1", { channels: 4, adhoc_chance: 0.95 })];
