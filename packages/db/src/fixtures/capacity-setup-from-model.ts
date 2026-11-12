@@ -2,9 +2,9 @@
 // made-up data): same ids for departments, tiers, services, roles, people and named clients. The Capacity page's tests use it to run the
 // derived figures and the page on engine results without a database. Salaries, lines and rules are the prototype's.
 
-import type { EngineModel } from "@transpera-flow/engine";
+import { DEFAULT_MAX_STAY_MONTHS, type EngineModel } from "@transpera-flow/engine";
 import { looksLikeLeadership } from "../capacity-starter";
-import type { CapacitySetup, SetupClient, SetupPerson, SetupPortfolioRow, SetupRole, SetupService } from "../capacity-setup";
+import { DEFAULT_AT_RISK_MARGIN, DEFAULT_DLER_GOAL, type CapacitySetup, type SetupClient, type SetupPerson, type SetupPortfolioRow, type SetupRole, type SetupService } from "../capacity-setup";
 
 const SALARY: Record<string, number> = { dir_org: 12500, mgr_org: 7500, dir_perf: 12000, pmm: 7000, content: 5500, links: 2500, tech: 7500, impl: 6000, track: 7000, sales: 8000 };
 const ROLE_DEPT: Record<string, "org" | "perf"> = { dir_org: "org", mgr_org: "org", content: "org", links: "org", tech: "org", dir_perf: "perf", pmm: "perf", impl: "perf", track: "perf" };
@@ -126,9 +126,9 @@ export function capacitySetupFromModel(model: EngineModel, options: { payHidden?
     dlerIncludesLeadership: options.dlerIncludesLeadership ?? false,
     dlerProvenance: null,
     maxStayStored: null,
-    maxStayMonths: 60,
-    dlerGoal: options.dlerGoal ?? 4.5,
-    atRiskMargin: options.atRiskMargin ?? 0.1,
+    maxStayMonths: DEFAULT_MAX_STAY_MONTHS,
+    dlerGoal: options.dlerGoal ?? DEFAULT_DLER_GOAL,
+    atRiskMargin: options.atRiskMargin ?? DEFAULT_AT_RISK_MARGIN,
     canEdit: options.canEdit ?? true,
     payHidden: hidden,
   };
