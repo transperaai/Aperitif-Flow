@@ -102,3 +102,22 @@ describe("channelsOf: review fixes", () => {
     expect(channels!.churn).toEqual({ "*": [1, 1, 1, 1, 1, 1, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5] });
   });
 });
+
+describe("role cost from a month (C1)", () => {
+  const role = Object.keys(model.roles)[0]!;
+  const free = { ...model, roles: { ...model.roles, [role]: { ...model.roles[role]!, cost: 0 } } };
+
+  it("a multiple is the ratio from its month", () => {
+    const { channels, problems } = channelsOf({ ...model, roles: { ...model.roles, [role]: { ...model.roles[role]!, cost: 40 } } }, [ch("C1", "multiply", 1.1, "2027-04", role)], options);
+    expect(problems).toEqual([]);
+    expect(channels!.roleCost![role]).toEqual([1, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1]);
+  });
+
+  it("a role that costs 0 an hour takes a multiple (its people's own rates follow it) but not a set or an add", () => {
+    const ok = channelsOf(free, [ch("C1", "multiply", 0.9, "2027-04", role)], options);
+    expect(ok.problems).toEqual([]);
+    expect(ok.channels!.roleCost![role]).toEqual([1, 1, 1, 1, 1, 1, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9]);
+    for (const op of ["set", "add"] as const) expect(channelsOf(free, [ch("C1", op, 30, "2027-04", role)], options).problems).toHaveLength(1);
+    expect(channelsOf(free, [ch("C1", "multiply", 0.9, "2027-04", role), ch("C1", "set", 30, "2027-06", role)], options).problems).toHaveLength(1);
+  });
+});

@@ -16,7 +16,8 @@ describe("parseServiceField", () => {
     expect(parseServiceField(seo, "name", "SEO retainer", "  SEO  ")).toEqual({ serviceId: seo, field: "name", base: "SEO retainer", value: "SEO" });
     expect(parseServiceField(seo, "pricing_model", "retainer", "one_off")?.value).toBe("one_off");
     expect(parseServiceField(seo, "price", 3500, 0)?.value).toBe(0);
-    expect(parseServiceField(seo, "margin", 0.45, 1)?.value).toBe(1);
+    // Margin feeds nothing, so no screen saves it (customisability audit 41 and 46).
+    expect(parseServiceField(seo, "margin", 0.45, 0.5)).toBeNull();
     expect(parseServiceField(seo, "tenure_months", 18, 0)?.value).toBe(0);
     // Blank: worked out from churn.
     expect(parseServiceField(seo, "tenure_months", 18, null)).toEqual({ serviceId: seo, field: "tenure_months", base: 18, value: null });
@@ -47,8 +48,7 @@ describe("parseServiceField", () => {
     ["price", Number.NaN],
     ["price", Number.POSITIVE_INFINITY],
     ["price", 1e9],
-    ["margin", 1.01],
-    ["margin", -0.01],
+    ["margin", 0.4],
     ["tenure_months", -1],
     ["tenure_months", 601],
     ["churn_monthly_base", 1.5],

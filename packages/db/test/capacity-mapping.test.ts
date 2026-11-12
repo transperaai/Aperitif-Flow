@@ -311,3 +311,28 @@ describe("a workspace that isn't a tier workspace is mapped as before", () => {
     expect(model(off)).toEqual(plainOff);
   });
 });
+
+describe("how pay becomes cost (customisability audit 13, 19, 20, 21)", () => {
+  it("a contractor label and a paid-for choice reach the person; no label and no choice add nothing", () => {
+    const m = model(tiered({ people: [{ id: P1, reserved_share: 0, ramp: null, label: "contractor", paid_for: null }, { id: P2, reserved_share: 0, ramp: null, label: "offshore", paid_for: "worked" }] }));
+    expect(m.people![P1]).toMatchObject({ contractor: true });
+    expect("paidFor" in m.people![P1]!).toBe(false);
+    expect(m.people![P2]).toMatchObject({ paidFor: "worked" });
+    expect("contractor" in m.people![P2]!).toBe(false);
+    const none = model(tiered({ people: [{ id: P1, reserved_share: 0, ramp: null }] }));
+    expect("contractor" in none.people![P1]! || "paidFor" in none.people![P1]!).toBe(false);
+  });
+
+  it("the overtime pay factor and employer on-costs come from the workspace settings; unset, 1 and 0 add nothing", () => {
+    const at = (settings: Record<string, unknown>) => model({ ...base, workspace: { ...base.workspace, settings: { ...base.workspace.settings, ...settings } } });
+    expect(at({ overtime_pay_factor: 1.5, employer_on_costs: 0.12 })).toMatchObject({ overtimePayFactor: 1.5, employerOnCosts: 0.12 });
+    expect(at({ overtime_pay_factor: 0 })).toMatchObject({ overtimePayFactor: 0 });
+    for (const s of [{}, { overtime_pay_factor: 1, employer_on_costs: 0 }, { overtime_pay_factor: null, employer_on_costs: null }]) expect(at(s)).toEqual(plain);
+  });
+
+  it("neither reaches a model whose caller can't see pay", () => {
+    const hidden: ProcessBundle = { ...base, payHidden: true, workspace: { ...base.workspace, settings: { ...base.workspace.settings, overtime_pay_factor: 1.5, employer_on_costs: 0.12 } } };
+    const m = model(hidden);
+    expect("overtimePayFactor" in m || "employerOnCosts" in m).toBe(false);
+  });
+});

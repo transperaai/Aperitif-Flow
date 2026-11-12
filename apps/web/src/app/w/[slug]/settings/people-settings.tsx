@@ -30,7 +30,9 @@ import {
   saveForecastLength,
   saveHoursPerWeek,
   saveWorkingDays,
+  saveEmployerOnCosts,
   saveOvertimeCap,
+  saveOvertimePayFactor,
   savePersonField,
   savePersonSet,
   type ActionResult,
@@ -56,6 +58,8 @@ export function SimulationSettings({ data, assumptions = assumptionValues({}) }:
   const { workspace, canManage } = data;
   const floor = workspace.settings.availability_floor ?? null;
   const overtime = workspace.settings.overtime_cap ?? null;
+  const overtimePay = typeof workspace.settings.overtime_pay_factor === "number" ? workspace.settings.overtime_pay_factor : null;
+  const onCosts = typeof workspace.settings.employer_on_costs === "number" ? workspace.settings.employer_on_costs : null;
   const ownersOnly = canManage ? undefined : "Only Agency admins can change this.";
   const editorsOnly = data.canEdit ? undefined : "Only Agency admins can change this.";
   const weeks = workspace.settings.horizon_weeks;
@@ -65,6 +69,8 @@ export function SimulationSettings({ data, assumptions = assumptionValues({}) }:
     ...(months === null ? [{ value: "custom", label: `${weeks} weeks (pick a length to change it)` }] : []),
   ];
   const assumption = (key: AssumptionKey) => (base: number | null, next: number | null) => saveAnalysisAssumption(workspace.id, key, base, next);
+  // Pay settings show only to those who see pay (Agency admins and the Owner), like salaries and cost rates.
+  const seesPay = data.canEdit;
   return (
     <SettingsSection id="simulation" band title="Simulation" description="The working week, limits on how the simulation treats people's time, the goals the figures are judged against, and the assumptions behind them.">
       <FieldRows>
@@ -210,6 +216,45 @@ export function SimulationSettings({ data, assumptions = assumptionValues({}) }:
             example: "At 10%, someone with a 40-hour week can work up to 4 hours extra before they count as overloaded.",
           }}
         />
+        {seesPay && (
+          <NumberField
+            label="Overtime paid at"
+            value={overtimePay}
+            save={(base, next) => saveOvertimePayFactor(workspace.id, base, next)}
+            optional
+            unit="x normal rate"
+            min={0}
+            max={5}
+            step={0.25}
+            placeholder="1 (default)"
+            disabled={!canManage}
+            hint={ownersOnly ?? "Leave blank to pay overtime at the normal rate. 0 means overtime is unpaid."}
+            help={{
+              description: "What an hour of overtime costs, as a multiple of the person's normal hourly rate. It changes the overtime cost in profit, not the hours worked.",
+              example: "1.5 for time and a half. 0 if salaried staff aren't paid for extra hours.",
+            }}
+          />
+        )}
+        {seesPay && (
+          <NumberField
+            label="Employer on-costs"
+            value={onCosts}
+            save={(base, next) => saveEmployerOnCosts(workspace.id, base, next)}
+            optional
+            scale={100}
+            unit="% of pay"
+            min={0}
+            max={100}
+            step={0.5}
+            placeholder="0 (default: none)"
+            disabled={!canManage}
+            hint={ownersOnly ?? "Leave blank for none. Contractors never have on-costs."}
+            help={{
+              description: "What the business pays on top of employees' pay, such as super, payroll tax and insurance, as a share of their pay. Profit counts it as part of what each employee costs. Contractors are left out.",
+              example: "15%: an employee whose pay costs 6,000 a month costs 6,900.",
+            }}
+          />
+        )}
         <NumberField
           label="Busy warning starts"
           value={assumptions.busyBelow}

@@ -379,6 +379,9 @@ function engineModelOf(bundle: ProcessBundle, options: ModelOptions): { model: E
     ...(people ? { people } : {}),
     ...(s.availability_floor !== undefined ? { availabilityFloor: s.availability_floor } : {}),
     ...(s.overtime_cap !== undefined && s.overtime_cap !== null ? { overtimeCap: Number(s.overtime_cap) } : {}),
+    // How pay becomes cost (the engine's pay.ts); absent, null or junk is the default (a model as before). Pay, so never when hidden.
+    ...(!hidesPay(bundle) && num(s.overtime_pay_factor) !== null && num(s.overtime_pay_factor) !== 1 ? { overtimePayFactor: num(s.overtime_pay_factor)! } : {}),
+    ...(!hidesPay(bundle) && (num(s.employer_on_costs) ?? 0) > 0 ? { employerOnCosts: num(s.employer_on_costs)! } : {}),
     // Overheads are not pay: kept for a Viewer or a share link too. Absent, null, 0 or junk adds nothing (a model as before).
     ...((num(s.overhead_monthly) ?? 0) > 0 ? { overheadMonthly: num(s.overhead_monthly)! } : {}),
     ...(clients ? { clients } : {}),

@@ -6,6 +6,7 @@ export { DEFAULT_AVAILABILITY_FLOOR, SEED_STRIDE, checkModel, initialState, Mode
 export { FORECAST_KEY_PREFIX, UNCOVERED_KEY, firstCrossing, forecastAlerts, isTooBusy, monthOfHour, type BusyCrossing, type Crossing, type ForecastAlertOptions } from "./forecast";
 export { checkDemand, demandFactor, isFlatDemand, WEEKS_PER_CALENDAR_MONTH } from "./demand";
 export * from "./market";
+export * from "./pay";
 export * from "./churn-drivers";
 export { activeChannels, capacityFactors, channelMonth, checkChannels, planChannels, withMaxRework, type ChannelPlan, type FeeRise } from "./channels";
 export { mulberry32 } from "./random";

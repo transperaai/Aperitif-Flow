@@ -60,6 +60,16 @@ export interface WorkspaceSettings {
    */
   overtime_cap?: number;
   /**
+   * x the normal hourly rate for an overtime hour, 0 to 5 (1.5: time and a half; 0: unpaid). Absent or null: 1, the normal rate.
+   * Checked by `workspaces_overtime_pay_factor`; the engine's `overtimePayFactor`. Pay: Settings shows it only to those who see pay.
+   */
+  overtime_pay_factor?: number | null;
+  /**
+   * Employer on-costs (super, payroll tax, insurance) as a share of employees' pay, 0 to 1; contractors have none. Absent or null:
+   * 0. Checked by `workspaces_employer_on_costs`; the engine's `employerOnCosts`. Pay: Settings shows it only to those who see pay.
+   */
+  employer_on_costs?: number | null;
+  /**
    * How servicing moves client health (docs/PRD.md §6.3.5; issue #19):
    * health added for a task done on time, taken off for a late one and for a
    * missed one, and the health of a client with none entered. Left out: the
@@ -925,7 +935,7 @@ export interface CapacityInputs {
    * People's team time and ramp. Read straight from `people`, so a viewer who can't see people gets none (as pay is hidden):
    * everyone then has all their hours and no ramp.
    */
-  people: { id: string; reserved_share: number; ramp: number[] | null }[];
+  people: { id: string; reserved_share: number; ramp: number[] | null; label?: string | null; paid_for?: string | null }[];
   personTiers: { person_id: string; tier_id: string }[];
   portfolio: { person_id: string; service_id: string; client_count: number }[];
 }

@@ -218,17 +218,6 @@ export function ServiceMore({ service: sv, share, data, removable = true, showCh
           hint={rangeWarning(sv)}
           help={{ description: "Each new client's fee is drawn between the lowest and highest, most often near the fee above. Clients you already have keep theirs. A blank end is the fee itself.", example: "6,000 for the occasional large client." }} />
         <NumberField
-          label="Margin"
-          value={Number(sv.margin)}
-          save={serviceSaver(sv.id, "margin")}
-          scale={100}
-          unit="%"
-          min={0}
-          max={100}
-          step={1}
-          disabled={disabled}
-          hint="Recorded for reference. Profit is worked out from the hours people are paid for, not from this." help={{ description: "Recorded for reference. Profit is worked out from the hours people are paid for, not from this.", example: "Profit comes from the team's pay and the overheads, so a 40% margin here doesn't change it." }} />
-        <NumberField
           label="Expected tenure"
           value={sv.tenure_months === null || sv.tenure_months === undefined ? null : Number(sv.tenure_months)}
           save={serviceSaver(sv.id, "tenure_months")}

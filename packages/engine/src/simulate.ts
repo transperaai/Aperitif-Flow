@@ -46,6 +46,7 @@ import {
 } from "./servicing";
 import { arrivalTimes as drawArrivals } from "./demand";
 import { activeMarket, type MarketFactors } from "./market";
+import { onCostFactor, overtimePayFactor, paidFor } from "./pay";
 import { WEEKS_PER_MONTH, hoursPerWorkingDay } from "./model";
 import { EventQueue } from "./event-queue";
 import { exp, log } from "./det-math";
@@ -723,6 +724,8 @@ interface PersonState {
   /** Measured-window integrals of the above, from `lastT` on. */
   lastT: number;
   ongoingHours: number;
+  /** The part of `ongoingHours` that fell in their leave (only for someone paid for the hours they work, pay.ts). */
+  awayOngoingHours: number;
   roleOngoingHours: Float64Array;
   roleOngoingHas: Uint8Array;
   clientWeeks: number;
@@ -943,6 +946,8 @@ export function runOnce(
   const endsAt = (p: EnginePerson) => (p.until !== undefined && Number.isFinite(p.until) && p.until < H ? p.until : Infinity);
   const staffing = Object.values(peopleModel).some((p) => startsAt(p) > -Infinity || endsAt(p) < Infinity);
   const presentAt = (p: EnginePerson, t: number) => t >= startsAt(p) && t < endsAt(p);
+  /** Whether anyone is paid only for the hours they work (pay.ts): only then is the client load in their leave tracked apart. */
+  const paidByWorked = Object.values(peopleModel).some((p) => paidFor(p) === "worked");
   /** Their leave, with the time before a planned start and after an end date as leave too, so nothing new starts then. */
   const absences = (p: EnginePerson): [number, number][] | null => {
     if (!staffing) return p.leave?.length ? p.leave : null;
@@ -1153,6 +1158,7 @@ export function runOnce(
     clients: 0,
     lastT: -W,
     ongoingHours: 0,
+    awayOngoingHours: 0,
     roleOngoingHours: new Float64Array(roleIds.length),
     roleOngoingHas: new Uint8Array(roleIds.length),
     clientWeeks: 0,
@@ -1607,6 +1613,7 @@ export function runOnce(
     if (mon) monthlyOngoing(p, a, b);
     const weeks = (b - a) / hpw;
     p.ongoingHours += p.load * weeks;
+    if (p.leave && paidByWorked && paidFor(p.person) === "worked") p.awayOngoingHours += (p.load * awayHours(p, a, b)) / hpw;
     const has = p.roleHas;
     for (let r = 0; r < has.length; r++) {
       if (has[r]) {
@@ -3709,15 +3716,27 @@ export function runOnce(
   if (servicing) for (const rc of rosterClients) settleMisses(rc, H, true);
 
   /**
-   * A person's cost a working hour: their own, or the mean of their roles' (what overtime and paid labour are costed at). With a
-   * role-cost channel, month `m`'s: the roles' costs times the channel's factor for the month.
+   * A person's cost a working hour: their own, or the mean of their roles' (what overtime and paid labour are costed at), times the
+   * employer on-costs for an employee (pay.ts; exactly 1 with none). With a role-cost channel, month `m`'s: the roles' costs times the
+   * channel's factor for the month, and a person's own cost times the mean of their roles' factors (a pay change for a role reaches
+   * everyone in it).
    */
   const rateOf = (p: PersonState, m = 0): number => {
-    if (p.person.cost !== undefined && p.person.cost !== null) return p.person.cost;
+    const load = onCostFactor(model, p.person);
     const own = p.person.roles.filter((rid) => rid in model.roles);
-    if (plan && plan.roleCost.size) return own.length ? own.reduce((sum, rid) => sum + model.roles[rid]!.cost * (plan.roleCost.get(rid)?.[m] ?? 1), 0) / own.length : 0;
-    return own.length ? own.reduce((sum, rid) => sum + model.roles[rid]!.cost, 0) / own.length : 0;
+    const channel = plan && plan.roleCost.size ? plan.roleCost : null;
+    if (p.person.cost !== undefined && p.person.cost !== null) {
+      const mine = channel ? own.filter((rid) => channel.has(rid)) : [];
+      if (!mine.length) return p.person.cost * load;
+      return ((p.person.cost * (own.reduce((sum, rid) => sum + (channel!.get(rid)?.[m] ?? 1), 0) / own.length)) * load);
+    }
+    if (channel) return (own.length ? own.reduce((sum, rid) => sum + model.roles[rid]!.cost * (channel.get(rid)?.[m] ?? 1), 0) / own.length : 0) * load;
+    return (own.length ? own.reduce((sum, rid) => sum + model.roles[rid]!.cost, 0) / own.length : 0) * load;
   };
+  /** × an overtime hour's rate (pay.ts; 1: the normal rate). */
+  const otPay = overtimePayFactor(model);
+  /** People paid only for the hours they work (pay.ts): contractors, unless they are set to contracted hours. */
+  const byWorked = (p: PersonState): boolean => paidFor(p.person) === "worked";
   /** A person's contracted capacity (hours a week) in channel month `m`: their base capacity times the capacity channel's factor. */
   const capacityAt = (p: PersonState, m: number): number => {
     const f = capPlan?.byPerson.get(p.id);
@@ -3793,16 +3812,20 @@ export function runOnce(
         const rate0 = rateOf(p);
         const own1 = startsAt(p.person);
         const own2 = endsAt(p.person);
+        const worked = byWorked(p);
         const mine = spans.map(([a, b], m) => {
           const present = Math.max(0, Math.min(b, own2) - Math.max(a, own1));
           const rate = plan && plan.roleCost.size ? rateOf(p, m) : rate0;
-          overtimeCostM[m]! += ot[m]! * rate;
-          return ((avail ? paidAt(p, m) : capM(m)) * present * rate) / hpw;
+          overtimeCostM[m]! += ot[m]! * rate * otPay;
+          // Paid for hours worked: worked out below, once colleagues' client hours from someone's leave are shared out.
+          return worked ? 0 : ((avail ? paidAt(p, m) : capM(m)) * present * rate) / hpw;
         });
         labourByPerson[p.id] = mine;
-        for (let m = 0; m < nM; m++) labour[m]! += mine[m]!;
-        // Each person's cost is split evenly over their roles, as `roleCapacity` splits their hours.
-        for (const rid of own) for (let m = 0; m < nM; m++) labourByRole[rid]![m]! += mine[m]! / own.length;
+        if (!worked) {
+          for (let m = 0; m < nM; m++) labour[m]! += mine[m]!;
+          // Each person's cost is split evenly over their roles, as `roleCapacity` splits their hours.
+          for (const rid of own) for (let m = 0; m < nM; m++) labourByRole[rid]![m]! += mine[m]! / own.length;
+        }
       }
       for (const rid of own) {
         for (let m = 0; m < nM; m++) {
@@ -3832,6 +3855,22 @@ export function runOnce(
         }
       }
     });
+    // Paid for hours worked (pay.ts): the month's work less its overtime (costed as overtime), up to the hours they had that month
+    // (no paid leave), at the month's rate.
+    if (labour && labourByRole && labourByPerson) {
+      for (const p of people) {
+        if (!byWorked(p)) continue;
+        const own = p.person.roles.filter((rid) => rid in model.roles);
+        const rate0 = rateOf(p);
+        const mine = labourByPerson[p.id]!;
+        for (let m = 0; m < nM; m++) {
+          const hours = Math.min(Math.max(0, personWork[p.id]![m]! - personOvertime[p.id]![m]!), personCapacity[p.id]![m]!);
+          mine[m] = hours * (plan && plan.roleCost.size ? rateOf(p, m) : rate0);
+          labour[m]! += mine[m]!;
+          for (const rid of own) labourByRole[rid]![m]! += mine[m]! / own.length;
+        }
+      }
+    }
     // Work nobody in a role was there to do: client hours no one carried, and, in months the role has no hours at all,
     // the hands-on time of the items that reached its steps (each at the step's mean).
     const roleUncovered: Record<string, number[]> = {};
@@ -3976,11 +4015,23 @@ export function runOnce(
     for (const rid of ownRoles) roleOvertime[rid]! += ot / p.person.roles.length;
     if (ot > 0) {
       overtimeHours += ot;
-      // Overtime is costed at the person's rate (with a role-cost channel, the mean of the run's rates over their paid hours).
-      overtimeCost += ot * (paid && paid.payHours > 0 ? paid.cost / paid.payHours : rateOf(p));
+      // Overtime is costed at the person's rate (with a role-cost channel, the mean of the run's rates over their paid hours), times
+      // the overtime pay factor.
+      overtimeCost += ot * (paid && paid.payHours > 0 ? paid.cost / paid.payHours : rateOf(p)) * otPay;
     }
-    // Paid hours: contracted capacity while on the team. Leave is paid (it only reduces the hours available).
-    if (!model.payHidden) labourCost += paid ? paid.cost : cap * rateOf(p);
+    if (model.payHidden) continue;
+    if (byWorked(p)) {
+      // Paid for hours worked (pay.ts): the work less its overtime, up to their hours less leave, at their (mean) rate.
+      const lo = staffing ? Math.max(0, startsAt(p.person)) : 0;
+      const hi = staffing ? Math.min(H, endsAt(p.person)) : H;
+      const had = Math.max(0, cap - (c * (hi > lo ? awayHours(p, lo, hi) : 0)) / hpw);
+      // Client hours that fell in their leave are not worked (the monthly series gives them to colleagues).
+      const hours = Math.min(Math.max(0, p.busyHours + p.svcHours + ong - p.awayOngoingHours - ot), had);
+      labourCost += hours * (paid && paid.payHours > 0 ? paid.cost / paid.payHours : rateOf(p));
+    } else {
+      // Paid hours: contracted capacity while on the team. Leave is paid (it only reduces the hours available).
+      labourCost += paid ? paid.cost : cap * rateOf(p);
+    }
   }
   const revenueTotal = recurring + oneOff + hourly;
   let overheads = ((model.overheadMonthly ?? 0) * weeks * 12) / 52;
@@ -4759,12 +4810,16 @@ function monthlyResult(model: EngineModel, reps: MonthlyReplication[]): MonthlyR
   const series = (f: (r: MonthlyReplication, m: number) => number): Stat[] => months.map((_, m) => stat(reps.map((r) => f(r, m))));
   const rev = (r: MonthlyReplication, m: number) => r.revenueRecurring[m]! + r.revenueOneOff[m]! + r.revenueHourly[m]!;
   const first = reps[0]!;
+  // Paid hours × rate don't depend on the replication, except for people paid for the hours they work (pay.ts): then the mean.
+  const meanOf = (rows: number[][]): number[] => rows[0]!.map((_, m) => rows.reduce((a, row) => a + row[m]!, 0) / rows.length);
+  const meanRecord = (pick: (r: MonthlyReplication) => Record<string, number[]>): Record<string, number[]> =>
+    Object.fromEntries(Object.keys(pick(first)).map((id) => [id, meanOf(reps.map((r) => pick(r)[id]!))]));
+  const varies = reps.some((r) => r.labour && r.labour.some((v, m) => v !== first.labour![m]));
   const money: MonthlyResult["money"] = first.labour && first.labourByRole && first.labourByPerson
     ? {
-        // Paid hours × rate don't depend on the replication.
-        labour: first.labour,
-        labourByRole: first.labourByRole,
-        labourByPerson: first.labourByPerson,
+        labour: varies ? meanOf(reps.map((r) => r.labour!)) : first.labour,
+        labourByRole: varies ? meanRecord((r) => r.labourByRole!) : first.labourByRole,
+        labourByPerson: varies ? meanRecord((r) => r.labourByPerson!) : first.labourByPerson,
         overtimeCost: series((r, m) => r.overtimeCost![m]!),
         overheads: first.overheads,
         profit: series((r, m) => rev(r, m) - r.labour![m]! - r.overtimeCost![m]! - r.overheads[m]!),

@@ -83,6 +83,9 @@ export const SHARED_UNITS = ["words", "links", "ticket hours", "tasks", "set-ups
 export const ROLE_KINDS = ["client_facing", "shared"] as const;
 export type RoleKind = (typeof ROLE_KINDS)[number];
 export const PERSON_LABELS = ["contractor", "offshore"] as const;
+/** What a person is paid for (`people.paid_for`; the engine's `paidFor`): contracted hours, leave included, or the hours they work. */
+export const PAID_FOR = ["contracted", "worked"] as const;
+export type PaidForChoice = (typeof PAID_FOR)[number];
 export type PersonLabel = (typeof PERSON_LABELS)[number];
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -204,6 +207,8 @@ export interface SetupPerson {
   /** Null for everyone when the viewer can't see pay (`payHidden`). */
   salary_monthly: number | null;
   label: PersonLabel | null;
+  /** What they are paid for (`PAID_FOR`); null: the default, hours worked for a contractor, contracted hours otherwise. Null when pay is hidden. */
+  paid_for?: PaidForChoice | null;
   ramp: number[] | null;
   provenance: Prov;
   role_ids: string[];
@@ -320,7 +325,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
     db
       .selectFrom("people")
       .select([
-        "id", "name", "email", "active", "fte", "capacity_hours_week", "cost_rate", "start_date", "end_date", "notes", "reserved_share", "salary_monthly", "label", "ramp", "provenance",
+        "id", "name", "email", "active", "fte", "capacity_hours_week", "cost_rate", "start_date", "end_date", "notes", "reserved_share", "salary_monthly", "label", "paid_for", "ramp", "provenance",
       ])
       .where("workspace_id", "=", workspaceId)
       .orderBy("name")
@@ -424,6 +429,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
       reserved_share: Number(p.reserved_share),
       salary_monthly: hidden ? null : num(p.salary_monthly),
       label: p.label === "contractor" || p.label === "offshore" ? p.label : null,
+      paid_for: !hidden && (p.paid_for === "contracted" || p.paid_for === "worked") ? p.paid_for : null,
       ramp: numList(p.ramp as Json),
       provenance: prov(p.provenance),
       role_ids: (rolesOf.get(p.id) ?? []).map((r) => r.role_id),
@@ -538,6 +544,7 @@ export const SETUP_FIELDS = {
     reserved_share: n(0, 0.9),
     salary_monthly: amount(true),
     label: { type: "enum", values: PERSON_LABELS, nullable: true },
+    paid_for: { type: "enum", values: PAID_FOR, nullable: true },
     ramp: { type: "ramp", nullable: true },
   },
   roles: {
