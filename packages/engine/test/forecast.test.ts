@@ -6,7 +6,6 @@ import {
   northbeamModel,
   northbeamWithClientGroups,
   northbeamWithServicing,
-  pooledChurnMonthly,
   pooledMonthlyFee,
   ruleOfFinding,
   runOnce,
@@ -367,14 +366,6 @@ describe("monthly recurring revenue and clients at risk (B7)", () => {
     const mo = simulate(m, 10, 1, { monthly: true }).monthly!;
     expect(mo.atRisk).toEqual({});
     expect(mo.mrr[0]!.mean).toBeCloseTo(mo.clients[""]![0]!.mean * pooledMonthlyFee(m), 6);
-  });
-
-  it("pooled churn is the retainer services' mix-weighted base churn, or the fallback with none", () => {
-    const svc = (pricingModel: "retainer" | "hourly", churnMonthly: number, mixShare: number) => ({ pricingModel, churnMonthly, mixShare });
-    expect(pooledChurnMonthly({ a: svc("retainer", 0.02, 3), b: svc("retainer", 0.06, 1), h: svc("hourly", 0.5, 4) }, 0.1)).toBeCloseTo(0.03, 12);
-    expect(pooledChurnMonthly({ a: svc("retainer", 0.02, 0), b: svc("retainer", 0.06, 0) }, 0.1)).toBeCloseTo(0.04, 12);
-    expect(pooledChurnMonthly({ h: svc("hourly", 0.5, 1) }, 0.1)).toBe(0.1);
-    expect(pooledChurnMonthly(undefined, 0.1)).toBe(0.1);
   });
 
   it("pooled models count hourly clients as active and bill their ongoing hours", () => {

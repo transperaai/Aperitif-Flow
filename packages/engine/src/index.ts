@@ -2,7 +2,7 @@ export * from "./model";
 export { flattenModel, isNested, NestingError } from "./flatten";
 export { detectLoops, type Loop, type LoopKind } from "./loops";
 export { ENGINE_VERSION } from "./version";
-export { DEFAULT_AVAILABILITY_FLOOR, SEED_STRIDE, checkModel, initialState, ModelError, monthBounds, pct, pooledChurnMonthly, tenureFromChurn, pooledMonthlyFee, resolvePeople, runOnce, afterSaleSteps, simulate, stat, weeklyKeep, type SimulateOptions } from "./simulate";
+export { DEFAULT_AVAILABILITY_FLOOR, SEED_STRIDE, checkModel, initialState, ModelError, monthBounds, pct, tenureFromChurn, pooledMonthlyFee, resolvePeople, runOnce, afterSaleSteps, simulate, stat, weeklyKeep, type SimulateOptions } from "./simulate";
 export { FORECAST_KEY_PREFIX, UNCOVERED_KEY, firstCrossing, forecastAlerts, isTooBusy, monthOfHour, type BusyCrossing, type Crossing, type ForecastAlertOptions } from "./forecast";
 export { checkDemand, demandFactor, isFlatDemand, WEEKS_PER_CALENDAR_MONTH } from "./demand";
 export * from "./market";
