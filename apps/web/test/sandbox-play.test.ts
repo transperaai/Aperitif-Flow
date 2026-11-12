@@ -113,6 +113,8 @@ describe("Win new clients", () => {
     expect(winEntries(play({ add: { org: 1, perf: 0 }, addMonths: 1, addTier: "T9" }), ctx)).toEqual([]);
   });
 
+  // Two full engine runs: about 2 s alone, but over the 5 s default under the whole suite on CI, so it gets its own limit
+  // like the other engine-heavy tests.
   it("run through the engine, the clients land and are placed least busy", () => {
     const m = applyPlay(model, play({ add: { org: 2 }, addFrom: 1, addMonths: 3, addTier: "T2" }), ctx);
     expect(m.placeNewClients).toBe("least-busy");
@@ -124,7 +126,7 @@ describe("Win new clients", () => {
     expect(last(b) - last(a)).toBeGreaterThan(4.3);
     expect(last(b) - last(a)).toBeLessThan(6.6);
     expect(b.kpi.won.mean).toBeGreaterThanOrEqual(a.kpi.won.mean + 5);
-  });
+  }, 30_000);
 });
 
 describe("Clients react to a price rise (D36)", () => {
