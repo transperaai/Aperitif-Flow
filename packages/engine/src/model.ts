@@ -12,6 +12,14 @@ import type { Loop } from "./loops";
  */
 export const WEEKS_PER_MONTH = 52 / 12;
 
+/**
+ * Weekdays in a calendar week (Monday to Friday): the run's clock places dates on weekdays only, so a calendar week is
+ * `hoursPerWeek` hours and each weekday a fifth of it (start dates, leave, month edges, the playback's day step). This is the
+ * calendar, not a business number: the workspace's working days (`workingDaysPerWeek`) say how many hours make a working day
+ * when hours are shown or entered as days. Which weekdays a shorter week leaves out is not modelled.
+ */
+export const CALENDAR_WEEKDAYS = 5;
+
 /** Working days a week when the workspace sets none (`EngineModel.workingDaysPerWeek`). */
 export const DEFAULT_WORKING_DAYS = 5;
 

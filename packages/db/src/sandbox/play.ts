@@ -28,7 +28,8 @@ export function preparePlay(bundle: ProcessBundle, play: PlayState, given: PlayC
   // Lever months run to the end of the horizon (a hire in month 18 of a 36-month run), not just the first year.
   const ctx: PlayContext = { ...given, months: given.months ?? months };
   const effective = playChanges(play, ctx).map((change) => ({ change, scenarioId: "play", scenarioName: "Free play", inherited: false }));
-  const prepared = prepareScenario(bundle, effective, solutions, months, ctx.startDate, { pair: false, ...(ctx.issueOf ? { issueOf: ctx.issueOf } : {}) });
+  // A free-play hire starts in the month picked for it ("Month they start"): the workspace's months to hire only feed the hiring advice.
+  const prepared = prepareScenario(bundle, effective, solutions, months, ctx.startDate, { pair: false, storedHiringDelay: false, ...(ctx.issueOf ? { issueOf: ctx.issueOf } : {}) });
   const edited = playIsDefault(play)
     ? prepared
     : { ...prepared, segments: prepared.segments.map((s) => ({ from: s.from, model: applyPlay(s.model, play, ctx, prepared.planPeople) })) };

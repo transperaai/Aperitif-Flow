@@ -104,10 +104,10 @@ function NewStarters({ setup, data }: { setup: CapacitySetup; data: WorkspaceSet
           step={1}
           placeholder={`${DEFAULT_HIRING_DELAY_MONTHS} (default)`}
           disabled={!data.canManage}
-          hint={ownersOnly ?? "Leave blank for the default."}
+          hint={ownersOnly ?? `Blank: ${DEFAULT_HIRING_DELAY_MONTHS} months for “Start hiring by”; saved scenarios' hires start on their own date.`}
           help={{
             description:
-              "Months from deciding to hire to the new person starting. “Start hiring by” on the Overview and in the Sandbox allows this long, stretched when the market makes hiring slower, and Sandbox scenario hires start this much later.",
+              `Months from deciding to hire to the new person starting. “Start hiring by” on the Overview and in the Sandbox allows this long (${DEFAULT_HIRING_DELAY_MONTHS} when blank), stretched when the market makes hiring slower. Once set, a saved Sandbox scenario's hires also start this much later; blank leaves them on their own date. Free play's hires start in the month you pick.`,
             example: "3: a team that will be full in June should start hiring in March.",
           }}
         />

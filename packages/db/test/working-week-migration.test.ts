@@ -5,7 +5,7 @@ import { createTestDb, type TestDb } from "./harness";
 // The working week and months to hire (migration 20270203004000_working_week_and_hiring_delay.sql; customisability audit 28, 36,
 // 22/23/33): stored values are tidied, then hours_per_week, working_days and hiring_delay_months are checked on every write.
 
-const BASE = "20270203000400";
+const BASE = "20270203003000";
 let db: TestDb;
 const ids: Record<string, string> = {};
 const CASES: [string, string][] = [

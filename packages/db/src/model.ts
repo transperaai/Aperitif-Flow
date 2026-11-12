@@ -14,6 +14,7 @@ import {
   DEFAULT_HEALTH_RULES,
   WEEKS_PER_MONTH,
   workingDaysOf,
+  CALENDAR_WEEKDAYS,
   type ChurnLimits,
   type EngineMarket,
   type EngineDemand,
@@ -40,7 +41,6 @@ import { COMPANY_DONE, STEP_SOURCE_LABELS, type DistParams, type Distribution, t
 // Dates map onto run time as calendar weekdays (Monday to Friday), each a fifth of the week, so a calendar week is always one
 // working week whatever the workspace's working days; `working_days` only sets how long "a working day" of work is (the engine's
 // `workingDaysPerWeek`).
-const WORKING_DAYS_PER_WEEK = 5;
 const DAY_MS = 86_400_000;
 
 /** Working days (Mon–Fri) from `from` up to, not including, `to`. Negative if `to` is earlier. */
@@ -917,7 +917,7 @@ function engineDemand(bundle: ProcessBundle, startDate: string): EngineDemand | 
  */
 function resolvePeopleRows(bundle: ProcessBundle, working: EngineStep[], startDate: string, planned = false, tier?: TierContext, services?: Record<string, EngineService>) {
   const s = bundle.workspace.settings;
-  const hoursPerDay = s.hours_per_week / WORKING_DAYS_PER_WEEK;
+  const hoursPerDay = s.hours_per_week / CALENDAR_WEEKDAYS;
   const roleIds = new Set(bundle.roles.map((r) => r.id));
   const stepIds = new Set(working.map((st) => st.id));
   const employed = bundle.people

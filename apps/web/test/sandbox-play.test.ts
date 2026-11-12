@@ -21,7 +21,7 @@ import {
   type PlayState,
 } from "@transpera-flow/db";
 import { capacityModel, simulate, type EngineModel } from "@transpera-flow/engine";
-import { prepareScenario } from "@transpera-flow/db/sandbox";
+import { hoursToDate, preparePlay, prepareScenario } from "@transpera-flow/db/sandbox";
 import { DEMO_FORECAST_SOLUTION, DEMO_FORECAST_START, demoForecastBundle } from "@/lib/forecast/demo";
 
 // The free-play Sandbox's levers (capacity build P7, docs/plans/capacity/p7-sandbox-brief.md section 3): each prototype lever becomes the
@@ -412,6 +412,23 @@ describe("a price rise and the price churn driver's own settings", () => {
 
 // Customisability audit 22/23/33: "Months to hire" in free play changes the advice, not the run's changes.
 describe("months to hire in free play", () => {
+  it("a free-play hire starts in the month picked for it, whatever the workspace's own months to hire", () => {
+    const base = demoForecastBundle();
+    const bundle = { ...base, workspace: { ...base.workspace, settings: { ...base.workspace.settings, hiring_delay_months: 3 } } };
+    const role = bundle.roles[0]!.id;
+    const demoCtx: PlayContext = { ...ctx, startDate: DEMO_FORECAST_START };
+    const p = play({ hires: [{ role, month: 3 }] });
+    const [id] = hireIds(p);
+    const hire = playChanges(p, demoCtx).find((c) => c.lever === "D1")!;
+    const picked = hoursToDate(DEMO_FORECAST_START, `${hire.from}-01`, bundle.workspace.settings.hours_per_week);
+    const prepared = preparePlay(bundle, p, demoCtx, []);
+    expect(prepared.error).toBeNull();
+    expect(prepared.segments[0]!.model.people![id!]!.from).toBe(picked);
+    // A saved scenario's hire still waits the workspace's months to hire.
+    const saved = prepareScenario(bundle, [{ change: hire, scenarioId: "s", scenarioName: "Saved", inherited: false }], [], 12, DEMO_FORECAST_START, { pair: false });
+    expect(saved.segments[0]!.model.people![hire.id]!.from).toBeGreaterThan(picked);
+  });
+
   it("a chosen months to hire moves the levers off today's path but makes no registry change", () => {
     expect(playIsDefault(play({ hiringDelay: 3 }))).toBe(false);
     expect(playIsDefault(play({ hiringDelay: null }))).toBe(true);

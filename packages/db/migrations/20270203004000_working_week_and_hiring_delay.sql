@@ -16,6 +16,8 @@
 --   alter table public.workspaces drop constraint if exists workspaces_hours_per_week;
 --   alter table public.workspaces drop constraint if exists workspaces_working_days;
 --   alter table public.workspaces drop constraint if exists workspaces_hiring_delay_months;
+--   delete from public.schema_migrations where version = '20270203004000';
+--   (The tidy of stored values is one-way: values it changed or removed stay so.)
 
 -- A number written as a string ("37.5") becomes the number.
 do $$

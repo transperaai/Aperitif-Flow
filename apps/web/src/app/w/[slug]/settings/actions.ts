@@ -140,7 +140,7 @@ export async function saveWorkingDays(workspaceId: string, base: number | null, 
   return out;
 }
 
-/** Months from deciding to hire to the person starting, 0 to 24 (`workspaces_hiring_delay_months`); null restores the default of 2. */
+/** Months from deciding to hire to the person starting, 0 to 24 (`workspaces_hiring_delay_months`); null clears it: `DEFAULT_HIRING_DELAY_MONTHS` for the hiring advice, no delay for scenario hires. */
 export async function saveHiringDelay(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
   const months = (v: unknown) => v === null || (number(v) && (v as number) >= 0 && (v as number) <= 24);
   if (!isId(workspaceId) || !months(value) || !(base === null || isFiniteNumber(base))) return invalid;

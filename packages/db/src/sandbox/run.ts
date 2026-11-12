@@ -100,7 +100,16 @@ interface Stretch {
  * For a person pinned to a step or assigned clients that split would break the pinning, so the change stays a patch (spliced).
  * A change whose role or person is gone, or whose person is inactive, is skipped and returned as a problem.
  */
-export function applyPeopleChanges(bundle: ProcessBundle, changes: readonly SandboxChange[], startDate: string): PeopleApplied {
+export function applyPeopleChanges(
+  bundle: ProcessBundle,
+  changes: readonly SandboxChange[],
+  startDate: string,
+  /**
+   * `storedHiringDelay: false` leaves out the workspace's own months to hire when there is no D9 change: free play's hires start in the
+   * month picked for them ("Month they start"), as its series and charts count them. Saved scenarios keep it (the default).
+   */
+  o: { storedHiringDelay?: boolean } = {},
+): PeopleApplied {
   const problems: ChangeProblem[] = [];
   const handled = new Set<string>();
   const planPeople = new Set<string>();
@@ -150,8 +159,8 @@ export function applyPeopleChanges(bundle: ProcessBundle, changes: readonly Sand
     };
   })();
   // Without a D9 change, the workspace's own months to hire (Settings > People & roles) when it has set one; a workspace that hasn't
-  // keeps hires starting with no delay, as before the setting existed.
-  const delayBase = delayChange ? delayChange.value : (storedHiringDelay(bundle.workspace.settings) ?? 0);
+  // keeps hires starting with no delay, as before the setting existed. Free play picks each hire's start month itself, so it has none.
+  const delayBase = delayChange ? delayChange.value : o.storedHiringDelay === false ? 0 : (storedHiringDelay(bundle.workspace.settings) ?? 0);
   const delayMonths = (factor: number): number => (delayBase > 0 ? Math.round(delayBase * factor) : 0);
   const startOf = (from: string): string => addMonths(`${from}-01`, delayMonths(hireFactor(from)));
   const wholeRunStart = (): string | null => {
@@ -361,9 +370,11 @@ export function scenarioSegments(
   startDate: string,
   bounds: readonly number[],
   hoursPerWeek: number,
+  /** See `applyPeopleChanges`. */
+  o: { storedHiringDelay?: boolean } = {},
 ): SegmentsResult {
   const list = changes.map((c) => c.change);
-  const people = applyPeopleChanges(bundle, list, startDate);
+  const people = applyPeopleChanges(bundle, list, startDate, o);
   // A lead source's volume is a row of the bundle (A1 for one source, whole run).
   const edited = applyBundleChanges(people.bundle, list);
   people.bundle = edited.bundle;
@@ -569,8 +580,11 @@ export function prepareScenario(
   solutions: readonly SolutionRow[],
   months: number,
   startDate: string,
-  /** `issueOf`: the issue a solution is for, put on its step changes (reporting only). */
-  o: { pair?: boolean; issueOf?: (solutionId: string) => string | undefined } = {},
+  /**
+   * `issueOf`: the issue a solution is for, put on its step changes (reporting only). `storedHiringDelay: false`: hires without a D9
+   * change start in their own month, not the workspace's months to hire later (free play; see `applyPeopleChanges`).
+   */
+  o: { pair?: boolean; issueOf?: (solutionId: string) => string | undefined; storedHiringDelay?: boolean } = {},
 ): PreparedScenario {
   const retired = retiredSteps(bundle);
   const live = scenarioModel(bundle, months, startDate);
@@ -581,7 +595,7 @@ export function prepareScenario(
   const names = new Map(solutions.map((x) => [x.id, x.name]));
 
   const build = (list: readonly EffectiveChange[], forcePriceDriver = false) => {
-    const plan = scenarioSegments(bundle, list, solutions, startDate, bounds, hpw);
+    const plan = scenarioSegments(bundle, list, solutions, startDate, bounds, hpw, o.storedHiringDelay === false ? { storedHiringDelay: false } : {});
     if (plan.error !== null) return { error: plan.error, plan, segments: [] as PreparedSegment[], problems: plan.problems };
     const all = list.map((c) => c.change);
     const segments: PreparedSegment[] = [];

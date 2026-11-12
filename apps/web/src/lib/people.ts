@@ -5,6 +5,7 @@ import {
   absenceCandidates,
   absenceRating,
   busyLine,
+  CALENDAR_WEEKDAYS,
   resolvePeople,
   type AbsenceTest,
   type EngineModel,
@@ -42,13 +43,13 @@ export interface PersonBusy {
   leaveDays: number;
 }
 
-/** Leave is placed on the calendar as weekdays (Monday to Friday, `hoursPerWeek / 5` each, as packages/db/src/model.ts maps dates), so its days are counted the same way. */
-const WORKING_DAYS_PER_WEEK = 5;
+// Leave is placed on the calendar as weekdays (Monday to Friday, `hoursPerWeek / CALENDAR_WEEKDAYS` each, as packages/db/src/model.ts
+// maps dates), so its days are counted the same way.
 
 /** Working days of `person`'s leave inside the first `horizonHours` of the run; leave before the start or after the end doesn't count. */
 export function leaveDays(person: EnginePerson, horizonHours: number, hoursPerWeek: number): number {
   const hours = (person.leave ?? []).reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, horizonHours) - Math.max(a, 0)), 0);
-  return hours / (hoursPerWeek / WORKING_DAYS_PER_WEEK);
+  return hours / (hoursPerWeek / CALENDAR_WEEKDAYS);
 }
 
 /** First role's place in role order, then name: the one order the page uses for people (D20: never ranked). */

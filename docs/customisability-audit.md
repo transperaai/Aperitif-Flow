@@ -64,6 +64,8 @@ Status: fixed in this branch
 - **Fix:** In applyPlay, start from the workspace price driver's own effectMonths (and chance, when set), falling back to 3 only when it has none. Add a 'Lasts N months' select next to 'Clients react' in the Prices group. Let price_rise_churn's help text name the driver's months rather than '3'.
 - **Where:** `packages/db/src/sandbox-play.ts:29 (PRICE_RISE_MONTHS = 3) and :281 (entry = {..., enabled: true, chance: 1, effect, effectMonths: PRICE_RISE_MONTHS})`
 
+Status: fixed in this branch
+
 ## 8. Client health rules (starting health, on-time boost, late and missed penalties) cannot be edited  
 *high · settings*
 
@@ -81,6 +83,8 @@ Status: fixed in this branch
 - **Why it matters:** Every planned hire in the forecast and every Sandbox 'add a starter' takes the same three-month ramp, whether the hire is a senior contractor or a graduate. Capacity and hire timing come out wrong, and the help text sends the owner to a field that isn't there.
 - **Fix:** In Settings > People & roles, add a 'New starter ramp' text field wired to saveRampDefault, and a per-person 'Ramp' field in PersonMore wired to savePersonRamp. Also offer it as a Sandbox lever on hires.
 - **Where:** `packages/db/src/capacity-model.ts:24 DEFAULT_RAMP [0.4,0.6,0.8] and :160-163 (people.ramp ?? settings.ramp_default ?? DEFAULT_RAMP); packages/db/src/model.ts:869-874 passes ramp_default; apps/web/src/components/sandbox/play-levers.tsx:310 says 'the ramp in Settings, under People & roles'`
+
+Status: fixed in this branch
 
 ## 10. A named client with a blank fee brings in no revenue, though the screen shows the tier's fee as its default  
 *high · settings*
@@ -198,6 +202,8 @@ Status: fixed in this branch
 - **Fix:** Add a 'Months to hire' workspace setting (and optionally a Sandbox People lever). Pass it, wrapped in hiringDelayAt with the run's market, from use-play-runs to playSeries, as the Overview does.
 - **Where:** `packages/db/src/capacity-figures.ts:34 (DEFAULT_HIRING_DELAY_MONTHS = 2); apps/web/src/lib/sandbox/use-play-runs.ts:80,108 call playSeries(...) with no delay, so sandbox-play-series.ts:86,129 uses a flat 2; apps/web/src/components/overview/overview.tsx:329 passes hiringDelayAt(horizonModel.market, m)`
 
+Status: fixed in this branch
+
 ## 23. Sandbox 'when to hire' uses a flat 2-month hiring delay, Overview stretches it by the market  
 *medium · sandbox*
 
@@ -206,6 +212,8 @@ Status: fixed in this branch
 - **Fix:** Add 'Months to hire' to Settings -> People & roles (a workspace setting). Feed it as the base to hiringDelayAt in both the Overview and playSeries (pass (m) => hiringDelayAt(model.market, m, base) from use-play-runs.ts). Offer D9 in free play.
 - **Where:** `packages/db/src/sandbox-play-series.ts:86 and :129 (hiringAdvice(setup, result, hiringDelay) with default DEFAULT_HIRING_DELAY_MONTHS); apps/web/src/lib/sandbox/use-play-runs.ts:80,108 call playSeries without a delay; packages/db/src/capacity-figures.ts:34 (DEFAULT_HIRING_DELAY_MONTHS = 2)`
 
+Status: fixed in this branch
+
 ## 24. Free-play sliders cap realistic changes (leads/win ±50% in 5s, price -20..+30%, 50 wins a month)  
 *medium · sandbox*
 
@@ -213,6 +221,8 @@ Status: fixed in this branch
 - **Why it matters:** Common owner questions ('what if we double our lead flow with a new channel?', 'what if we raise the Starter tier 50%?', 'what if win rate goes up 2 points?') can't be entered, so the answer looks capped or wrong.
 - **Fix:** Widen the sliders to the registry ranges (leads/win -90..+300% with step 1, price -50..+100% with step 1), or pair each slider with a number input that accepts any value in the registry range.
 - **Where:** `apps/web/src/components/sandbox/play-levers.tsx:143-144 (Leads, Win rate: min -50 max 50 step 5), :204 (Churn -50..100), :244 (Price change -20..30 step 1), :157-161 (Win new clients 0..50 per department), :173 (For: 1,2,3,6,9,12 months)`
+
+Status: fixed in this branch
 
 ## 25. Free-play hires are always 1 FTE, at an averaged salary, and named 'New hire'  
 *medium · sandbox*
@@ -229,6 +239,8 @@ Status: fixed in this branch
 - **Why it matters:** On a 36-month plan, an owner can't plan a hire in month 18, a price rise in year 2 or a market downturn starting in month 15. The long horizon shows only the after-effects of year-one moves.
 - **Fix:** Pass the full horizon's months to the lever month pickers and make clampMonth, winEntries and marketFrom use the run's months (the horizon) instead of PLAY_MONTHS.
 - **Where:** `packages/db/src/sandbox-play.ts:128 (clampMonth caps at PLAY_MONTHS - 1 = 11), :158 (addMonths <= 12), :259 (market schedule built for 12 months only); apps/web/src/components/sandbox/play-view.tsx:79 (leverMonths = first year unless horizon is 12)`
+
+Status: fixed in this branch
 
 ## 27. Client health rules and ongoing hours per client are editable in Settings but have no Sandbox lever  
 *medium · sandbox*
@@ -248,6 +260,8 @@ Status: partly fixed in this branch: the health rules have free-play levers; cli
 - **Fix:** Add a 'Normal working week (hours)' field to Settings > Simulation, saving settings.hours_per_week with the same 1-168 rule as lib/workspaces.ts.
 - **Where:** `packages/db/src/model.ts:344 (hoursPerWeek: s.hours_per_week); model.ts:851 (hoursPerDay for leave); model.ts:880 (capacity = fte x hours_per_week when a person has no own hours)`
 
+Status: fixed in this branch
+
 ## 29. Services that aren't tiers still simulate but can't be seen, edited or added in Settings  
 *medium · settings*
 
@@ -255,6 +269,8 @@ Status: partly fixed in this branch: the health rules have free-play levers; cli
 - **Why it matters:** A project or hourly service keeps its stored price, churn, mix share (its share of leads) and its client-group count, fee and churn. These change revenue and how leads are split, and the owner can only see a count of how many such services exist. They can't change a project's price, pause it or add one.
 - **Fix:** In Settings > Tiers & clients, add an 'Other services' list that reuses ServiceMore and GroupFields (or render ServicesSettings with tierServiceIds) for services with no tier, including Add and Remove.
 - **Where:** `apps/web/src/components/setup/tiers-clients.tsx:104-111 (a comment says 'D46: services that aren't tiers ... are not edited here', and a note says they 'still count in the simulation'); packages/db/src/model.ts:536-575 engineServices maps every active service (price, churn, tenure, mix share, fee range, fallback load)`
+
+Status: fixed in this branch
 
 ## 30. Client lifetime value uses 'Expected tenure', which is separate from churn and hidden under More  
 *medium · settings*
@@ -274,6 +290,8 @@ Status: fixed in this branch
 - **Fix:** In the named client's More panel (ClientMore), add the department's deliverable columns (tierFieldsFor) as override cells with the tier's value as placeholder, plus an 'Effort factor' (step_factor, 0.01-20).
 - **Where:** `packages/db/src/capacity-model.ts:126-139 engineClientCapacity maps every deliverable plus step_factor into EngineClient.overrides; packages/db/src/capacity-setup.ts:62-64 CLIENT_OVERRIDE_COLUMNS and :465-479 SETUP_FIELDS.clients allow saving them`
 
+Status: fixed in this branch
+
 ## 32. Analysis assumptions (absence test length/frequency, lost-client value cap, busy cutoffs, expected waits) are locked to defaults and stored rules are ignored  
 *medium · pages*
 
@@ -291,6 +309,8 @@ Status: fixed in this branch (the value cap, the absence test and the busy bands
 - **Why it matters:** The Overview tells the owner to start hiring in March, the Play page says April for the same role when the market slows hiring, and a Sandbox hire shows up immediately; an agency that hires in 1 month or 4 months gets wrong 'hire by' dates everywhere.
 - **Fix:** Add workspaces.settings.hiring_delay_months (Settings > People or Demand/market), default 2; use it as the base in hiringDelayAt on the Overview, pass it (with the market stretch) into playSeries, and make D9's 'today' value and default start from it.
 - **Where:** `packages/db/src/capacity-figures.ts:34 (DEFAULT_HIRING_DELAY_MONTHS = 2), :37-41; apps/web/src/components/overview/overview.tsx:329 (hiringAdvice with hiringDelayAt(market) base 2, market-stretched); apps/web/src/lib/sandbox/use-play-runs.ts:80,108 -> packages/db/src/sandbox-play-series.ts:86,129 (playSeries default 2, not market-stretched); packages/db/src/sandbox/run.ts:141-151 (scenario hires start with no delay unless lever D9 is set)`
+
+Status: fixed in this branch. Saved scenarios' hires wait the setting once it is set; with it blank they still start on their own date (as before), while the hiring advice uses the default. Free play's hires start in the month picked for them.
 
 ## 34. Client health bands (75/65/50) and the 'at risk below 50' line are fixed  
 *medium · pages*
@@ -319,6 +339,8 @@ Status: fixed in this branch (same threshold and margin as Capacity; the People 
 - **Why it matters:** For a 4-day-week or 6-day agency, 'normal first delivery in 10 working days', SLA days and wait days are all converted wrong, which moves onboarding churn and every days-based figure.
 - **Fix:** The fix should also replace the WORKING_DAYS_PER_WEEK constant at packages/db/src/model.ts:32/840 (the leave and start-date hour conversions) and packages/db/src/sandbox/months.ts:40. Those are on top of the engine and web '/ 5' sites.
 - **Where:** `packages/engine/src/simulate.ts:1776 (onbNormalHours = days x hoursPerWeek / 5), simulate.ts:4033; also issues.ts:181, forecast.ts:98, bottlenecks.ts:82, analysis-settings.ts:404 (hoursPerDay = hoursPerWeek / 5)`
+
+Status: fixed in this branch. Every hours-to-days conversion reads the working days. Dates still map onto the run's clock as Monday-to-Friday weekdays (`CALENDAR_WEEKDAYS`), so start dates, leave and month edges are unchanged; which weekdays a shorter week leaves out is not modelled.
 
 ## 37. Pooled (no client list) runs decay starting clients at the hidden workspace churn, while new wins use the service's 'Normal churn'  
 *low · engine*
@@ -384,6 +406,8 @@ Status: fixed in this branch
 - **Fix:** Add 'Hours per client a week' to the role panel in Settings > People & roles (and to SETUP_FIELDS.roles), next to the role cost rate that is being added.
 - **Where:** `packages/db/src/model.ts:323 (ongoing: role.ongoing_hours_per_client_week); packages/engine/src/clients.ts:43-48 applies it to every client whose services have no servicing process or fallback load; simulate.ts:1478, 1607 and 1620`
 
+Status: fixed in this branch
+
 ## 44. The client health benchmark can't be set, and the People page links to a Settings anchor that doesn't exist  
 *low · settings*
 
@@ -391,6 +415,8 @@ Status: fixed in this branch
 - **Why it matters:** The People page's 'is our client health good?' card asks the owner to enter a range in Settings, and they can't. The comparison stays empty or keeps an imported value.
 - **Fix:** Render ClientHealthBenchmark in Settings > Tiers & clients (or Simulation) and point the People page link at that anchor.
 - **Where:** `apps/web/src/components/people-page.tsx:104 (benchmarkOf(settings)) and :238 (link to settings/clients#clients-heading); apps/web/src/components/setup/tiers-clients.tsx:105 (a comment says the benchmark is not edited here)`
+
+Status: fixed in this branch
 
 ## 45. A lost client's value is fixed at 12 months of fees, and stored analysis settings are ignored  
 *low · settings*
@@ -417,6 +443,8 @@ Status: fixed in this branch
 - **Why it matters:** An agency whose departments aren't literally Organic and Performance can't describe its real work per tier. Renaming 'Performance' to 'Paid' silently switches the columns and hides the stored builds and channels from the editor, though the engine still uses them.
 - **Fix:** Add a department 'kind' (or a chosen set of deliverable columns) in Settings > Tiers & clients and drive tierFieldsFor from it instead of the name.
 - **Where:** `packages/db/src/capacity-setup.ts:57-59 tierFieldsFor (/^\s*perf/i: Performance fields, otherwise Organic); also apps/web/src/components/setup/tiers-clients.tsx:548 for named clients' Channels`
+
+Status: fixed in this branch
 
 ## 48. 'Near threshold' margin of 10 points is fixed, in two separate constants  
 *low · pages*

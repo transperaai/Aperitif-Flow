@@ -272,6 +272,8 @@ describe("improvement delivered", () => {
     // 40 h a week: a working day is 8 h. P3's (40 − 16) / 8 = 3 days is the largest cut; it isn't added to P1's 2.
     expect(improvementDelivered(impacts, 40)).toEqual({ count: 3, superseded: 0, hoursSaved: 25, daysCut: { days: 3, processName: "P3" } });
     expect(improvementDelivered(impacts.slice(3), 40)).toBeNull();
+    // A 4-day week of 32 hours: the same hours are the same number of days (customisability audit 36).
+    expect(improvementDelivered(impacts, 32, 4)!.daysCut).toEqual({ days: 3, processName: "P3" });
   });
   it("doesn't read a rise in throughput as hours added", () => {
     const h = hoursAMonth({ before: n(5, 10, null), after: n(5, 20, null) });
