@@ -304,7 +304,7 @@ function DepartmentTable({ setup, data, department }: { setup: CapacitySetup; da
                   <TableRow>
                     <TableCell colSpan={cols} className="bg-panel-2">
                       <p className="mb-2 text-xs text-fg-2">
-                        {plainName(department.name)} {t.key}: price rise churn and the rest. Price-rise churn is the extra churn for each 10% rise, for {priceMonths} month{priceMonths === 1 ? "" : "s"} (the price churn driver's months), as a share (0.5 means churn x 1.5); it is stored for the Sandbox.
+                        {plainName(department.name)} {t.key}: price rise churn and the rest. Price-rise churn is the extra churn for each 10% rise, for {priceMonths} month{priceMonths === 1 ? "" : "s"} (the price churn driver&apos;s months), as a share (0.5 means churn x 1.5); it is stored for the Sandbox.
                       </p>
                       <div className="grid gap-4 sm:grid-cols-3">
                         <NumberCell label={`${department.name} ${t.key}: Price-rise churn`} value={svc.price_rise_churn} save={saver("services", key, "price_rise_churn")} canEdit={setup.canEdit} optional={false} min={0} max={10} step={0.1} provenance={svc.provenance} column="price_rise_churn" help={{ description: `Extra churn for each 10% price rise, lasting ${priceMonths} month${priceMonths === 1 ? "" : "s"} (the price churn driver's months in Churn drivers), as a share of normal churn.`, example: `0.5: a 10% rise lifts churn by half for ${priceMonths} month${priceMonths === 1 ? "" : "s"} (churn x 1.5).` }} />
