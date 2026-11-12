@@ -432,6 +432,14 @@ export function pooledChurnMonthly(services: Readonly<Record<string, Pick<Engine
 }
 
 /**
+ * How long a client stays, in months, worked out from its monthly churn: 1 / churn (a 2% churn is a 50-month stay), and 0 when
+ * churn is 0 (no stay to value). A service with no expected tenure entered uses this, as does the implicit retainer.
+ */
+export function tenureFromChurn(churnMonthly: number): number {
+  return Number.isFinite(churnMonthly) && churnMonthly > 0 ? 1 / churnMonthly : 0;
+}
+
+/**
  * The model's services, or one implicit retainer at `model.retainer` when it
  * has none, so such a model's revenue is `won × retainer` as before.
  */
@@ -448,7 +456,7 @@ function resolveServices(model: EngineModel): ServiceState[] {
             pricingModel: "retainer",
             price: model.retainer,
             margin: 0,
-            tenureMonths: churn > 0 ? 1 / churn : 0,
+            tenureMonths: tenureFromChurn(churn),
             churnMonthly: churn,
             mixShare: 1,
             pathTags: [],

@@ -426,6 +426,14 @@ describe("services", () => {
     expect(Object.values(model.services!).every((sv) => !("entry" in sv))).toBe(true);
   });
 
+  it("a blank expected tenure is worked out from base churn (1 / churn, 0 at no churn); an entered one is kept", () => {
+    const blank = (churn: number) => toEngineModel(patch(pipelineOnly(), seo, { tenure_months: null, churn_monthly_base: churn }), { startDate: START }).services![seo]!.tenureMonths;
+    expect(blank(0.02)).toBeCloseTo(50, 12);
+    expect(blank(0.05)).toBeCloseTo(20, 12);
+    expect(blank(0)).toBe(0);
+    expect(toEngineModel(pipelineOnly(), { startDate: START }).services![seo]!.tenureMonths).toBe(18);
+  });
+
   it("with no client list, today's clients churn at the services' base churn (mix-weighted), not the interim workspace churn", () => {
     const pooled = (): ProcessBundle => ({ ...pipelineOnly(), clients: [], clientGroups: [], clientServices: [], clientAssignments: [] });
     const b = pooled();

@@ -9,6 +9,7 @@ import {
   MAX_REWORK,
   ModelError,
   pooledChurnMonthly,
+  tenureFromChurn,
   type EngineMarket,
   type EngineDemand,
   type Distribution as EngineDistribution,
@@ -550,7 +551,8 @@ function engineServices(bundle: ProcessBundle, processId: string): Record<string
       pricingModel: sv.pricing_model,
       price: Number(sv.price),
       margin: Number(sv.margin),
-      tenureMonths: Number(sv.tenure_months),
+      // A blank expected tenure is worked out from churn (finding 30), so the stay that values a deal moves with the churn.
+      tenureMonths: sv.tenure_months === null || sv.tenure_months === undefined ? tenureFromChurn(Number(sv.churn_monthly_base)) : Number(sv.tenure_months),
       churnMonthly: Number(sv.churn_monthly_base),
       // Rows written before it existed may not carry it: then health doesn't move churn.
       ...(sv.churn_health_sensitivity != null && Number.isFinite(Number(sv.churn_health_sensitivity))

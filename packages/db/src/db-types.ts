@@ -603,7 +603,10 @@ export interface Services {
   pricing_model: Generated<string>;
   provenance: Generated<Json>;
   tech_hours: Numeric | null;
-  tenure_months: Generated<Numeric>;
+  /**
+   * How many months a client typically stays. Null: worked out from churn (1 / churn_monthly_base; 0 when churn is 0).
+   */
+  tenure_months: Numeric | null;
   tier_id: string | null;
   updated_at: Generated<string>;
   words: Numeric | null;

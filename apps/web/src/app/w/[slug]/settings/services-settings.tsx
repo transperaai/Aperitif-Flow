@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { tenureFromChurn } from "@transpera-flow/engine";
 import type { PricingModel, ServiceRow } from "@transpera-flow/db";
 import { NumberField, SelectField, TextField, ToggleField } from "@/components/fields";
 import { Help, HelpLabel } from "@/components/help";
@@ -219,14 +220,16 @@ export function ServiceMore({ service: sv, share, data, removable = true }: { se
           hint="Recorded for reference. Profit is worked out from the hours people are paid for, not from this." help={{ description: "Recorded for reference. Profit is worked out from the hours people are paid for, not from this.", example: "Profit comes from the team's pay and the overheads, so a 40% margin here doesn't change it." }} />
         <NumberField
           label="Expected tenure"
-          value={Number(sv.tenure_months)}
+          value={sv.tenure_months === null || sv.tenure_months === undefined ? null : Number(sv.tenure_months)}
           save={serviceSaver(sv.id, "tenure_months")}
           unit="months"
+          optional
           min={0}
           max={600}
           step={1}
+          placeholder={String(Math.round(tenureFromChurn(Number(sv.churn_monthly_base))))}
           disabled={disabled}
-          hint={retainer ? "How long a client stays: LTV and lost revenue use price × tenure. Overridden by Typical stay in Services and client groups, once that is filled in." : "Used for retainers only."} help={{ description: "How many months a client typically stays. Lifetime value and lost revenue use price times tenure. Retainers only.", example: "At 2,500 a month and 18 months, a client is worth 45,000." }} />
+          hint={retainer ? "How long a client stays: LTV and lost revenue use price × tenure. Blank: worked out from base churn (1 ÷ churn)." : "Used for retainers only."} help={{ description: "How many months a client typically stays. Lifetime value and lost revenue use price times tenure. Leave it blank to work it out from base churn. Retainers only.", example: "At 2,500 a month and 18 months, a client is worth 45,000. Blank at 2% churn: 50 months." }} />
         <NumberField
           label="Base churn"
           value={Number(sv.churn_monthly_base)}

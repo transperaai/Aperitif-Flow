@@ -102,7 +102,8 @@ export interface SetupService {
   price_low: number | null;
   price_high: number | null;
   margin: number;
-  tenure_months: number;
+  /** Null: worked out from churn (`tenureFromChurn`). */
+  tenure_months: number | null;
   churn_monthly_base: number;
   churn_health_sensitivity: number;
   mix_share: number;
@@ -310,7 +311,7 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
       price_low: num(s.price_low),
       price_high: num(s.price_high),
       margin: Number(s.margin),
-      tenure_months: Number(s.tenure_months),
+      tenure_months: num(s.tenure_months),
       churn_monthly_base: Number(s.churn_monthly_base),
       churn_health_sensitivity: Number(s.churn_health_sensitivity),
       mix_share: Number(s.mix_share),
@@ -454,6 +455,8 @@ export const SETUP_FIELDS = {
     price_low: amount(true),
     price_high: amount(true),
     churn_monthly_base: share(),
+    // Blank: worked out from churn (finding 30).
+    tenure_months: n(0, 600, true),
     adhoc_chance: share(true),
     adhoc_requests: count(true),
     price_rise_churn: n(0, 10),
