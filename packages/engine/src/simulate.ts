@@ -3716,22 +3716,22 @@ export function runOnce(
   if (servicing) for (const rc of rosterClients) settleMisses(rc, H, true);
 
   /**
-   * A person's cost a working hour: their own, or the mean of their roles' (what overtime and paid labour are costed at), times the
-   * employer on-costs for an employee (pay.ts; exactly 1 with none). With a role-cost channel, month `m`'s: the roles' costs times the
-   * channel's factor for the month, and a person's own cost times the mean of their roles' factors (a pay change for a role reaches
-   * everyone in it).
+   * A person's cost a working hour: their own, or the mean of their roles' (what overtime and paid labour are costed at); their own,
+   * when it comes from a salary, times the employer on-costs (pay.ts; exactly 1 with none, for a typed rate and for a contractor). With a
+   * role-cost channel, month `m`'s: the roles' costs times the channel's factor for the month, and a person's own cost times the mean of
+   * their roles' factors (a pay change for a role reaches everyone in it, priced from a salary or a rate).
    */
   const rateOf = (p: PersonState, m = 0): number => {
-    const load = onCostFactor(model, p.person);
     const own = p.person.roles.filter((rid) => rid in model.roles);
     const channel = plan && plan.roleCost.size ? plan.roleCost : null;
     if (p.person.cost !== undefined && p.person.cost !== null) {
       const mine = channel ? own.filter((rid) => channel.has(rid)) : [];
+      const load = onCostFactor(model, p.person);
       if (!mine.length) return p.person.cost * load;
-      return ((p.person.cost * (own.reduce((sum, rid) => sum + (channel!.get(rid)?.[m] ?? 1), 0) / own.length)) * load);
+      return p.person.cost * (own.reduce((sum, rid) => sum + (channel!.get(rid)?.[m] ?? 1), 0) / own.length) * load;
     }
-    if (channel) return (own.length ? own.reduce((sum, rid) => sum + model.roles[rid]!.cost * (channel.get(rid)?.[m] ?? 1), 0) / own.length : 0) * load;
-    return (own.length ? own.reduce((sum, rid) => sum + model.roles[rid]!.cost, 0) / own.length : 0) * load;
+    if (channel) return own.length ? own.reduce((sum, rid) => sum + model.roles[rid]!.cost * (channel.get(rid)?.[m] ?? 1), 0) / own.length : 0;
+    return own.length ? own.reduce((sum, rid) => sum + model.roles[rid]!.cost, 0) / own.length : 0;
   };
   /** × an overtime hour's rate (pay.ts; 1: the normal rate). */
   const otPay = overtimePayFactor(model);

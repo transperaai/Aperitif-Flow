@@ -250,7 +250,7 @@ export function SimulationSettings({ data, assumptions = assumptionValues({}) }:
             disabled={!canManage}
             hint={ownersOnly ?? "Leave blank for none. Contractors never have on-costs."}
             help={{
-              description: "What the business pays on top of employees' pay, such as super, payroll tax and insurance, as a share of their pay. Profit counts it as part of what each employee costs. Contractors are left out.",
+              description: "What the business pays on top of employees' pay, such as super, payroll tax and insurance, as a share of their pay. Profit adds it to the cost worked out from a salary only: a typed cost rate (a person's or a role's) is taken as the full cost of an hour, so nothing is added to it. Contractors are left out. DLER uses salaries without it.",
               example: "15%: an employee whose pay costs 6,000 a month costs 6,900.",
             }}
           />
@@ -381,7 +381,22 @@ export type PersonPart = "basics" | "time" | "more";
  * Everything else about a person (the part of a row that opens). The Set up panel asks for one `part` at a time and sets `compact` for a
  * single narrow column; hours a week is not in a part, because the panel keys it through Set up (which records its source).
  */
-export function PersonMore({ person: p, data, saveFactor, part, compact }: { person: PersonDetail; data: WorkspaceSettingsData; saveFactor?: SaveFactor; part?: PersonPart; compact?: boolean }) {
+export function PersonMore({
+  person: p,
+  data,
+  saveFactor,
+  part,
+  compact,
+  salaryRate,
+}: {
+  person: PersonDetail;
+  data: WorkspaceSettingsData;
+  saveFactor?: SaveFactor;
+  part?: PersonPart;
+  compact?: boolean;
+  /** What an hour of theirs costs from their salary (their own, else their role's pro rata), for whoever sees pay: the Cost rate's blank. */
+  salaryRate?: number | null;
+}) {
   const roleIds = data.personRoles.filter((r) => r.person_id === p.id).map((r) => r.role_id);
   const skillIds = data.personSkills.filter((s) => s.person_id === p.id).map((s) => s.step_id);
   const leave = data.personLeave.filter((l) => l.person_id === p.id);
@@ -440,8 +455,15 @@ export function PersonMore({ person: p, data, saveFactor, part, compact }: { per
             unit={`${data.workspace.settings.currency}/h`}
             min={0}
             step={1}
-            placeholder="Role default"
-            disabled={disabled} help={{ description: "What an hour of this person's time costs. Leave blank to use the role's rate. The simulation uses it to cost overtime.", example: "35 means each overtime hour costs 35." }} />
+            placeholder={typeof salaryRate === "number" ? `${formatNumber(salaryRate, 2)} from salary` : "Role default"}
+            hint={p.cost_rate !== null && typeof salaryRate === "number" ? `Used in profit in place of the ${formatNumber(salaryRate, 2)} an hour their salary gives. DLER still uses the salary.` : undefined}
+            disabled={disabled}
+            help={{
+              description:
+                "What an hour of this person's time costs: profit costs every hour they are paid for, and their overtime, at it. When set, it overrides their salary for profit; DLER is retainers against salary, so it keeps using the salary. Employer on-costs are not added to a cost rate, so enter the full cost of an hour. Leave blank to cost them from their salary (with on-costs), else at their role's rate.",
+              example: "35 means each hour they are paid for costs 35.",
+            }}
+          />
         )}
         {show("time") && (
           <>

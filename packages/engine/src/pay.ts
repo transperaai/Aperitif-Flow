@@ -2,7 +2,8 @@
 // before the field existed:
 //
 //   overtimePayFactor   an overtime hour costs the person's rate × this (1: the normal rate; 1.5: time and a half; 0: unpaid).
-//   employerOnCosts     an employee's pay costs × (1 + this) (super, payroll tax, insurance); a contractor's never does. 0: none.
+//   employerOnCosts     an employee's salary-derived cost × (1 + this) (super, payroll tax, insurance); a typed cost rate (the
+//                       person's or the role's) and a contractor's pay never are. 0: none.
 //   EnginePerson.paidFor  "contracted": paid for their contracted hours while on the team, leave included (everyone before this);
 //                       "worked": paid only for the hours they work, up to their contracted hours, with no paid leave (overtime is
 //                       still costed as overtime). Omitted: "worked" for a contractor, "contracted" for everyone else.
@@ -28,9 +29,13 @@ export function overtimePayFactor(model: Pick<EngineModel, "overtimePayFactor">)
   return bounded(model.overtimePayFactor, DEFAULT_OVERTIME_PAY_FACTOR, MAX_OVERTIME_PAY_FACTOR);
 }
 
-/** × a person's pay for employer on-costs: 1 + the model's share for an employee, exactly 1 for a contractor. */
-export function onCostFactor(model: Pick<EngineModel, "employerOnCosts">, person: Pick<EnginePerson, "contractor"> | undefined): number {
-  if (person?.contractor) return 1;
+/**
+ * × a person's hourly cost for employer on-costs: 1 + the model's share for an employee whose cost comes from a salary
+ * (`EnginePerson.costFromSalary`), exactly 1 otherwise. A cost rate typed for a person or a role is taken as the full cost of an hour,
+ * so on-costs are never added to it (they would be counted twice), and a contractor never carries them.
+ */
+export function onCostFactor(model: Pick<EngineModel, "employerOnCosts">, person: Pick<EnginePerson, "contractor" | "costFromSalary"> | undefined): number {
+  if (!person?.costFromSalary || person.contractor) return 1;
   return 1 + bounded(model.employerOnCosts, DEFAULT_EMPLOYER_ON_COSTS, MAX_EMPLOYER_ON_COSTS);
 }
 

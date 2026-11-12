@@ -93,7 +93,7 @@ export function overtimeIssues(
       if (!r) continue;
       const own = p.roles.filter((rid) => rid in model.roles);
       // An overtime hour: their rate with on-costs, times the overtime pay factor (pay.ts).
-      const rate = model.payHidden ? null : (p.cost ?? (own.length ? own.reduce((s, rid) => s + model.roles[rid]!.cost, 0) / own.length : 0)) * onCostFactor(model, p) * otPay;
+      const rate = model.payHidden ? null : (p.cost !== undefined ? p.cost * onCostFactor(model, p) : own.length ? own.reduce((s, rid) => s + model.roles[rid]!.cost, 0) / own.length : 0) * otPay;
       push({ key: `overtime:person:${pid}`, name: p.name, capacity: p.capacity, roleId: p.roles[0] ?? null, personId: pid, rate }, r, result.kpi.people[pid]?.overtime, pid === result.bnPerson);
     }
   } else {
@@ -101,7 +101,7 @@ export function overtimeIssues(
       const r = result.roles[rid];
       if (!r) continue;
       const capacity = Object.values(people).reduce((s, p) => s + (p.roles.includes(rid) ? p.capacity / p.roles.length : 0), 0);
-      push({ key: `overtime:role:${rid}`, name: roleName(rid), capacity, roleId: rid, personId: null, rate: model.roles[rid]!.cost * onCostFactor(model, undefined) * otPay }, r, result.kpi.roles[rid]?.overtime, rid === result.bnRole);
+      push({ key: `overtime:role:${rid}`, name: roleName(rid), capacity, roleId: rid, personId: null, rate: model.roles[rid]!.cost * otPay }, r, result.kpi.roles[rid]?.overtime, rid === result.bnRole);
     }
   }
   return out;

@@ -253,11 +253,11 @@ export function detectIssues(
         (overtime > 0 ? `, plus ${fmt(overtime)} of overtime at cost rates.` : `.${note}`),
     };
   };
-  // An hour of a role or a person, with employer on-costs (pay.ts; a contractor has none).
-  const roleCost = (roleId: string | null) => (roleId ? (model.roles[roleId]?.cost ?? 0) * onCostFactor(model, undefined) : 0);
-  /** A person's hour: their own cost or their roles' mean, with their on-costs (none for a contractor). */
+  // An hour of a role: its typed cost rate, which never takes employer on-costs (pay.ts).
+  const roleCost = (roleId: string | null) => (roleId ? (model.roles[roleId]?.cost ?? 0) : 0);
+  /** A person's hour: their own cost (with on-costs when it comes from a salary, pay.ts), else their roles' mean. */
   const personRate = (p: EnginePerson): number =>
-    (p.cost ?? (p.roles.length ? p.roles.reduce((sum, rid) => sum + (model.roles[rid]?.cost ?? 0), 0) / p.roles.length : 0)) * onCostFactor(model, p);
+    p.cost !== undefined ? p.cost * onCostFactor(model, p) : p.roles.length ? p.roles.reduce((sum, rid) => sum + (model.roles[rid]?.cost ?? 0), 0) / p.roles.length : 0;
   const stepLosses = new Map<string, number>();
   /** What losing one item at a step is worth: deal value × the chance it would still have signed (cost.ts). */
   const stepLoss = (s: EngineStep) => {

@@ -9,7 +9,7 @@
 import { ChevronRight, Users } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { DEFAULT_HIRING_DELAY_MONTHS, DEFAULT_RAMP, formatRamp, missingForCapacity, personSalary, tierDiscrepancies, type CapacitySetup, type SetupPerson, type SetupRole } from "@transpera-flow/db";
+import { DEFAULT_HIRING_DELAY_MONTHS, DEFAULT_RAMP, formatRamp, hourlyCostFromSalary, missingForCapacity, personSalary, tierDiscrepancies, type CapacitySetup, type SetupPerson, type SetupRole } from "@transpera-flow/db";
 import { ClearFilters, EmptyState, FilterMenu, Toolbar, ToolbarSearch } from "@/components/page-kit";
 import { SettingsSection } from "@/app/w/[slug]/settings/section";
 import { AddRole, RoleMore } from "@/app/w/[slug]/settings/roles-settings";
@@ -53,7 +53,7 @@ const HELP = {
   department: { label: "Department", description: "The service line their role works in. It is read from the role, so change the role to change it.", example: "SEO Director: Organic (SEO)." },
   hours: { label: "Hours a week", description: "The hours they can work in a week. Blank: working time times the workspace week.", example: "38 for a full week." },
   teamTime: { label: "Team time", description: "The share of their hours kept for leading, mentoring and reviews. The rest is available for client work.", example: "Laura 35%: about 13 of her 38 hours go on leading the team." },
-  salary: { label: "Salary a month", description: "What they cost each month. It counts in profit and DLER (direct labour expense ratio), and overrides their role's salary. Blank: their role's salary, pro rata to their working time. Directors, managers and contractors are not counted in DLER.", example: "SEO Manager: 7,500 a month." },
+  salary: { label: "Salary a month", description: "What they cost each month. It counts in profit (with employer on-costs) and DLER (direct labour expense ratio), and overrides their role's salary. A Cost rate, when set, takes its place in profit. Blank: their role's salary, pro rata to their working time. Directors, managers and contractors are not counted in DLER.", example: "SEO Manager: 7,500 a month." },
   roleSalary: { label: "Salary a month", description: "What a full-time person in this role is paid a month. Anyone without their own salary uses it, pro rata to their working time. It counts in profit and DLER. Contractors keep their hourly cost rate.", example: "SEO Manager: 7,000 a month." },
   label: { label: "Label", description: "Contractor or offshore. Contractors aren't in DLER; offshore people are labelled in reports.", example: "Tonie: offshore." },
   paidFor: {
@@ -517,7 +517,7 @@ function PersonPanel({
         subtitle={[roles.map((r) => r.name).join(", ") || "No role", deptName, !p.active && "Inactive"].filter(Boolean).join(" · ")}
       />
       <Group id="basics" title="Basics">
-        {detail && <PersonMore person={detail} data={data} part="basics" compact />}
+        {detail && <PersonMore person={detail} data={data} part="basics" compact salaryRate={showSalary ? hourlyCostFromSalary(personSalary(setup, p), p.capacity_hours_week ?? placeholderHours) : null} />}
         <div className="grid gap-4 sm:grid-cols-2">
           <ReadOnlyValue label="Department" help={HELP.department} data-field="department">
             {deptName ?? <Muted>–</Muted>}

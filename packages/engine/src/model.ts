@@ -85,6 +85,11 @@ export interface EnginePerson {
    */
   contractor?: boolean;
   /**
+   * Their `cost` is worked out from a salary (their own or their roles'), not typed as a cost rate: only such a cost takes employer
+   * on-costs (`employerOnCosts`, pay.ts). Omitted: a typed rate, or none.
+   */
+  costFromSalary?: boolean;
+  /**
    * What they are paid for (pay.ts): "contracted" hours while on the team, leave included, or only the hours "worked", up to their
    * contracted hours, with no paid leave. Omitted: "worked" for a contractor, "contracted" for everyone else.
    */
@@ -647,8 +652,9 @@ export interface EngineModel {
    */
   overtimePayFactor?: number;
   /**
-   * Employer on-costs (super, payroll tax, insurance) as a share of an employee's pay, 0 to 1 (pay.ts): labour and overtime cost of
-   * everyone but contractors × (1 + this). Omitted: 0, as before this field existed.
+   * Employer on-costs (super, payroll tax, insurance) as a share of an employee's pay, 0 to 1 (pay.ts): the labour and overtime cost
+   * of people whose cost comes from a salary (`EnginePerson.costFromSalary`), contractors aside, × (1 + this). A typed cost rate is the
+   * full cost of an hour and never takes them. Omitted: 0, as before this field existed.
    */
   employerOnCosts?: number;
   horizonWeeks: number;

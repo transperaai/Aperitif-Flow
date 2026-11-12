@@ -17,6 +17,9 @@
 --   Not changed: `public.save_fields` takes any column of `people` but the fixed ones; the table's grants to `authenticated` are
 --   table-wide, so the new column needs none. The backup (packages/db/src/workspace-bundle.ts) reads whole people rows already.
 --
+-- MERGE NOTE: other migrations made alongside this one may also re-create public.import_workspace_bundle; the combined body needs every
+-- change: here, only "paid_for" in the people allow-list.
+--
 -- Preflight: `select count(*) from public.schema_migrations where version >= '20270203005000';` expect 0, and 20270203004100 applied.
 --     Locks: one nullable column with no default rewrites nothing (a brief ACCESS EXCLUSIVE on `people` for the ALTER); the two checks
 --     read every workspace row once.
@@ -62,7 +65,8 @@ alter table public.workspaces add constraint workspaces_employer_on_costs check 
   end) not valid;
 alter table public.workspaces validate constraint workspaces_employer_on_costs;
 
--- 3. A backup restores paid_for.
+-- 3. A backup restores paid_for. Copied from 20270203004100_department_kind.sql (the latest to redefine it); the only change is
+-- "paid_for" at the end of the people list.
 create or replace function public.import_workspace_bundle(p_workspace uuid, p_plan jsonb, p_label text DEFAULT NULL::text)
  returns jsonb
  language plpgsql

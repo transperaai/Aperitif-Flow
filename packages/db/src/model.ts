@@ -988,16 +988,17 @@ function resolvePeopleRows(bundle: ProcessBundle, working: EngineStep[], startDa
 /**
  * A person's hourly cost for the engine (D73), in order: their own cost rate; else their monthly salary (their own, or their roles'
  * pro rata to fte; never a role's for a contractor, see `effectiveMonthlySalary`) over their weekly hours × 52/12; else none, so the
- * engine uses their role's `default_cost_rate`. Nothing at all when pay is hidden: a hidden rate or salary is never used, not as 0 and
+ * engine uses their role's `default_cost_rate`. A cost from a salary is marked `costFromSalary`: only it takes employer on-costs. Nothing at all when pay is hidden: a hidden rate or salary is never used, not as 0 and
  * not through the role's salary or default (`model.payHidden` marks what depends on it).
  */
-export function personCost(bundle: ProcessBundle, p: PersonRow, weeklyHours: number): { cost?: number } {
+export function personCost(bundle: ProcessBundle, p: PersonRow, weeklyHours: number): { cost?: number; costFromSalary?: true } {
   if (hidesPay(bundle)) return {};
   if (p.cost_rate != null) return { cost: Number(p.cost_rate) };
   const held = new Set(bundle.personRoles.filter((r) => r.person_id === p.id).map((r) => r.role_id));
   const roleSalaries = bundle.roles.filter((r) => held.has(r.id)).map((r) => r.salary_monthly);
   const hourly = hourlyCostFromSalary(effectiveMonthlySalary(p, roleSalaries), weeklyHours);
-  return hourly !== null ? { cost: hourly } : {};
+  // From a salary: the only cost employer on-costs load (a typed cost rate is the full cost of an hour; the engine's pay.ts).
+  return hourly !== null ? { cost: hourly, costFromSalary: true } : {};
 }
 
 /**

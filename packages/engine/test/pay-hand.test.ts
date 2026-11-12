@@ -35,8 +35,11 @@ describe("pay rules (pay.ts)", () => {
   it("default to what every model ran at before", () => {
     expect(overtimePayFactor({})).toBe(1);
     expect(onCostFactor({}, undefined)).toBe(1);
-    expect(onCostFactor({ employerOnCosts: 0.12 }, {})).toBeCloseTo(1.12, 12);
-    expect(onCostFactor({ employerOnCosts: 0.12 }, { contractor: true })).toBe(1);
+    expect(onCostFactor({ employerOnCosts: 0.12 }, { costFromSalary: true })).toBeCloseTo(1.12, 12);
+    expect(onCostFactor({ employerOnCosts: 0.12 }, { costFromSalary: true, contractor: true })).toBe(1);
+    // A typed cost rate (a person's or a role's) is the full cost of an hour: no on-costs on top.
+    expect(onCostFactor({ employerOnCosts: 0.12 }, {})).toBe(1);
+    expect(onCostFactor({ employerOnCosts: 0.12 }, undefined)).toBe(1);
     expect(paidFor({})).toBe("contracted");
     expect(paidFor({ contractor: true })).toBe("worked");
     expect(paidFor({ contractor: true, paidFor: "contracted" })).toBe("contracted");
@@ -66,7 +69,10 @@ describe("hand-checked: overtime paid at a multiple of the normal rate", () => {
     const at1 = cost(base);
     expect(at1).toBeCloseTo(4 * 50 * MONTH, 6);
     expect(cost({ ...base, overtimePayFactor: 1.5 })).toBeCloseTo(at1! * 1.5, 6);
-    expect(cost({ ...base, overtimePayFactor: 1.5, employerOnCosts: 0.1 })).toBeCloseTo(at1! * 1.5 * 1.1, 6);
+    // Ann's rate is the role's typed one: on-costs leave it alone.
+    expect(cost({ ...base, overtimePayFactor: 1.5, employerOnCosts: 0.1 })).toBeCloseTo(at1! * 1.5, 6);
+    const fromSalary = { ...base, overtimePayFactor: 1.5, employerOnCosts: 0.1, people: { ann: { ...base.people!.ann!, cost: 50, costFromSalary: true } } };
+    expect(cost(fromSalary)).toBeCloseTo(at1! * 1.5 * 1.1, 6);
   });
 
   it("month by month too", () => {
@@ -77,26 +83,27 @@ describe("hand-checked: overtime paid at a multiple of the normal rate", () => {
 });
 
 describe("hand-checked: employer on-costs", () => {
-  // Ann is paid 40 h × 13 weeks × 50 = 26,000; with 12% on-costs 29,120.
-  const base = tiny(10);
+  // Ann is paid 40 h × 13 weeks × 50 = 26,000; with 12% on-costs on a salary-derived 50 an hour, 29,120.
+  const base = tiny(10, {}, { cost: 50, costFromSalary: true });
 
-  it("load an employee's pay and overtime", () => {
+  it("load an employee's pay and overtime when their cost comes from a salary", () => {
     expect(simulate(base, 2, 1).kpi.labourCost!.mean).toBeCloseTo(26_000, 6);
     expect(simulate({ ...base, employerOnCosts: 0.12 }, 2, 1).kpi.labourCost!.mean).toBeCloseTo(29_120, 6);
-    const ot = tiny(44, { overtimeCap: 0.1, employerOnCosts: 0.12 });
+    const ot = tiny(44, { overtimeCap: 0.1, employerOnCosts: 0.12 }, { cost: 50, costFromSalary: true });
     expect(simulate(ot, 2, 1).kpi.overtimeCost!.mean).toBeCloseTo(2600 * 1.12, 6);
     const mo = simulate({ ...base, employerOnCosts: 0.12 }, 2, 1, { monthly: true }).monthly!;
     expect(mo.money!.labour.reduce((a, b) => a + b, 0)).toBeCloseTo(29_120, 6);
   });
 
   it("never a contractor's (here paid for contracted hours, so only the on-costs differ)", () => {
-    const m = tiny(10, { employerOnCosts: 0.12 }, { contractor: true, paidFor: "contracted" });
+    const m = tiny(10, { employerOnCosts: 0.12 }, { cost: 50, costFromSalary: true, contractor: true, paidFor: "contracted" });
     expect(simulate(m, 2, 1).kpi.labourCost!.mean).toBeCloseTo(26_000, 6);
   });
 
-  it("apply to a person's own rate", () => {
-    const m = tiny(10, { employerOnCosts: 0.5 }, { cost: 60 });
-    expect(simulate(m, 2, 1).kpi.labourCost!.mean).toBeCloseTo(40 * 13 * 60 * 1.5, 6);
+  it("never a typed cost rate: a person's own or their role's (no double count)", () => {
+    expect(simulate(tiny(10, { employerOnCosts: 0.5 }, { cost: 60 }), 2, 1).kpi.labourCost!.mean).toBeCloseTo(40 * 13 * 60, 6);
+    expect(simulate(tiny(10, { employerOnCosts: 0.5 }), 2, 1).kpi.labourCost!.mean).toBeCloseTo(26_000, 6);
+    expect(simulate(tiny(10, { employerOnCosts: 0.5 }, { cost: 60, costFromSalary: true }), 2, 1).kpi.labourCost!.mean).toBeCloseTo(40 * 13 * 60 * 1.5, 6);
   });
 });
 
