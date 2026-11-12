@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { withoutStartTenure } from "./start-tenure";
 import { LARKSPUR_START, larkspurModel, simulate, type EngineModel } from "@transpera-flow/engine";
 import {
   larkspurBundle,
@@ -55,7 +56,7 @@ function withKeys(model: EngineModel): EngineModel {
 
 describe("Larkspur Creative's seed rows", () => {
   it("resolve on its start date into exactly the engine's golden Larkspur model", () => {
-    expect(withKeys(toEngineModel(larkspurBundle(), { startDate: LARKSPUR_START }))).toEqual(larkspurModel());
+    expect(withKeys(withoutStartTenure(toEngineModel(larkspurBundle(), { startDate: LARKSPUR_START }), larkspurBundle(), LARKSPUR_START))).toEqual(larkspurModel());
   });
 
   it("don't depend on row order", () => {

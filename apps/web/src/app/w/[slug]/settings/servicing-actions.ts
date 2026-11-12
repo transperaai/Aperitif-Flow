@@ -95,5 +95,8 @@ export async function saveHealthSetting(
   const ok = (v: unknown) => v === null || (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= (rule?.max ?? 0));
   if (!isId(workspaceId) || !rule || !ok(value) || !(base === null || typeof base === "number")) return invalid;
   if (!(await signedIn())) return signedOut;
-  return saveHealthRule(workspaceId, key, base, value);
+  const out = await saveHealthRule(workspaceId, key, base, value);
+  // The churn drivers' projection on the same page simulates with these rules: refresh, so it runs again.
+  if (out.status === "saved") refresh();
+  return out;
 }

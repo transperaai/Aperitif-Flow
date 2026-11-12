@@ -4,6 +4,8 @@ import type { ProcessBundle } from "@transpera-flow/db";
 import {
   absenceCandidates,
   absenceRating,
+  busyLine,
+  CALENDAR_WEEKDAYS,
   resolvePeople,
   type AbsenceTest,
   type EngineModel,
@@ -13,7 +15,11 @@ import {
   type SimulationResult,
 } from "@transpera-flow/engine";
 
-/** A person whose utilisation at or above this in a bad month (the 90th percentile) counts as too busy; as on the rating model's busy rule. */
+/**
+ * The default busy line. Someone whose first role has a utilisation threshold of its own (`EngineRole.line`) is held to it, as the
+ * engine's ratings and the Capacity page hold them; everyone else to the workspace's line, `busyLine(model)`
+ * (settings.utilisation_threshold), which is this unless the workspace set one.
+ */
 export const BUSY_LIMIT = 0.85;
 
 export interface PersonBusy {
@@ -23,6 +29,8 @@ export interface PersonBusy {
   role: string;
   /** Full-time equivalent from the person's record; null when the model made the person up from a role's head-count. */
   fte: number | null;
+  /** Their first role's utilisation threshold (the workspace's `busyLine(model)` when it has none): at or above it they count as too busy. */
+  line: number;
   /** Average utilisation over the runs, 0 to 1 and a bit above with overtime. */
   average: number;
   /** A bad month: the 90th percentile over the runs. */
@@ -35,13 +43,13 @@ export interface PersonBusy {
   leaveDays: number;
 }
 
-/** Working days in a week: the model's working day is `hoursPerWeek / 5` (WORKING_DAYS_PER_WEEK in packages/db/src/model.ts, not exported). */
-const WORKING_DAYS_PER_WEEK = 5;
+// Leave is placed on the calendar as weekdays (Monday to Friday, `hoursPerWeek / CALENDAR_WEEKDAYS` each, as packages/db/src/model.ts
+// maps dates), so its days are counted the same way.
 
 /** Working days of `person`'s leave inside the first `horizonHours` of the run; leave before the start or after the end doesn't count. */
 export function leaveDays(person: EnginePerson, horizonHours: number, hoursPerWeek: number): number {
   const hours = (person.leave ?? []).reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, horizonHours) - Math.max(a, 0)), 0);
-  return hours / (hoursPerWeek / WORKING_DAYS_PER_WEEK);
+  return hours / (hoursPerWeek / CALENDAR_WEEKDAYS);
 }
 
 /** First role's place in role order, then name: the one order the page uses for people (D20: never ranked). */
@@ -54,6 +62,7 @@ function byRoleThenName(roleOrder: readonly string[]) {
 export function personRows(model: EngineModel, result: SimulationResult, fteById: ReadonlyMap<string, number>): PersonBusy[] {
   const roleOrder = Object.keys(model.roles);
   const horizonHours = model.horizonWeeks * model.hoursPerWeek;
+  const workspaceLine = busyLine(model);
   return Object.entries(result.resolvedPeople)
     .flatMap(([id, p]) => {
       const band = result.kpi.people[id];
@@ -67,6 +76,7 @@ export function personRows(model: EngineModel, result: SimulationResult, fteById
             name: p.name,
             role: p.roles.map((rid) => model.roles[rid]?.name).filter(Boolean).join(", "),
             fte: fteById.get(id) ?? null,
+            line: model.roles[p.roles[0] ?? ""]?.line ?? workspaceLine,
             average: band.util.mean,
             p90: band.util.p90,
             clientWork: band.ongoing.mean + band.servicing.mean,
@@ -85,7 +95,7 @@ export interface TeamSummary {
   people: number;
   /** Total full-time equivalents of the people who have one on record; null when none do. */
   fte: number | null;
-  /** People whose bad month (P90) is above the busy limit. */
+  /** People whose bad month (P90) is above their own busy line. */
   busyInBadMonth: number;
 }
 
@@ -94,7 +104,7 @@ export function teamSummary(rows: readonly PersonBusy[]): TeamSummary {
   return {
     people: rows.length,
     fte: withFte.length ? withFte.reduce((a, r) => a + r.fte!, 0) : null,
-    busyInBadMonth: rows.filter((r) => r.p90 > BUSY_LIMIT).length,
+    busyInBadMonth: rows.filter((r) => r.p90 > r.line).length,
   };
 }
 

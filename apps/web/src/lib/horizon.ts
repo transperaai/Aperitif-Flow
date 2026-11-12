@@ -19,11 +19,14 @@ export function monthsForWeeks(weeks: number): HorizonMonths | null {
 /** "24 months", "1 month". */
 export const horizonLabel = (months: number): string => `${months} month${months === 1 ? "" : "s"}`;
 
-/** The Overview plays only 1, 3 or 6 months; the Sandbox goes further. */
-export const OVERVIEW_HORIZONS = [1, 3, 6] as const;
+/**
+ * The Overview plays 1, 3, 6 or 12 months (12 so its team load and hiring advice can see a role crossing its line in months 7 to 12, as the
+ * Capacity page's year does); the Sandbox goes further.
+ */
+export const OVERVIEW_HORIZONS = [1, 3, 6, 12] as const;
 export const isOverviewHorizon = (n: number): boolean => (OVERVIEW_HORIZONS as readonly number[]).includes(n);
 
-/** Of 1, 3 and 6 months, the one nearest a run of `weeks` (13 weeks, the usual length, is 3 months; 52 weeks is 6). */
+/** Of 1, 3, 6 and 12 months, the one nearest a run of `weeks` (13 weeks, the usual length, is 3 months; 52 weeks is 12). */
 export function nearestOverviewHorizon(weeks: number): number {
   return OVERVIEW_HORIZONS.reduce((best, m) => (Math.abs(horizonWeeks(m) - weeks) < Math.abs(horizonWeeks(best) - weeks) ? m : best));
 }

@@ -9,13 +9,13 @@
 import { ChevronRight, Users } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { missingForCapacity, personSalary, tierDiscrepancies, type CapacitySetup, type SetupPerson, type SetupRole } from "@transpera-flow/db";
+import { DEFAULT_HIRING_DELAY_MONTHS, DEFAULT_RAMP, formatRamp, hourlyCostFromSalary, missingForCapacity, personSalary, tierDiscrepancies, type CapacitySetup, type SetupPerson, type SetupRole } from "@transpera-flow/db";
 import { ClearFilters, EmptyState, FilterMenu, Toolbar, ToolbarSearch } from "@/components/page-kit";
 import { SettingsSection } from "@/app/w/[slug]/settings/section";
 import { AddRole, RoleMore } from "@/app/w/[slug]/settings/roles-settings";
 import { AddPerson, PersonMore } from "@/app/w/[slug]/settings/people-settings";
-import { saveRoleField } from "@/app/w/[slug]/settings/actions";
-import { savePersonTiers, savePortfolioCount, saveSetupField } from "@/app/w/[slug]/settings/setup-actions";
+import { saveHiringDelay, saveRoleField } from "@/app/w/[slug]/settings/actions";
+import { savePersonRamp, savePersonTiers, savePortfolioCount, saveRampDefault, saveSetupField } from "@/app/w/[slug]/settings/setup-actions";
 import { NumberField, SelectField, TextField, type FieldHelp } from "@/components/fields";
 import { Help } from "@/components/help";
 import { PhoneReadOnly } from "@/components/shell/phone-read-only";
@@ -53,9 +53,14 @@ const HELP = {
   department: { label: "Department", description: "The service line their role works in. It is read from the role, so change the role to change it.", example: "SEO Director: Organic (SEO)." },
   hours: { label: "Hours a week", description: "The hours they can work in a week. Blank: working time times the workspace week.", example: "38 for a full week." },
   teamTime: { label: "Team time", description: "The share of their hours kept for leading, mentoring and reviews. The rest is available for client work.", example: "Laura 35%: about 13 of her 38 hours go on leading the team." },
-  salary: { label: "Salary a month", description: "What they cost each month. It counts in profit and DLER (direct labour expense ratio), and overrides their role's salary. Blank: their role's salary, pro rata to their working time. Directors, managers and contractors are not counted in DLER.", example: "SEO Manager: 7,500 a month." },
+  salary: { label: "Salary a month", description: "What they cost each month. It counts in profit (with employer on-costs) and DLER (direct labour expense ratio), and overrides their role's salary. A Cost rate, when set, takes its place in profit. Blank: their role's salary, pro rata to their working time. Directors, managers and contractors are not counted in DLER.", example: "SEO Manager: 7,500 a month." },
   roleSalary: { label: "Salary a month", description: "What a full-time person in this role is paid a month. Anyone without their own salary uses it, pro rata to their working time. It counts in profit and DLER. Contractors keep their hourly cost rate.", example: "SEO Manager: 7,000 a month." },
   label: { label: "Label", description: "Contractor or offshore. Contractors aren't in DLER; offshore people are labelled in reports.", example: "Tonie: offshore." },
+  paidFor: {
+    label: "Paid for",
+    description: "What profit counts as their pay. Contracted hours: every hour of their week, leave included, as for staff. Hours worked: only the hours they actually work, up to their week, with no paid leave. Blank: hours worked for a contractor, contracted hours for everyone else.",
+    example: "A freelancer on 20 hours a week who bills only the hours they put in: hours worked.",
+  },
   servesTiers: { label: "Serves tiers", description: "The tiers this person can look after. New clients are placed with someone who serves the tier. Nothing ticked: every tier.", example: "Karl serves T1, T2 and T3; Khaselyn only T3." },
   named: { label: "Named clients", description: "Named clients this person looks after, from the Tiers & clients page. Read only.", example: "Laura: Harbourline Group, Meridian Finance." },
   roleName: { label: "Role", description: "A kind of work. A step that needs a role can be done by anyone who has it.", example: "SEO Director." },
@@ -63,6 +68,11 @@ const HELP = {
   line: { label: "Utilisation threshold %", description: "The utilisation threshold is how busy this role can be before it counts as full. Past it, more clients won't fit.", example: "85%: a person booked at 85% of their hours is at their utilisation threshold." },
   rule: { label: "Rule of thumb", description: "A rule of thumb: the most clients one person in this role holds. Shown as a line to compare the real counts against.", example: "SEO Manager: 10 clients." },
   unit: { label: "Unit of work", description: "What a shared team counts its work in. Rates for each unit come later.", example: "Content team: words. Link outreach: links." },
+  ongoing: {
+    label: "Hours per client a week",
+    description: "Hours one person in this role spends on each client a week, for clients whose service has no servicing process or ongoing load of its own. 0: none.",
+    example: "Account manager: 1.5 hours per client a week for check-ins and reporting.",
+  },
   headcount: { label: "People", description: "How many people have this role.", example: "SEO Manager: 3." },
 } satisfies Record<string, FieldHelp & { label: string }>;
 
@@ -71,8 +81,56 @@ export function PeopleAndRoles({ setup, data }: { setup: CapacitySetup; data: Wo
     <div className="flex min-w-0 flex-col gap-6" data-setup="people">
       <PeopleList setup={setup} data={data} />
       <RolesList setup={setup} data={data} />
+      <NewStarters setup={setup} data={data} />
       <SharedTeams setup={setup} />
     </div>
+  );
+}
+
+const DEFAULT_RAMP_TEXT = formatRamp(DEFAULT_RAMP);
+
+/**
+ * New starters: the workspace's months to hire (the base the market stretches for "start hiring by" on the Overview and in the Sandbox) and the
+ * ramp every new person takes unless they have their own (Sandbox hires and planned starters included).
+ */
+function NewStarters({ setup, data }: { setup: CapacitySetup; data: WorkspaceSettingsData }) {
+  const ownersOnly = data.canManage ? undefined : "Only Agency admins can change this.";
+  return (
+    <SettingsSection id="new-starters" title="New starters" description="How long hiring takes, and how quickly a new person gets up to speed.">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <NumberField
+          label="Months to hire"
+          value={setup.hiringDelayMonths ?? null}
+          save={(base, next) => saveHiringDelay(setup.workspaceId, base, next)}
+          optional
+          unit="months"
+          min={0}
+          max={24}
+          step={1}
+          placeholder={`${DEFAULT_HIRING_DELAY_MONTHS} (default)`}
+          disabled={!data.canManage}
+          hint={ownersOnly ?? `Blank: ${DEFAULT_HIRING_DELAY_MONTHS} months for “Start hiring by”; saved scenarios' hires start on their own date.`}
+          help={{
+            description:
+              `Months from deciding to hire to the new person starting. “Start hiring by” on the Overview and in the Sandbox allows this long (${DEFAULT_HIRING_DELAY_MONTHS} when blank), stretched when the market makes hiring slower. Once set, a saved Sandbox scenario's hires also start this much later; blank leaves them on their own date. Free play's hires start in the month you pick.`,
+            example: "3: a team that will be full in June should start hiring in March.",
+          }}
+        />
+        <TextField
+          label="New starter ramp"
+          value={formatRamp(setup.rampDefaultStored ?? null)}
+          save={(base, next) => saveRampDefault(setup.workspaceId, base, next)}
+          optional
+          disabled={!data.canManage}
+          hint={ownersOnly ?? `Blank: ${DEFAULT_RAMP_TEXT} (the default).`}
+          help={{
+            description:
+              "How much of a full week a new person manages in each of their first months, in percent, then full speed. Used for planned starters and Sandbox hires. A person's own ramp, in their panel, replaces it.",
+            example: "50, 75: half speed in the first month, three quarters in the second, then full.",
+          }}
+        />
+      </div>
+    </SettingsSection>
   );
 }
 
@@ -459,7 +517,7 @@ function PersonPanel({
         subtitle={[roles.map((r) => r.name).join(", ") || "No role", deptName, !p.active && "Inactive"].filter(Boolean).join(" · ")}
       />
       <Group id="basics" title="Basics">
-        {detail && <PersonMore person={detail} data={data} part="basics" compact />}
+        {detail && <PersonMore person={detail} data={data} part="basics" compact salaryRate={showSalary ? hourlyCostFromSalary(personSalary(setup, p), p.capacity_hours_week ?? placeholderHours) : null} />}
         <div className="grid gap-4 sm:grid-cols-2">
           <ReadOnlyValue label="Department" help={HELP.department} data-field="department">
             {deptName ?? <Muted>–</Muted>}
@@ -490,6 +548,20 @@ function PersonPanel({
               { value: "offshore", label: "Offshore" },
             ]}
           />
+          {showSalary && (
+            <SelectField
+              label="Paid for"
+              value={p.paid_for ?? null}
+              save={field("people", key, "paid_for")}
+              disabled={!canEdit}
+              noneLabel={p.label === "contractor" ? "Default: hours worked" : "Default: contracted hours"}
+              help={HELP.paidFor}
+              options={[
+                { value: "contracted", label: "Contracted hours" },
+                { value: "worked", label: "Hours worked" },
+              ]}
+            />
+          )}
         </div>
       </Group>
 
@@ -548,6 +620,18 @@ function PersonPanel({
       )}
 
       <Group id="time" title="Time">
+        <TextField
+          label="Ramp"
+          value={formatRamp(p.ramp)}
+          save={(base, next) => savePersonRamp(p.id, base, next)}
+          optional
+          disabled={!canEdit}
+          hint={`Blank: the new starter ramp (${formatRamp(setup.rampDefault)}).`}
+          help={{
+            description: "How much of a full week this person manages in each month from their start date, in percent, then full speed. Blank: the workspace's new starter ramp.",
+            example: "An experienced contractor at full speed from day one: 100.",
+          }}
+        />
         {detail && <PersonMore person={detail} data={data} part="time" compact />}
       </Group>
 
@@ -722,6 +806,10 @@ function RolePanel({ setup, data, role: r, missingUnit }: { setup: CapacitySetup
           <div className="flex flex-col">
             <NumberField label="Utilisation threshold %" value={r.line} save={field("roles", key, "line")} scale={100} min={1} max={150} step={5} disabled={!canEdit} help={HELP.line} />
             <Marks provenance={r.provenance} column="line" value={r.line} />
+          </div>
+          <div className="flex flex-col">
+            <NumberField label="Hours per client a week" value={r.ongoing_hours_per_client_week} save={field("roles", key, "ongoing_hours_per_client_week")} min={0} max={168} step={0.5} unit="h" disabled={!canEdit} help={HELP.ongoing} />
+            <Marks provenance={r.provenance} column="ongoing_hours_per_client_week" value={r.ongoing_hours_per_client_week} />
           </div>
           {r.kind === "client_facing" && (
             <div className="flex flex-col">

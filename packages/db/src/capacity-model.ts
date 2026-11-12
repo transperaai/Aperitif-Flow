@@ -13,13 +13,14 @@
 //   people.reserved_share                   EnginePerson.reservedShare (left out when 0)
 //   people.ramp, else settings.ramp_default EnginePerson.ramp (only a person whose start date falls after the run's start)
 //   person_tiers                            EnginePerson.tiers (tier keys; no rows: every tier)
+//   people.label 'contractor', paid_for     EnginePerson.contractor (no employer on-costs), paidFor (pay.ts in the engine)
 //   roles.unit                              EngineRole.unit.label
 //                                           EngineModel.placeNewClients = "least-busy"
 //
 // Not mapped, here (P4's, in parallel): step fields (split, tier multiplier, `toClientManager`, sources) and driver recurrences.
-// Not an engine input at all: tiers.both_count, services.price_rise_churn (P7), roles.line / rule_of_thumb, salary, labels.
+// Not an engine input at all: tiers.both_count, services.price_rise_churn (P7), roles.line / rule_of_thumb, salary, the offshore label.
 
-import type { EngineClient, EngineClientGroup, EnginePerson, EngineRole, EngineService, ClientOverrides, TierDeliverables } from "@transpera-flow/engine";
+import { DEFAULT_HEALTH_RULES, type EngineClient, type EngineClientGroup, type EnginePerson, type EngineRole, type EngineService, type ClientOverrides, type TierDeliverables } from "@transpera-flow/engine";
 import type { CapacityClientRow, CapacityDeliverableColumns, CapacityInputs, CapacityServiceRow, ClientGroupRow, ProcessBundle } from "./types";
 
 /** New starters reach about 80% in three months. P1's default (`DEFAULT_RAMP` in capacity-setup.ts), repeated here to keep the mapping free of the loaders. */
@@ -38,6 +39,17 @@ const DELIVERABLE_KEYS: readonly (readonly [keyof CapacityDeliverableColumns, ke
 
 /** A finite number, or null (a column that was never entered, or junk). */
 const finite = (v: number | null | undefined): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+/**
+ * A named client's fee a month: its own when one is entered (more than 0), else its tier's: the sum of the fees of the tiers it takes
+ * (a client on both services pays both). The Settings screen shows a blank fee with the tier's as its default; the engine, Overview,
+ * Capacity and the Sandbox all use this one rule.
+ */
+export function namedClientFee(mrr: number, tierFees: readonly number[]): number {
+  const own = Number(mrr);
+  if (Number.isFinite(own) && own > 0) return own;
+  return tierFees.reduce((a, f) => a + (Number.isFinite(f) ? f : 0), 0);
+}
 
 /** What the mapping reads of a tier workspace, worked out once per model. */
 export interface TierContext {
@@ -148,8 +160,8 @@ export function enginePersonCapacity(
   ctx: TierContext,
   personId: string,
   options: { rampStarts: boolean; rampDefault: readonly number[] | null | undefined; serviceIds: ReadonlySet<string> },
-): Partial<Pick<EnginePerson, "reservedShare" | "ramp" | "tiers" | "portfolio">> {
-  const out: Partial<Pick<EnginePerson, "reservedShare" | "ramp" | "tiers" | "portfolio">> = {};
+): Partial<Pick<EnginePerson, "reservedShare" | "ramp" | "tiers" | "portfolio" | "contractor" | "paidFor">> {
+  const out: Partial<Pick<EnginePerson, "reservedShare" | "ramp" | "tiers" | "portfolio" | "contractor" | "paidFor">> = {};
   const row = ctx.cap.people.find((p) => p.id === personId);
   const reserved = finite(row?.reserved_share);
   if (reserved !== null && reserved > 0) out.reservedShare = reserved;
@@ -169,20 +181,26 @@ export function enginePersonCapacity(
     if (options.serviceIds.has(r.service_id) && ctx.tierServices.has(r.service_id) && Number.isFinite(r.client_count) && r.client_count > 0) portfolio[r.service_id] = r.client_count;
   }
   if (Object.keys(portfolio).length) out.portfolio = portfolio;
+  // How their pay is costed (the engine's pay.ts): a contractor carries no on-costs and, unless set otherwise, is paid for hours worked.
+  if (row?.label === "contractor") out.contractor = true;
+  if (row?.paid_for === "contracted" || row?.paid_for === "worked") out.paidFor = row.paid_for;
   return out;
 }
 
 /**
  * Counted clients per service in a tier workspace: a tier service's count is its group's `client_count` (counted clients nobody's
- * portfolio holds yet) plus everyone's portfolio for it; the rest of the group's numbers are the group's row, else the service's own
- * (fee, base churn, tenure) and the default health of a client with none entered. A service that is not a tier service keeps its
- * group row as it is. Undefined when no client is counted.
+ * portfolio holds yet) plus everyone's portfolio for it. Its fee, base churn and stay are always the tier's own (services.price,
+ * churn_monthly_base, tenure_months): the one place an owner edits them, read alike by Overview, Capacity and the Sandbox. The
+ * group's own fee, churn and stay columns are not read for a tier. Starting health is the group's, else the default of a client with
+ * none entered. A service that is not a tier service keeps its group row as it is. Undefined when no client is counted.
  */
 export function engineTierClientGroups(
   ctx: TierContext,
   rows: readonly ClientGroupRow[],
   services: Record<string, EngineService>,
   namedOn: (serviceId: string) => number = () => 0,
+  /** The health of a counted client with no group row: the workspace's starting health (`settings.health_initial`), else 80. */
+  initialHealth: number = DEFAULT_HEALTH_RULES.initial,
 ): Record<string, EngineClientGroup> | undefined {
   const groups: Record<string, EngineClientGroup> = {};
   for (const sid of Object.keys(services).sort()) {
@@ -197,10 +215,14 @@ export function engineTierClientGroups(
     const sv = services[sid]!;
     groups[sid] = {
       count: total !== null ? held + Math.max(0, total - namedOn(sid) - held) : (row ? Number(row.client_count) : 0) + (isTier ? held : 0),
-      fee: row ? Number(row.fee) : sv.price,
-      churnMonthly: row ? Number(row.churn_monthly) : sv.churnMonthly,
-      stayMonths: row ? Number(row.stay_months) : sv.tenureMonths,
-      health: row ? Number(row.starting_health) : 80,
+      fee: row && !isTier ? Number(row.fee) : sv.price,
+      churnMonthly: row && !isTier ? Number(row.churn_monthly) : sv.churnMonthly,
+      stayMonths: row && !isTier ? Number(row.stay_months) : sv.tenureMonths,
+      // A tier with no expected tenure entered: its counted clients' stay is worked out from churn too, and follows a churn change.
+      ...(!(row && !isTier) && sv.tenureFromChurn ? { stayFromChurn: true } : {}),
+      health: row ? Number(row.starting_health) : initialHealth,
+      // No row: the workspace's starting health, and a run that changes that rule (Sandbox "Starting health") moves them too.
+      ...(row ? {} : { healthFromRules: true }),
     };
   }
   const counted = Object.values(groups).reduce((a, g) => a + Math.round(g.count), 0);

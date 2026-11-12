@@ -1,7 +1,6 @@
 // The one place numbers become text, so every screen rounds and labels the same way.
-import type { InitialState, Stat } from "@transpera-flow/engine";
+import { hoursPerWorkingDay, type InitialState, type Stat } from "@transpera-flow/engine";
 
-const WORKING_DAYS_PER_WEEK = 5;
 const LOCALE = "en-GB";
 
 export function formatNumber(value: number, digits = 1): string {
@@ -12,9 +11,9 @@ export function formatPercent(share: number): string {
   return `${Math.round(share * 100)}%`;
 }
 
-/** Working hours to working days, given the workspace's hours per week. */
-export function formatDays(hours: number, hoursPerWeek: number): string {
-  const days = hours / (hoursPerWeek / WORKING_DAYS_PER_WEEK);
+/** Working hours to working days, given the workspace's hours per week and working days (5 when not given). */
+export function formatDays(hours: number, hoursPerWeek: number, workingDaysPerWeek?: number): string {
+  const days = hours / hoursPerWorkingDay({ hoursPerWeek, workingDaysPerWeek });
   return `${formatNumber(days, days < 10 ? 1 : 0)} d`;
 }
 

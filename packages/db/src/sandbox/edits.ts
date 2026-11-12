@@ -11,10 +11,13 @@ import { hasClientRoster, sandboxLever, type SandboxChange } from "../sandbox-le
 import type { ProcessBundle } from "../types";
 import {
   CUSTOM_DRIVER_PREFIX,
+  busiestRole,
   DEFAULT_HEALTH_RULES,
+  DEFAULT_MAX_STAY_MONTHS,
   EFFECT_MONTHS,
   MAX_GROUP_CLIENTS,
   healthRules,
+  tenureFromChurn,
   type EngineChurnDriver,
   type EngineClient,
   type EngineClientGroup,
@@ -62,7 +65,14 @@ export const totalLeads = (bundle: Pick<ProcessBundle, "leadSources">): number |
 /** The group a type would have if it had none yet: its price, base churn, stay and the starting health. */
 function groupFrom(model: EngineModel, sid: string): EngineClientGroup {
   const sv = model.services![sid]!;
-  return { count: 0, fee: sv.price, churnMonthly: sv.churnMonthly, stayMonths: sv.tenureMonths, health: healthRules(model).initial ?? DEFAULT_HEALTH_RULES.initial };
+  return {
+    count: 0,
+    fee: sv.price,
+    churnMonthly: sv.churnMonthly,
+    stayMonths: sv.tenureMonths,
+    ...(sv.tenureFromChurn ? { stayFromChurn: true } : {}),
+    health: healthRules(model).initial ?? DEFAULT_HEALTH_RULES.initial,
+  };
 }
 
 /** How many named clients take a type, active in the model. */
@@ -128,11 +138,23 @@ function baseChurn(model: EngineModel, c: SandboxChange, problems: ChangeProblem
   const clamp = (v: number) => Math.min(1, Math.max(0, v));
   const ids = c.target !== null ? [c.target] : Object.keys(services);
   const nextServices = { ...services };
-  for (const sid of ids) nextServices[sid] = { ...nextServices[sid]!, churnMonthly: clamp(combine(services[sid]!.churnMonthly, c.op, c.value)) };
+  // A stay worked out from churn (no expected tenure entered) is worked out again from the new churn, so a won deal and a lost
+  // client are valued at the stay the simulation gives them (finding 30). An entered stay is the owner's and stays.
+  const cap = model.maxStayMonths ?? DEFAULT_MAX_STAY_MONTHS;
+  for (const sid of ids) {
+    const sv = services[sid]!;
+    const churnMonthly = clamp(combine(sv.churnMonthly, c.op, c.value));
+    nextServices[sid] = { ...sv, churnMonthly, ...(sv.tenureFromChurn ? { tenureMonths: tenureFromChurn(churnMonthly, cap) } : {}) };
+  }
   let groups = model.clientGroups;
   if (groups) {
     groups = { ...groups };
-    for (const sid of ids) if (groups[sid]) groups[sid] = { ...groups[sid]!, churnMonthly: clamp(combine(groups[sid]!.churnMonthly, c.op, c.value)) };
+    for (const sid of ids) {
+      const g = groups[sid];
+      if (!g) continue;
+      const churnMonthly = clamp(combine(g.churnMonthly, c.op, c.value));
+      groups[sid] = { ...g, churnMonthly, ...(g.stayFromChurn ? { stayMonths: tenureFromChurn(churnMonthly, cap) } : {}) };
+    }
   }
   return { ...model, services: nextServices, ...(groups ? { clientGroups: groups } : {}) };
 }
@@ -178,6 +200,8 @@ export function applyModelChanges(
   const problems: ChangeProblem[] = [];
   // A price rise (any time) switches the price driver on, so the rise carries its churn; first, so the driver is the same in a pair's two runs.
   let m = forcePriceDriver || changes.some((c) => c.lever === "B5") ? withPriceDriver(model) : model;
+  /** Whole-run pay changes (C1, multiply) by role: applied to people's own costs after the loop. */
+  const payFactors = new Map<string, number>();
   for (const c of changes) {
     const lever = sandboxLever(c.lever);
     if (!lever) continue;
@@ -203,6 +227,14 @@ export function applyModelChanges(
         m = { ...m, services: { ...m.services, [c.target!]: { ...rest, price: c.value, ...(low < c.value || high > c.value ? { priceRange: { low, high } } : {}) } } };
         break;
       }
+      case "C1": {
+        // A pay change (a multiple) reaches the role's people priced from their own salary or rate too, as the same change from a month
+        // does (the engine's role-cost channel). The patch has already scaled the role's own rate. A set or add is the role's rate alone.
+        if (c.op !== "multiply") break;
+        const rid = c.target === "@busiest" ? busiestRole(m) : c.target;
+        if (rid && m.roles[rid]) payFactors.set(rid, (payFactors.get(rid) ?? 1) * Math.max(0, c.value));
+        break;
+      }
       case "B4": {
         const id = c.target ?? "";
         if (NO_EVENTS.has(id)) {
@@ -219,6 +251,19 @@ export function applyModelChanges(
         break;
       }
     }
+  }
+  if (payFactors.size && m.people) {
+    // A person's own cost × the mean of their roles' factors (1 for a role without one), as `rateOf` scales it from a month.
+    const people = { ...m.people };
+    let touched = false;
+    for (const [id, p] of Object.entries(people)) {
+      if (p.cost === undefined) continue;
+      const own = p.roles.filter((rid) => rid in m.roles);
+      if (!own.some((rid) => payFactors.has(rid))) continue;
+      people[id] = { ...p, cost: p.cost * (own.reduce((sum, rid) => sum + (payFactors.get(rid) ?? 1), 0) / own.length) };
+      touched = true;
+    }
+    if (touched) m = { ...m, people };
   }
   return { model: m, problems };
 }

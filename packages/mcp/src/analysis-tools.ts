@@ -21,7 +21,7 @@ import {
   type ProcessBundle,
   type ScenarioRow,
 } from "@transpera-flow/db";
-import { absenceTest, detectIssues, ENGINE_VERSION, ISSUE_TYPES, ratingOfStored, resolveMoney, shadowPricesFor, simulate, toRatingConfig, withoutDisabledRules, type EngineModel } from "@transpera-flow/engine";
+import { absenceTest, busyLine, detectIssues, ENGINE_VERSION, ISSUE_TYPES, ratingOfStored, resolveMoney, shadowPricesFor, simulate, toRatingConfig, withoutDisabledRules, type EngineModel } from "@transpera-flow/engine";
 import { bottleneckReport, checkScenarioRobustness, compareScenarios, matchNamed, type NamedScenario } from "./analysis";
 import { resolveProcess, resolveWorkspace, revisionIdFor, type ProcessWithDraft, type ToolContext, type WorkspaceRef } from "./context";
 import { runTool, ToolError } from "./result";
@@ -391,12 +391,12 @@ export function registerAnalysisTools(server: McpServer, ctx: ToolContext): void
           assumptions.push(`Detections come from a run of the live model at ${DEFAULT_REPS} replications, seed ${DEFAULT_SEED}.`);
           const run = simulate(loaded.model, DEFAULT_REPS, DEFAULT_SEED);
           const keys = new Set(issues.map((i) => i.detected_key).filter(Boolean));
-          // The documented defaults, as every page of the app rates with them since B17 (D40): the rules give facts.
-          const rules = { settings: {} };
+          // The workspace's analysis assumptions (Settings > Simulation), as every page of the app and get_facts rate with them.
+          const rules = { settings: loaded.bundle.analysisRules ?? {} };
           const currency = loaded.bundle.workspace.settings.currency;
-          // The money settings (the cap on what a loss is worth, absences a year) are the defaults too (issue #108, D40).
+          // The money settings (the cap on what a loss is worth, absences a year) come from the same assumptions.
           const money = { ...resolveMoney(rules.settings), currency };
-          const config = toRatingConfig(rules.settings, loaded.model.hoursPerWeek);
+          const config = toRatingConfig(rules.settings, loaded.model.hoursPerWeek, busyLine(loaded.model), loaded.model.workingDaysPerWeek);
           // The absence test (rule 8) is its own pass, a few more replications per person who is the only one for a step.
           // Skip it when the filters would drop its facts anyway, and cap its time; say so when it didn't finish.
           const wantsAbsence = config.rules.spof.enabled && !client && (!args.type || args.type === "spof") && (!args.status || args.status === "open");

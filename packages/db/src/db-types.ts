@@ -186,6 +186,10 @@ export interface DemandSettings {
 export interface Departments {
   created_at: Generated<string>;
   created_by: Generated<string | null>;
+  /**
+   * Which deliverables its tiers have: organic (words, links, tech hours) or performance (channels, builds, creative sets). Null: chosen from the name.
+   */
+  deliverable_kind: string | null;
   id: Generated<string>;
   name: string;
   sort: Generated<number>;
@@ -360,6 +364,10 @@ export interface People {
   label: string | null;
   name: string;
   notes: string | null;
+  /**
+   * contracted: paid for contracted hours, leave included; worked: paid for hours worked, no paid leave. Null: worked for a contractor, contracted otherwise.
+   */
+  paid_for: string | null;
   provenance: Generated<Json>;
   ramp: Json | null;
   reserved_share: Generated<Numeric>;
@@ -607,7 +615,10 @@ export interface Services {
   pricing_model: Generated<string>;
   provenance: Generated<Json>;
   tech_hours: Numeric | null;
-  tenure_months: Generated<Numeric>;
+  /**
+   * How many months a client typically stays. Null: worked out from churn (1 / churn_monthly_base; 0 when churn is 0).
+   */
+  tenure_months: Numeric | null;
   tier_id: string | null;
   updated_at: Generated<string>;
   words: Numeric | null;

@@ -175,8 +175,17 @@ describe("Capacity page", { timeout: 180_000 }, () => {
     expect(await button.getAttribute("aria-expanded")).toBe("true");
     expect(await page.locator("[data-leaver-options] fieldset legend").count()).toBeGreaterThanOrEqual(2);
     await page.keyboard.press("Escape");
+    // Closing is animated: wait for the list to go before checking (an instant count races it on a busy machine).
+    await page.locator("[data-leaver-options]").waitFor({ state: "detached" });
     expect(await page.locator("[data-leaver-options]").count()).toBe(0);
     expect(await page.evaluate(() => document.activeElement?.hasAttribute("data-leaver-select"))).toBe(true);
+    // Escape closes it even while focus is still on the button (focus only moves into the list a frame after it opens).
+    await button.click();
+    await page.waitForSelector("[data-leaver-options]");
+    await button.focus();
+    await page.keyboard.press("Escape");
+    await page.locator("[data-leaver-options]").waitFor({ state: "detached" });
+    expect(await button.getAttribute("aria-expanded")).toBe("false");
 
     // Keyboard: open with ArrowDown, the checked person has focus; Space unticks them.
     await page.keyboard.press("ArrowDown");
@@ -201,6 +210,7 @@ describe("Capacity page", { timeout: 180_000 }, () => {
 
     // Clear empties the choice.
     await page.keyboard.press("Escape");
+    await page.locator("[data-leaver-options]").waitFor({ state: "detached" });
     await page.locator("[data-leaver-clear]").click();
     expect((await button.innerText()).trim()).toBe("Choose who leaves");
     expect(chosen).not.toBe("Choose who leaves");

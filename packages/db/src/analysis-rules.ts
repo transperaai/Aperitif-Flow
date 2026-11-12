@@ -1,4 +1,4 @@
-import { parseAnalysisSettings, type AnalysisSettings } from "@transpera-flow/engine";
+import { DEFAULT_RATING_CUTOFFS, parseAnalysisSettings, type AnalysisSettings } from "@transpera-flow/engine";
 import type { Db } from "./queries";
 import { pgCode } from "./pg-error";
 
@@ -19,6 +19,30 @@ export async function loadAnalysisRules(db: Db, workspaceId: string): Promise<An
   const data = await db.selectFrom("analysis_rules").select(["settings", "updated_at"]).where("workspace_id", "=", workspaceId).executeTakeFirst();
   if (!data) return { settings: {}, version: null };
   return { settings: parseAnalysisSettings(data.settings).value, version: data.updated_at };
+}
+
+/**
+ * The part of a workspace's stored analysis settings the pages rate with: what Settings > Simulation edits (a lost client's value cap, the
+ * absence test's length and frequency, and rule 1's busy cut-offs). Anything else a workspace saved under the removed rules editor (other
+ * cut-offs, overrides, switches, escalators) stays stored but unread (D40: a setting nobody can reach doesn't change results).
+ *
+ * Of rule 1's cut-offs only the two distances from the middle are read (the busy bands Settings edits): the middle is pinned to the
+ * rating model's default line, which the workspace's own line (`settings.utilisation_threshold`) and each role's threshold then move
+ * (`toRatingConfig`, `withRoleLines`). So a middle saved under the old editor, other than 85%, can't put a second line beside the roles'.
+ */
+export function liveAnalysisSettings(settings: AnalysisSettings): AnalysisSettings {
+  const out: AnalysisSettings = {};
+  const busy = settings.rules?.busy?.inputs;
+  if (busy && busy.length >= 3) {
+    const [lo, mid, hi] = busy as readonly number[] as [number, number, number];
+    const line = DEFAULT_RATING_CUTOFFS.busy[1];
+    const round = (v: number) => Math.round(v * 1e6) / 1e6;
+    out.rules = { busy: { inputs: [round(Math.max(0, line - (mid - lo))), line, round(line + (hi - mid))] } };
+  }
+  const money: NonNullable<AnalysisSettings["money"]> = {};
+  for (const k of ["capMonths", "absenceWeeks", "absencesPerYear"] as const) if (settings.money?.[k] !== undefined) money[k] = settings.money[k];
+  if (Object.keys(money).length) out.money = money;
+  return out;
 }
 
 export type SaveAnalysisRulesOutcome =

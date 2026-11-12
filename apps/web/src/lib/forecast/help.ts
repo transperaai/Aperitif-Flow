@@ -82,7 +82,7 @@ export const SANDBOX_HELP = {
   },
   atRisk: {
     label: "Clients at risk",
-    description: "How many clients in each group have health below 50 in that month, on average across the runs. Unhappy clients are more likely to leave.",
+    description: "How many clients in each group have health below the at-risk line (50 unless Settings sets it) in that month, on average across the runs. Unhappy clients are more likely to leave.",
     example: "PPC 3.4 means about three or four PPC clients are unhappy that month.",
   },
   busy: {

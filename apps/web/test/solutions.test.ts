@@ -113,6 +113,13 @@ describe("reading a goal", () => {
     expect(formatSpan(12, 40)).toBe("1.5 d");
     expect(formatSpan(80, 40)).toBe("10 d");
   });
+
+  // Customisability audit 36: a working day is the week's hours over the workspace's working days.
+  it("counts days on the workspace's own working week", () => {
+    expect(formatSpan(16, 32, 4)).toBe("2 d");
+    expect(formatSpan(7, 32, 4)).toBe("7 h");
+    expect(formatSpanLike(16, 32, "days", 4)).toBe("2 d");
+  });
 });
 
 describe("the automatic verdict", () => {

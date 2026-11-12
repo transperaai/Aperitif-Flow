@@ -10,7 +10,7 @@ import { processStepIds, processSteps } from "@/lib/process-steps";
 import { perceptionGapDetections } from "@/lib/issues/perception";
 import { visibleFindings } from "@/lib/rules/edit";
 import { useDetectedIssues } from "@/lib/issues/use-detected";
-import { ANALYSIS_DEFAULTS } from "@/lib/analysis/defaults";
+import { analysisRulesOf } from "@/lib/analysis/defaults";
 import { factsForProcess } from "@/lib/insights/process-facts";
 import { entryView, factsCostingIssues, mapFeed, promoteInput, registerEntries, stepRatingOf } from "@/lib/issues/register";
 import { useIssues } from "@/lib/issues/use-issues";
@@ -92,8 +92,8 @@ export function useProcessIssues({
 
   // Saved scenarios whose targets no longer resolve raise a broken_scenario issue each (issue #16).
   const broken = useMemo(() => (model ? detectBrokenScenarios(model, scenarios, retired) : []), [model, scenarios, retired]);
-  // Every page rates the run with the documented defaults (D40): the rules give facts, not findings.
-  const rules = ANALYSIS_DEFAULTS;
+  // Every page rates the run with the workspace's analysis assumptions (D40): the rules give facts, not findings.
+  const rules = analysisRulesOf(bundle);
   // Perception gaps from the steps' evidence (issue #21), unless that rule is off.
   const gaps = useMemo(() => visibleFindings(rules, perceptionGapDetections(bundle.steps)), [bundle.steps, rules]);
   // The absence test (rule 8) runs in its own worker once the baseline is done; until it returns, that rule raises nothing.

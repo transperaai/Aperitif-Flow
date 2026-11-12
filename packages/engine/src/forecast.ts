@@ -16,7 +16,7 @@ import { eligible } from "./eligibility";
 import { flattenModel } from "./flatten";
 import type { DetectedIssue } from "./issues";
 import { noCost } from "./cost";
-import type { EngineModel, MonthBusy, MonthlyResult, SimulationResult } from "./model";
+import { hoursPerWorkingDay, type EngineModel, type MonthBusy, type MonthlyResult, type SimulationResult } from "./model";
 import {
   RATING_RULES,
   bandOf,
@@ -24,6 +24,7 @@ import {
   rateRule,
   ratingFields,
   resolveRatingConfig,
+  withRoleLines,
   resolveRule,
   type RatingConfigInput,
   type RatingSubject,
@@ -90,12 +91,13 @@ export function forecastAlerts(
   const monthly = result.monthly;
   if (!monthly || !monthly.months.length) return [];
   model = flattenModel(model);
-  const config = resolveRatingConfig(configInput);
+  // Each role's own utilisation threshold is the "Too busy" line for it and its people.
+  const config = withRoleLines(resolveRatingConfig(configInput), model.roles);
   const people = result.resolvedPeople;
   const named = model.people !== undefined;
   const monthName = options.monthName ?? ((i: number) => `month ${i + 1}`);
   const useBadMonth = RATING_RULES.busy.badMonth && config.escalators.badMonth;
-  const hoursPerDay = model.hoursPerWeek / 5;
+  const hoursPerDay = hoursPerWorkingDay(model);
   const reps = result.reps;
   const out: DetectedIssue[] = [];
 

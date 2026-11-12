@@ -1,7 +1,7 @@
 // When (docs/plans/sandbox-p5-brief.md §6.4): the month capacity runs out in the run on screen, and the month a hire pays for itself.
 // Pure: no React. Both read runs already made (the payback needs one more run per hire, made by the component).
 
-import { firstCrossing, type MonthBusy, type MonthlyResult, type Stat } from "@transpera-flow/engine";
+import { firstCrossing, roleBusyCutoffs, type EngineRole, type MonthBusy, type MonthlyResult, type Stat } from "@transpera-flow/engine";
 import { formatPercent, formatWholeCurrency } from "@/lib/format";
 import type { TimelineMonth } from "@/lib/forecast/timeline";
 
@@ -18,15 +18,21 @@ export interface CapacityRunsOut {
 
 /**
  * The earliest month any role's average busy share passes the "Too busy" line, or has work and nobody to do it. Roles with no work
- * never cross. A tie goes to the busy line, then to the role listed first.
+ * never cross. A tie goes to the busy line, then to the role listed first. A role in `roles` with a utilisation threshold of its own
+ * (`EngineRole.line`) is held to it, as the heatmap and the alerts hold it.
  */
-export function capacityRunsOut(monthly: MonthlyResult, roleNames: Readonly<Record<string, string>>, cutoffs: readonly [number, number, number]): CapacityRunsOut | null {
+export function capacityRunsOut(
+  monthly: MonthlyResult,
+  roleNames: Readonly<Record<string, string>>,
+  cutoffs: readonly [number, number, number],
+  roles?: Readonly<Record<string, Pick<EngineRole, "line">>>,
+): CapacityRunsOut | null {
   let best: CapacityRunsOut | null = null;
   const consider = (candidate: CapacityRunsOut) => {
     if (!best || candidate.month < best.month) best = candidate;
   };
   for (const id of Object.keys(monthly.roles)) {
-    const crossing = firstCrossing((monthly.roles[id] ?? []) as (MonthBusy | null)[], cutoffs).average;
+    const crossing = firstCrossing((monthly.roles[id] ?? []) as (MonthBusy | null)[], roleBusyCutoffs([...cutoffs], roles, id)).average;
     if (crossing) consider({ month: crossing.month, roleId: id, roleName: roleNames[id] ?? id, kind: "busy", value: crossing.value });
     const uncovered = monthly.uncovered[id]?.findIndex((h) => h !== null && h > 0) ?? -1;
     if (uncovered >= 0) consider({ month: uncovered, roleId: id, roleName: roleNames[id] ?? id, kind: "uncovered", value: monthly.uncovered[id]![uncovered]! });

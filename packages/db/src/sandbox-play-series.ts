@@ -6,9 +6,10 @@
 
 import type { EngineModel, SimulationResult } from "@transpera-flow/engine";
 import type { CapacitySetup, SetupPerson } from "./capacity-setup";
-import { personSalary, tierCount, uniqueClients } from "./capacity-setup";
-import { busyShares, dler, hiringAdvice, DEFAULT_HIRING_DELAY_MONTHS } from "./capacity-figures";
-import { playChangeId, type PlayState } from "./sandbox-play";
+import { clientFee, personSalary, tierCount, uniqueClients } from "./capacity-setup";
+import { busyShares, dler, hiringAdvice, hiringDelayAt, hiringDelayBase } from "./capacity-figures";
+import { hireFte, hirePay, playChangeId, type PlayHire, type PlayState } from "./sandbox-play";
+import { hireMonthlySalary } from "./salary";
 import type { PlayPersonSeries, PlaySeries } from "./sandbox-verdict";
 
 export interface PlayLine {
@@ -42,33 +43,58 @@ export interface PlayCharts {
 
 export interface PlayOutcome extends PlaySeries {
   charts: PlayCharts;
+  /** Each department's retainers in the run's first month, in `setup.departments` order: today's path's are the levers' path's anchor. */
+  retainerAnchor: number[];
 }
 
 const mean = (s: { mean: number } | null | undefined): number => (s ? s.mean : 0);
 
-/** The setup as it stands in month `m` (0-based) of the play: leavers gone, hires there on a role's average salary. */
-export function setupInMonth(setup: CapacitySetup, play: Pick<PlayState, "leavers" | "hires">, m: number): CapacitySetup {
+/** What `setupInMonth` reads of a play: leavers and hires, and the pay change (Costs) when there is one. */
+export type PlayPeople = Pick<PlayState, "leavers" | "hires"> & Partial<Pick<PlayState, "pay" | "payRole" | "payFrom">>;
+
+/**
+ * The setup as it stands in month `m` (0-based) of the play: leavers gone, hires there at their FTE and salary (`playHireSalary`, the
+ * one the run costs them at too), and from the pay change's month every salary of its roles (the role's and its people's own) × the
+ * change, as the run's profit scales their pay (a person's own salary by the mean over their roles, as the engine does).
+ */
+export function setupInMonth(setup: CapacitySetup, play: PlayPeople, m: number): CapacitySetup {
   const gone = new Set(play.leavers.filter((l) => l.month <= m).map((l) => l.person));
-  const people: SetupPerson[] = setup.people.map((p) => (gone.has(p.id) ? { ...p, active: false } : p));
+  let base = setup;
+  let hireFactor = (_role: string) => 1;
+  const pay = Number(play.pay) || 0;
+  if (pay && !setup.payHidden && m >= (play.payFrom ?? 0)) {
+    const factor = Math.max(0, 1 + pay / 100);
+    const hit = (rid: string) => play.payRole === undefined || play.payRole === "all" || play.payRole === rid;
+    hireFactor = (role) => (hit(role) ? factor : 1);
+    const scale = (v: number | null, f: number) => (v === null ? null : v * f);
+    base = {
+      ...setup,
+      roles: setup.roles.map((r) => (hit(r.id) ? { ...r, salary_monthly: scale(r.salary_monthly, factor) } : r)),
+      people: setup.people.map((p) => {
+        const held = p.role_ids.filter((rid) => setup.roles.some((r) => r.id === rid));
+        if (!held.length || !held.some(hit)) return p;
+        const f = held.reduce((a, rid) => a + (hit(rid) ? factor : 1), 0) / held.length;
+        return { ...p, salary_monthly: scale(p.salary_monthly, f) };
+      }),
+    };
+  }
+  const people: SetupPerson[] = base.people.map((p) => (gone.has(p.id) ? { ...p, active: false } : p));
   play.hires.forEach((h, i) => {
     if (h.month > m) return;
-    // The mean of the role's people's salaries (their own, or the role's pro rata, D73). None: null, and the hire, full-time in the role,
-    // takes the role's salary as anyone without their own does.
-    const same = setup.people.map((p) => (p.active && p.role_ids.includes(h.role) ? personSalary(setup, p) : null)).filter((v): v is number => v !== null);
-    const salary = setup.payHidden || !same.length ? null : same.reduce((s, v) => s + v, 0) / same.length;
+    const fte = hireFte(h);
     people.push({
       id: playChangeId("D1", i),
       name: "New hire",
       email: null,
       active: true,
-      fte: 1,
+      fte,
       capacity_hours_week: null,
       cost_rate: null,
       start_date: null,
       end_date: null,
       notes: null,
       reserved_share: 0,
-      salary_monthly: salary,
+      salary_monthly: playHireSalary(base, hirePay(h) === null ? h : { ...h, pay: hirePay(h)! * hireFactor(h.role) }),
       label: null,
       ramp: null,
       provenance: {},
@@ -76,14 +102,36 @@ export function setupInMonth(setup: CapacitySetup, play: Pick<PlayState, "leaver
       tier_ids: [],
     });
   });
-  return { ...setup, people };
+  return { ...base, people };
+}
+
+/**
+ * A free-play hire's monthly salary (`hireMonthlySalary`): their typed pay, else the role's active people's full-time pay × their FTE;
+ * null where pay is hidden or nobody in the role has one (then the role's salary pro rata, as for anyone).
+ */
+export function playHireSalary(setup: Pick<CapacitySetup, "roles" | "people" | "payHidden">, h: Pick<PlayHire, "role" | "fte" | "pay">): number | null {
+  if (setup.payHidden) return null;
+  const members = setup.people.filter((p) => p.active && p.role_ids.includes(h.role)).map((p) => ({ salary: personSalary(setup, p), fte: p.fte }));
+  return hireMonthlySalary(hirePay(h), hireFte(h), members);
 }
 
 /**
  * The verdict's series and the charts' lines for one run. `model` is the model the run used (its people, for a hire's name); `result` has the monthly
  * series. Months are the run's months.
  */
-export function playSeries(setup: CapacitySetup, play: Pick<PlayState, "leavers" | "hires">, model: EngineModel, result: SimulationResult, hiringDelay = DEFAULT_HIRING_DELAY_MONTHS): PlayOutcome {
+export function playSeries(
+  setup: CapacitySetup,
+  play: PlayPeople,
+  model: EngineModel,
+  result: SimulationResult,
+  /** Months to hire before the market stretches it: the workspace's own (`setup.hiringDelayMonths`), else the default. */
+  hiringBase: number = hiringDelayBase({ hiring_delay_months: setup.hiringDelayMonths }),
+  /**
+   * Each department's retainers in the first month of TODAY's path (`PlayOutcome.retainerAnchor` of today's outcome), in `setup.departments`
+   * order: the levers' path's DLER moves from today's by its own retainers against these. Omitted: this run's own first month (today's path).
+   */
+  anchor?: readonly number[],
+): PlayOutcome {
   const monthly = result.monthly;
   if (!monthly) throw new Error("playSeries: the run has no monthly series");
   const n = monthly.months.length;
@@ -101,7 +149,7 @@ export function playSeries(setup: CapacitySetup, play: Pick<PlayState, "leavers"
     setup.services.map((s) => {
       const count = tierCount(s.id, setup);
       const named = setup.clients.filter((c) => c.active && c.service_ids.includes(s.id));
-      const total = named.reduce((a, c) => a + c.mrr, 0) + Math.max(0, count - named.length) * s.price;
+      const total = named.reduce((a, c) => a + clientFee(setup, c), 0) + Math.max(0, count - named.length) * s.price;
       return [s.id, count > 0 ? total / count : s.price] as const;
     }),
   );
@@ -116,8 +164,18 @@ export function playSeries(setup: CapacitySetup, play: Pick<PlayState, "leavers"
     }),
   }));
 
-  // DLER (D40): P5's `dler`, the average of each client-facing person's DLER, on the people there that month and the engine's retainers.
-  const dlers = range.map((m) => dler(setupInMonth(setup, play, m), Object.fromEntries(setup.departments.map((d, i) => [d.id, deptRetainers[i]!.values[m]!]))));
+  // DLER (D40): P5's `dler`, the average of each client-facing person's DLER, on the people there that month. A department's fees in month m are
+  // today's (what the Overview and Capacity count) moved by the engine's change in that department's retainers since the first month, so with no
+  // lever moved the first month's DLER is the Overview's (customisability audit 18). Hires take the department's average share.
+  const today = dler(setup).departments;
+  const newcomers = new Set(play.hires.map((_, i) => playChangeId("D1", i)));
+  const retainerAnchor = deptRetainers.map((d) => d.values[0] ?? 0);
+  const poolOf = (i: number, m: number) => {
+    const first = anchor?.[i] ?? retainerAnchor[i]!;
+    const growth = first > 0 ? deptRetainers[i]!.values[m]! / first : 1;
+    return (today[i]?.retainers ?? 0) * growth;
+  };
+  const dlers = range.map((m) => dler(setupInMonth(setup, play, m), Object.fromEntries(setup.departments.map((d, i) => [d.id, poolOf(i, m)])), newcomers));
   const dlerWhole = dlers.map((x) => x.whole.ratio);
   const dlerDepts: PlayLine[] = setup.departments.map((d) => ({
     id: d.id,
@@ -126,7 +184,8 @@ export function playSeries(setup: CapacitySetup, play: Pick<PlayState, "leavers"
   }));
 
   // Teams over their line, and when to hire (P5).
-  const advice = hiringAdvice(setup, result, hiringDelay);
+  // Stretched by the run's own market (the workspace's, or the Sandbox's market lever), as the Overview stretches it.
+  const advice = hiringAdvice(setup, result, (m) => hiringDelayAt(model.market, m, hiringBase));
 
   // People and their lines (P5's busy shares for those in Set up; a hire is on its role's line).
   const known = busyShares(setup, model, result).people;
@@ -156,5 +215,7 @@ export function playSeries(setup: CapacitySetup, play: Pick<PlayState, "leavers"
     advice,
     people,
     charts: { clients: deptClients, retainers, dler: dlerDepts, dlerWhole, teams, won: range.map((m) => mean(monthly.clientsWon[m])), lost: range.map((m) => mean(monthly.clientsLost[m])), lostToPrice },
+
+    retainerAnchor,
   };
 }

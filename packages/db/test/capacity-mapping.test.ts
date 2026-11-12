@@ -53,6 +53,24 @@ describe("a service is one tier of one department", () => {
   });
 });
 
+describe("a named client's fee", () => {
+  const services = (b: ProcessBundle, sid: string) => (b.clientServices ?? []).filter((cs) => cs.client_id === C1).map((cs) => cs.service_id).includes(sid);
+  const blank = { ...base, clients: base.clients!.map((c) => (c.id === C1 ? { ...c, mrr: 0 } : c)) };
+
+  it("a blank fee (0) is its tier's fee, as the Settings screen shows it", () => {
+    const m = model(tiered({}, blank));
+    const tierFees = [S1, S2].filter((sid) => services(blank, sid)).map((sid) => Number(base.services.find((s) => s.id === sid)!.price));
+    expect(tierFees.length).toBeGreaterThan(0);
+    expect(m.clients![C1]!.mrr).toBe(tierFees.reduce((a, b) => a + b, 0));
+    // An entered fee is its own.
+    expect(model(tiered()).clients![C1]!.mrr).toBe(Number(base.clients![0]!.mrr));
+  });
+
+  it("outside a tier workspace a blank fee stays 0", () => {
+    expect(model(blank).clients![C1]!.mrr).toBe(0);
+  });
+});
+
 describe("a tier's deliverables and ad-hoc rule", () => {
   it("maps every deliverable column to its engine key, and leaves a blank one out (not 0)", () => {
     const row = svc(S1, T1, { words: 4000, links: 8, tech_hours: 10, meetings: 4, builds: 5, creative_sets: 2, channels: 3, adhoc_chance: 0.9, adhoc_requests: 6.5 });
@@ -126,10 +144,13 @@ describe("counted clients and portfolios", () => {
     const b = tiered({ portfolio: [{ person_id: P1, service_id: S1, client_count: 3 }, { person_id: P2, service_id: S1, client_count: 2 }, { person_id: P1, service_id: S2, client_count: 4 }] });
     const m = model({ ...b, clientGroups: [group(S1, 5)] });
     expect(m.clientMix).toBe("groups-add");
-    expect(m.clientGroups![S1]).toEqual({ count: 10, fee: 4500, churnMonthly: 0.02, stayMonths: 40, health: 75 });
+    // A tier's fee, churn and stay are the tier's own (services), not the group row's copies: the row gives the count and health.
+    const sv1 = base.services.find((s) => s.id === S1)!;
+    expect(m.clientGroups![S1]).toEqual({ count: 10, fee: Number(sv1.price), churnMonthly: Number(sv1.churn_monthly_base), stayMonths: Number(sv1.tenure_months), health: 75 });
     // S2 has no group row: its count is the portfolio, and its fee, churn and tenure are the service's own.
     const sv2 = base.services.find((s) => s.id === S2)!;
-    expect(m.clientGroups![S2]).toEqual({ count: 4, fee: Number(sv2.price), churnMonthly: Number(sv2.churn_monthly_base), stayMonths: Number(sv2.tenure_months), health: 80 });
+    // Its health is the workspace's starting health (audit finding 8), else 80, and follows a run's change to that rule.
+    expect(m.clientGroups![S2]).toEqual({ count: 4, fee: Number(sv2.price), churnMonthly: Number(sv2.churn_monthly_base), stayMonths: Number(sv2.tenure_months), health: base.workspace.settings.health_initial ?? 80, healthFromRules: true });
     expect(m.clientGroups![S3]).toBeUndefined();
     // The 18 named clients are still there, and everyone counts in the headline number.
     expect(Object.keys(m.clients!)).toHaveLength(18);
@@ -151,8 +172,9 @@ describe("counted clients and portfolios", () => {
   it("a typed total overrides the group's counted clients, which are what the remainder replaces", () => {
     const m = model({ ...tiered({ services: [svc(S1, T1, { client_total: namedOnS1 + 7 }), svc(S2, T2), svc(S3, null)] }), clientGroups: [group(S1, 5)] });
     expect(m.clientGroups![S1]!.count).toBe(7);
-    // The group's own fee, churn and tenure still apply.
-    expect(m.clientGroups![S1]).toMatchObject({ fee: 4500, churnMonthly: 0.02, stayMonths: 40, health: 75 });
+    // The group's health applies; fee, churn and tenure are the tier's.
+    const sv1 = base.services.find((s) => s.id === S1)!;
+    expect(m.clientGroups![S1]).toMatchObject({ fee: Number(sv1.price), churnMonthly: Number(sv1.churn_monthly_base), stayMonths: Number(sv1.tenure_months), health: 75 });
   });
 
   it("'over': named + portfolios more than the total uses the portfolios as they are, with no negative remainder", () => {
@@ -164,6 +186,14 @@ describe("counted clients and portfolios", () => {
   it("a typed total with no portfolio or group still makes a group of the remainder", () => {
     const m = model(tiered({ services: [svc(S1, T1, { client_total: namedOnS1 + 9 }), svc(S2, T2), svc(S3, null)] }));
     expect(m.clientGroups![S1]!.count).toBe(9);
+  });
+
+  it("editing the tier's price, churn or tenure moves its counted clients; the group row's copies don't", () => {
+    const b = { ...tiered(), clientGroups: [group(S1, 5)] };
+    const edited = { ...b, services: b.services.map((s) => (s.id === S1 ? { ...s, price: 9100, churn_monthly_base: 0.07, tenure_months: 22 } : s)) };
+    expect(model(edited).clientGroups![S1]).toMatchObject({ count: 5, fee: 9100, churnMonthly: 0.07, stayMonths: 22, health: 75 });
+    // A service that is not a tier keeps its group row's own numbers.
+    expect(model({ ...b, clientGroups: [group(S1, 5), group(S3, 2)] }).clientGroups![S3]).toMatchObject({ count: 2, fee: 4500, churnMonthly: 0.02, stayMonths: 40 });
   });
 
   it("an unset total (absent or null) leaves the model exactly as it was", () => {
@@ -279,5 +309,30 @@ describe("a workspace that isn't a tier workspace is mapped as before", () => {
     const off = { ...b, services: b.services.map((s) => (s.id === S1 ? { ...s, active: false } : s)) };
     const plainOff = model({ ...base, services: off.services });
     expect(model(off)).toEqual(plainOff);
+  });
+});
+
+describe("how pay becomes cost (customisability audit 13, 19, 20, 21)", () => {
+  it("a contractor label and a paid-for choice reach the person; no label and no choice add nothing", () => {
+    const m = model(tiered({ people: [{ id: P1, reserved_share: 0, ramp: null, label: "contractor", paid_for: null }, { id: P2, reserved_share: 0, ramp: null, label: "offshore", paid_for: "worked" }] }));
+    expect(m.people![P1]).toMatchObject({ contractor: true });
+    expect("paidFor" in m.people![P1]!).toBe(false);
+    expect(m.people![P2]).toMatchObject({ paidFor: "worked" });
+    expect("contractor" in m.people![P2]!).toBe(false);
+    const none = model(tiered({ people: [{ id: P1, reserved_share: 0, ramp: null }] }));
+    expect("contractor" in none.people![P1]! || "paidFor" in none.people![P1]!).toBe(false);
+  });
+
+  it("the overtime pay factor and employer on-costs come from the workspace settings; unset, 1 and 0 add nothing", () => {
+    const at = (settings: Record<string, unknown>) => model({ ...base, workspace: { ...base.workspace, settings: { ...base.workspace.settings, ...settings } } });
+    expect(at({ overtime_pay_factor: 1.5, employer_on_costs: 0.12 })).toMatchObject({ overtimePayFactor: 1.5, employerOnCosts: 0.12 });
+    expect(at({ overtime_pay_factor: 0 })).toMatchObject({ overtimePayFactor: 0 });
+    for (const s of [{}, { overtime_pay_factor: 1, employer_on_costs: 0 }, { overtime_pay_factor: null, employer_on_costs: null }]) expect(at(s)).toEqual(plain);
+  });
+
+  it("neither reaches a model whose caller can't see pay", () => {
+    const hidden: ProcessBundle = { ...base, payHidden: true, workspace: { ...base.workspace, settings: { ...base.workspace.settings, overtime_pay_factor: 1.5, employer_on_costs: 0.12 } } };
+    const m = model(hidden);
+    expect("overtimePayFactor" in m || "employerOnCosts" in m).toBe(false);
   });
 });

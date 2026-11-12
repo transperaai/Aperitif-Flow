@@ -353,6 +353,17 @@ describe("adding and removing tiers", () => {
     expect((await q("select key from tiers where id = $1", [await addTier(users.owner!, w)]))[0]!.key).toBe("T4");
   });
 
+  it("a new tier's stay is blank (worked out from churn), and add_tier copies the last tier's stay as it is, blank or typed", async () => {
+    const w = await newWorkspace("Stay Co");
+    const t1 = await addTier(users.owner!, w);
+    const org = await departmentOf(w, "Organic%");
+    const stay = async (tier: string) => (await q("select tenure_months::float8 as t from services where tier_id = $1 and department_id = $2", [tier, org]))[0]!.t;
+    expect(await stay(t1)).toBeNull();
+    expect(await stay(await addTier(users.owner!, w))).toBeNull();
+    await q("update services set tenure_months = 24 where workspace_id = $1 and department_id = $2", [w, org]);
+    expect(await stay(await addTier(users.owner!, w))).toBe(24);
+  });
+
   it("refuses the last remaining tier, in plain words", async () => {
     const w = await newWorkspace("Last Tier Co");
     const only = await addTier(users.owner!, w);

@@ -184,6 +184,41 @@ export function resolveRatingConfig(input: RatingConfigInput = {}): RatingConfig
   };
 }
 
+/**
+ * Rule 1's cut-offs moved so the middle one (Bad: too busy) is `line`: the other two keep their distance from it, so a role at 75%
+ * starts showing busy at 60% and is an Operational risk from 85% under the default 70 / 85 / 95%.
+ */
+export function busyCutoffsAt(cutoffs: Cutoffs, line: number): Cutoffs {
+  const d = line - cutoffs[1];
+  return [Math.max(0, cutoffs[0] + d), line, Math.max(line, cutoffs[2] + d)];
+}
+
+/**
+ * Rule 1's cut-offs for one role: `busyCutoffsAt(cutoffs, line)` when the role has a utilisation threshold of its own
+ * (`EngineRole.line`), else `cutoffs`. For screens that rate a role's monthly busy share outside `withRoleLines`.
+ */
+export function roleBusyCutoffs(cutoffs: Cutoffs, roles: Readonly<Record<string, { line?: number }>> | undefined, roleId: string): Cutoffs {
+  const line = roles?.[roleId]?.line;
+  return typeof line === "number" && Number.isFinite(line) && line > 0 ? busyCutoffsAt(cutoffs, line) : cutoffs;
+}
+
+/**
+ * The config with each role's own utilisation threshold (`EngineRole.line`) as rule 1's middle cut-off for that role and its people
+ * (a role override, ahead of any stored one). A person's own override still wins. Roles without a line are left as they are.
+ */
+export function withRoleLines(config: RatingConfig, roles: Readonly<Record<string, { line?: number }>> | undefined): RatingConfig {
+  const busy = config.rules.busy;
+  const lines: RatingOverride[] = [];
+  for (const id of Object.keys(roles ?? {}).sort()) {
+    const line = roles![id]!.line;
+    if (typeof line !== "number" || !Number.isFinite(line) || line <= 0) continue;
+    const stored = busy.overrides.find((o) => o.kind === "role" && o.id === id && o.cutoffs);
+    lines.push({ kind: "role", id, cutoffs: busyCutoffsAt(stored?.cutoffs ?? busy.cutoffs, line) });
+  }
+  if (!lines.length) return config;
+  return { ...config, rules: { ...config.rules, busy: { ...busy, overrides: [...lines, ...busy.overrides] } } };
+}
+
 /** Who a finding is about, to find the overrides that apply to it. */
 export interface RatingSubject {
   roleId?: string | null;

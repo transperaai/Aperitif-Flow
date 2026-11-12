@@ -130,6 +130,8 @@ describe("the process page on the detail template", () => {
     expect(await pop.locator("select[data-process-category] option").count()).toBe(5);
     expect(await pop.innerText()).toContain("Department");
     await page.keyboard.press("Escape");
+    // Let that popover finish closing first: a click while it is still closing counts as an outside click and opens nothing.
+    await pop.waitFor({ state: "hidden" });
     // No workbench: no tabs, no inspector.
     expect(await page.getByRole("tab").count()).toBe(0);
     expect(await page.locator("#inspector").count()).toBe(0);

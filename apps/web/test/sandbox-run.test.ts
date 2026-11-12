@@ -222,6 +222,10 @@ describe("applyPeopleChanges", () => {
     const stretched: ProcessBundle = { ...bundle, marketConditions: [boom], marketSchedule: [{ id: id(), workspace_id: bundle.workspace.id, from_month: 1, to_month: 24, condition_id: boom.id }] };
     expect(starts([whole, timed, delay(2)], stretched)).toEqual(["2027-01-01", "2027-06-01"]);
     expect(starts([whole, timed, delay(2)])).toEqual(["2026-12-01", "2027-05-01"]);
+    // The workspace's own Months to hire (Settings, customisability audit 33) applies without a D9 change; a D9 change replaces it.
+    const ownDelay: ProcessBundle = { ...bundle, workspace: { ...bundle.workspace, settings: { ...bundle.workspace.settings, hiring_delay_months: 3 } } };
+    expect(starts([whole, timed], ownDelay)).toEqual(["2027-01-01", "2027-06-01"]);
+    expect(starts([whole, timed, delay(0)], ownDelay)).toEqual([null, "2027-03-01"]);
   });
 
   it("adds leave from the Monday to the Friday of its last week", () => {

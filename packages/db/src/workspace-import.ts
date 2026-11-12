@@ -76,7 +76,7 @@ const cols = <T extends keyof DB>(_table: T, ...c: (keyof Selectable<DB[T]> & st
  * source_ids; `market_schedule` may carry `condition_preset` in place of `condition_id`.
  */
 export const IMPORT_COLUMNS = {
-  departments: cols("departments", "id", "name", "sort", "created_at"),
+  departments: cols("departments", "id", "name", "sort", "created_at", "deliverable_kind"),
   tiers: cols("tiers", "id", "key", "name", "sort", "both_count", "provenance", "created_at"),
   roles: cols(
     "roles", "id", "name", "color", "default_cost_rate", "headcount", "ongoing_hours_per_client_week", "active", "provenance", "created_at",
@@ -84,7 +84,7 @@ export const IMPORT_COLUMNS = {
   ),
   people: cols(
     "people", "id", "name", "active", "capacity_hours_week", "cost_rate", "end_date", "fte", "notes", "start_date", "provenance", "created_at",
-    "reserved_share", "salary_monthly", "label", "ramp",
+    "reserved_share", "salary_monthly", "label", "ramp", "paid_for",
   ),
   person_tiers: cols("person_tiers", "person_id", "tier_id", "created_at"),
   person_portfolio: cols("person_portfolio", "person_id", "service_id", "client_count", "provenance", "created_at"),
@@ -143,10 +143,24 @@ const SETTING_KEYS: Record<keyof WorkspaceSettings, true> = {
   retainer: true,
   availability_floor: true,
   overtime_cap: true,
+  overtime_pay_factor: true,
+  employer_on_costs: true,
   health_recover: true,
   health_late_penalty: true,
   health_missed_penalty: true,
   health_initial: true,
+  health_healthy_from: true,
+  health_watch_from: true,
+  health_at_risk: true,
+  utilisation_threshold: true,
+  churn_load_full: true,
+  churn_response_full_share: true,
+  churn_rework_full_share: true,
+  churn_onboarding_full_multiple: true,
+  churn_early_tenure_months: true,
+  churn_away_pressure: true,
+  churn_results_normal: true,
+  churn_price_months: true,
   client_health_benchmark_low: true,
   client_health_benchmark_high: true,
   capacity_factor_enabled: true,
@@ -155,6 +169,11 @@ const SETTING_KEYS: Record<keyof WorkspaceSettings, true> = {
   churn_drivers_removed: true,
   ramp_default: true,
   dler_includes_leadership: true,
+  max_stay_months: true,
+  dler_goal: true,
+  at_risk_margin: true,
+  working_days: true,
+  hiring_delay_months: true,
 };
 export const WORKSPACE_SETTING_KEYS = Object.keys(SETTING_KEYS) as readonly (keyof WorkspaceSettings)[];
 
@@ -849,6 +868,9 @@ export function planWorkspaceImport(
     if (!Object.hasOwn(SETTING_KEYS, k)) unknown.push(k);
     // The database refuses overheads that aren't null or a number from 0 to 100,000,000 (workspaces_overhead_monthly): leave them out rather than fail the restore.
     else if (k === "overhead_monthly" && v !== null && !(typeof v === "number" && v >= 0 && v <= 100_000_000)) warnings.push('The workspace setting "overhead_monthly" wasn\'t a number from 0 to 100,000,000 and was left out.');
+    // The same for the DLER goal and the at-risk margin (workspaces_dler_goal, workspaces_at_risk_margin).
+    else if (k === "dler_goal" && v !== null && !(typeof v === "number" && v > 0 && v <= 50)) warnings.push('The workspace setting "dler_goal" wasn\'t a number above 0 and up to 50 and was left out.');
+    else if (k === "at_risk_margin" && v !== null && !(typeof v === "number" && v >= 0 && v <= 0.5)) warnings.push('The workspace setting "at_risk_margin" wasn\'t a number from 0 to 0.5 and was left out.');
     else known[k] = v;
   }
   for (const k of unknown.sort()) warnings.push(`The workspace setting "${k}" isn't one this version knows and was left out.`);

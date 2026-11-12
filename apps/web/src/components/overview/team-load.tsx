@@ -50,6 +50,7 @@ export function TeamLoad({
   months,
   lines,
   fallbackLine,
+  margin,
   advice,
   span,
   sandboxHref,
@@ -60,6 +61,8 @@ export function TeamLoad({
   /** Each role's line, by role id; a role without one is held to `fallbackLine`. */
   lines: Readonly<Record<string, number>>;
   fallbackLine: number;
+  /** The workspace's at-risk margin (a cell within it under the line is a warning); omitted: the default. */
+  margin?: number;
   /** The Capacity page's hiring advice for the same run; null when the workspace has no Set up data (then the sentence is worked out from the rows). */
   advice: readonly HiringAdvice[] | null;
   span: string;
@@ -112,7 +115,7 @@ export function TeamLoad({
                   </th>
                   {months.map((m, i) => {
                     const busy = r.series[i]?.mean ?? null;
-                    const tone: Tone | null = busy === null ? null : toneOf(busy, line);
+                    const tone: Tone | null = busy === null ? null : toneOf(busy, line, margin);
                     const words = busy === null ? "nobody in the role" : `${formatPercent(busy)} busy, against a utilisation threshold of ${formatPercent(line)}`;
                     return (
                       <td key={m.index} className="px-0.5">

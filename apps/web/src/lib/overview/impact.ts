@@ -5,6 +5,7 @@
 
 import { bundleForProcess, toEngineModel, type EdgeRow, type IssueRow, type ProcessBundle, type SolutionRow, type StepRow } from "@transpera-flow/db";
 import { bundleFromSolution } from "@transpera-flow/db/sandbox";
+import { hoursPerWorkingDay } from "@transpera-flow/engine";
 import { withLeverChanges } from "@/lib/solutions/levers";
 import { effectiveVerdict, type SolutionsData } from "@/lib/solutions/cards";
 import { hoursAMonth, type ImpactPair, type SolutionImpact } from "./impact-run";
@@ -79,7 +80,7 @@ export interface Delivered {
  * implemented (or none could be measured). Two solutions built from the same version of a process each measure against
  * that version, so only the latest (the first in `impacts`, newest first) counts.
  */
-export function improvementDelivered(impacts: readonly SolutionImpact[], hoursPerWeek: number): Delivered | null {
+export function improvementDelivered(impacts: readonly SolutionImpact[], hoursPerWeek: number, workingDaysPerWeek?: number): Delivered | null {
   const implemented = impacts.filter((i) => i.implemented);
   const seen = new Set<string>();
   const done = implemented.filter((i) => {
@@ -89,7 +90,7 @@ export function improvementDelivered(impacts: readonly SolutionImpact[], hoursPe
     return true;
   });
   if (!done.length) return null;
-  const day = hoursPerWeek / 5;
+  const day = hoursPerWorkingDay({ hoursPerWeek, workingDaysPerWeek });
   // Within one process, cuts from successive versions add up; across processes, the largest is shown.
   const byProcess = new Map<string, { days: number; processName: string }>();
   for (const i of done) {

@@ -11,6 +11,7 @@ import {
   tierCount,
   tierDiscrepancies,
   tierFieldsFor,
+  departmentKind,
   uniqueClients,
   type CapacitySetup,
   type SetupClient,
@@ -151,6 +152,17 @@ describe("tierFieldsFor and effectiveClientValue", () => {
     expect(tierFieldsFor("Performance")).toEqual(["channels", "builds", "creative_sets", "meetings", "adhoc_chance", "adhoc_requests"]);
     expect(tierFieldsFor("Organic (SEO)")).toEqual(["words", "links", "tech_hours", "meetings", "adhoc_chance", "adhoc_requests"]);
   });
+  it("a department's picked kind wins over its name (customisability audit 47); unpicked, the name decides as before", () => {
+    expect(tierFieldsFor({ name: "Paid Media", deliverable_kind: "performance" })).toContain("builds");
+    expect(tierFieldsFor({ name: "Performance", deliverable_kind: "organic" })).toContain("words");
+    expect(tierFieldsFor({ name: "Paid Media", deliverable_kind: null })).toContain("words");
+    expect(departmentKind({ name: "Performance (PPC)" })).toBe("performance");
+    expect(departmentKind("Social")).toBe("organic");
+    const kind = setupFieldRule("departments", "deliverable_kind")!;
+    expect(checkSetupValue(kind, "performance").ok).toBe(true);
+    expect(checkSetupValue(kind, null).ok).toBe(true);
+    expect(checkSetupValue(kind, "paid").ok).toBe(false);
+  });
   it("a client's own value wins; blank takes its tier's", () => {
     const services = [svc("perf-t1", "perf", "t1", { channels: 4, adhoc_chance: 0.95 })];
     expect(effectiveClientValue(client("a", ["perf-t1"], { channels: 6 }), services, "channels")).toBe(6);
@@ -173,6 +185,10 @@ describe("the field rules", () => {
     expect(checkSetupValue(share, 0.9).ok).toBe(true);
     expect(checkSetupValue(share, 0.91).ok).toBe(false);
     expect(checkSetupValue(share, null).ok).toBe(false);
+    const ongoing = setupFieldRule("roles", "ongoing_hours_per_client_week")!;
+    expect(checkSetupValue(ongoing, 1.5).ok).toBe(true);
+    expect(checkSetupValue(ongoing, -1).ok).toBe(false);
+    expect(checkSetupValue(ongoing, null).ok).toBe(false);
     const count = setupFieldRule("person_portfolio", "client_count")!;
     expect(checkSetupValue(count, 3).ok).toBe(true);
     expect(checkSetupValue(count, 2.5).ok).toBe(false);

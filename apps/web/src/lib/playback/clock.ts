@@ -2,7 +2,10 @@
 // wall-clock seconds from the animation loop. Framework-free, so the loop, the
 // controls and the tests all drive the same object.
 
-const WORKING_DAYS_PER_WEEK = 5;
+import { CALENDAR_WEEKDAYS } from "@transpera-flow/engine";
+
+// The clock steps through calendar weekdays (Monday to Friday), as the run places dates.
+const WORKING_DAYS_PER_WEEK = CALENDAR_WEEKDAYS;
 
 /** Working weeks in a month for playback: a year of 52 weeks over 12 months. */
 const WEEKS_PER_MONTH = 52 / 12;
