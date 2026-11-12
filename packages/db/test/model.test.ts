@@ -426,6 +426,22 @@ describe("services", () => {
     expect(Object.values(model.services!).every((sv) => !("entry" in sv))).toBe(true);
   });
 
+  it("with no client list, today's clients churn at the services' base churn (mix-weighted), not the interim workspace churn", () => {
+    const pooled = (): ProcessBundle => ({ ...pipelineOnly(), clients: [], clientGroups: [], clientServices: [], clientAssignments: [] });
+    const b = pooled();
+    const model = toEngineModel(b, { startDate: START });
+    expect(model.clients).toBeUndefined();
+    expect(model.clientGroups).toBeUndefined();
+    expect(model.churnMonthly).toBeCloseTo((0.03 * 0.55 + 0.04 * 0.45) / (0.55 + 0.45), 12);
+    // Editing a service's base churn moves the starting book too.
+    expect(toEngineModel(patch(pooled(), seo, { churn_monthly_base: 0.1 }), { startDate: START }).churnMonthly).toBeCloseTo(0.1 * 0.55 + 0.04 * 0.45, 12);
+    // With no monthly service the interim churn stays.
+    const oneOff = patch(patch(pooled(), seo, { pricing_model: "one_off" }), ppc, { pricing_model: "one_off" });
+    expect(toEngineModel(oneOff, { startDate: START }).churnMonthly).toBe(b.workspace.settings.churn_monthly);
+    // With a client list the interim value is kept as it was (clients churn at their own services' rates).
+    expect(toEngineModel(pipelineOnly(), { startDate: START }).churnMonthly).toBe(b.workspace.settings.churn_monthly);
+  });
+
   it("maps numeric columns that arrive as strings (Postgres numeric) and trims tags", () => {
     const b = patch(northbeamBundle(), seo, {
       price: "3500.00" as unknown as number,

@@ -8,6 +8,7 @@ import {
   afterSaleSteps,
   MAX_REWORK,
   ModelError,
+  pooledChurnMonthly,
   type EngineMarket,
   type EngineDemand,
   type Distribution as EngineDistribution,
@@ -352,7 +353,9 @@ function engineModelOf(bundle: ProcessBundle, options: ModelOptions): { model: E
         : clients
           ? Object.keys(clients).length
           : s.active_clients,
-    churnMonthly: s.churn_monthly,
+    // Clients kept as one pool (no named or counted clients) churn at the services' base churn (mix-weighted), the rate their new
+    // clients churn at; the interim workspace churn is only for a workspace with no monthly service.
+    churnMonthly: clients || clientGroups ? s.churn_monthly : pooledChurnMonthly(services, s.churn_monthly),
     retainer: s.retainer,
     roles: engineRoles,
     ...(services ? { services } : {}),
