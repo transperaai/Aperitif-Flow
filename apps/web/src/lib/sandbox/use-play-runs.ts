@@ -105,7 +105,7 @@ export function usePlayRuns(
         (results) => {
           if (!active) return;
           const run = joinPlay(prepared, results);
-          const outcome = playSeries(setup, play, run.model, run.result);
+          const outcome = playSeries(setup, play, run.model, run.result, play.hiringDelay ?? undefined);
           setChangedSlot({ key: preparedKey, run: { run, outcome, ms: performance.now() - t0 } });
         },
         (err) => {

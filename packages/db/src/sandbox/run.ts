@@ -16,6 +16,7 @@ import { sandboxLever, patchOf, type SandboxChange } from "../sandbox-levers";
 import type { PersonLeaveRow, PersonRoleRow, PersonRow, PersonSkillRow, PersonCapacityFactorRow, ProcessBundle, ProcessPart, SolutionRow } from "../types";
 import { applyPatches, checkScenario, initialState, type EngineModel, type InitialState, type RetiredSteps, type ScenarioPatch } from "@transpera-flow/engine";
 import { retiredSteps } from "../retired";
+import { storedHiringDelay } from "../capacity-figures";
 import { addDays, addMonths, calendarMonthStarts, horizonWeeks, hoursToDate, monthBounds } from "./months";
 import { bundleFromSolution } from "./solution";
 import { toEngineStepChanges } from "../capacity-changes";
@@ -148,7 +149,10 @@ export function applyPeopleChanges(bundle: ProcessBundle, changes: readonly Sand
       return market.months[Math.min(Math.max(0, idx), market.months.length - 1)]?.hire ?? 1;
     };
   })();
-  const delayMonths = (factor: number): number => (delayChange && delayChange.value > 0 ? Math.round(delayChange.value * factor) : 0);
+  // Without a D9 change, the workspace's own months to hire (Settings > People & roles) when it has set one; a workspace that hasn't
+  // keeps hires starting with no delay, as before the setting existed.
+  const delayBase = delayChange ? delayChange.value : (storedHiringDelay(bundle.workspace.settings) ?? 0);
+  const delayMonths = (factor: number): number => (delayBase > 0 ? Math.round(delayBase * factor) : 0);
   const startOf = (from: string): string => addMonths(`${from}-01`, delayMonths(hireFactor(from)));
   const wholeRunStart = (): string | null => {
     const months = delayMonths(hireFactor(startDate.slice(0, 7)));

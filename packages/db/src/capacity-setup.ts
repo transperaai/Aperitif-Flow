@@ -212,6 +212,10 @@ export interface CapacitySetup {
   /** `settings.ramp_default`, or the built-in default. */
   rampDefault: number[];
   rampDefaultProvenance: unknown;
+  /** `settings.ramp_default` as stored: null when the workspace uses the built-in default. */
+  rampDefaultStored?: number[] | null;
+  /** `settings.hiring_delay_months` (months to hire, 0 to 24), or null when the workspace has set none (`hiringDelayBase` gives 2). */
+  hiringDelayMonths?: number | null;
   /** `settings.dler_includes_leadership`; false when never set (D48: directors and managers are not counted in DLER). */
   dlerIncludesLeadership: boolean;
   dlerProvenance: unknown;
@@ -382,6 +386,8 @@ export async function loadCapacitySetup(db: Db, workspaceId: string): Promise<Ca
     portfolio: portfolio.map((r) => ({ ...r, provenance: prov(r.provenance) })),
     rampDefault: numList(settings.ramp_default) ?? [...DEFAULT_RAMP],
     rampDefaultProvenance: wsProv["settings.ramp_default"] ?? null,
+    rampDefaultStored: numList(settings.ramp_default),
+    hiringDelayMonths: typeof settings.hiring_delay_months === "number" && Number.isFinite(settings.hiring_delay_months) ? settings.hiring_delay_months : null,
     dlerIncludesLeadership: settings.dler_includes_leadership === true,
     dlerProvenance: wsProv["settings.dler_includes_leadership"] ?? null,
     canEdit: canEdit === true,

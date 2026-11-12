@@ -28,10 +28,22 @@ import type { CapacitySetup, SetupPerson, SetupRole } from "./capacity-setup";
 import { tierCount, uniqueClients } from "./capacity-setup";
 
 /**
- * Months to hire a replacement before the market stretches it (the prototype's `hiringDelay`; the Sandbox's "Hiring delay" lever starts
- * from none). The workspace stores no base of its own, so this is the base; the workspace's market settings stretch it (`hiringDelayAt`).
+ * Months to hire a replacement before the market stretches it (the prototype's `hiringDelay`), for a workspace that hasn't set its own
+ * `settings.hiring_delay_months` (Settings > People & roles, "Months to hire"). Read it through `hiringDelayBase`; the workspace's market
+ * settings stretch it (`hiringDelayAt`).
  */
 export const DEFAULT_HIRING_DELAY_MONTHS = 2;
+
+/** The workspace's own months to hire (0 to 24), or null when it has set none. */
+export function storedHiringDelay(settings: { hiring_delay_months?: unknown } | null | undefined): number | null {
+  const v = settings?.hiring_delay_months;
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 24 ? v : null;
+}
+
+/** The months-to-hire base the Overview, the Sandbox's advice and its run use: the workspace's own, else `DEFAULT_HIRING_DELAY_MONTHS`. */
+export function hiringDelayBase(settings: { hiring_delay_months?: unknown } | null | undefined): number {
+  return storedHiringDelay(settings) ?? DEFAULT_HIRING_DELAY_MONTHS;
+}
 
 /** The hiring delay, in whole months, for a hire planned for month `i` of the run: the base x the market's "time to hire" that month (as the Sandbox does). */
 export function hiringDelayAt(market: EngineMarket | undefined, i: number, base = DEFAULT_HIRING_DELAY_MONTHS): number {
