@@ -13,7 +13,10 @@ import {
   type SimulationResult,
 } from "@transpera-flow/engine";
 
-/** A person whose utilisation at or above this in a bad month (the 90th percentile) counts as too busy; as on the rating model's busy rule. */
+/**
+ * The busy line for someone whose role has no utilisation threshold of its own (`EngineRole.line`): the rating model's default. Everyone
+ * else is held to their first role's threshold, as the engine's ratings and the Capacity page hold them.
+ */
 export const BUSY_LIMIT = 0.85;
 
 export interface PersonBusy {
@@ -23,6 +26,8 @@ export interface PersonBusy {
   role: string;
   /** Full-time equivalent from the person's record; null when the model made the person up from a role's head-count. */
   fte: number | null;
+  /** Their first role's utilisation threshold (`BUSY_LIMIT` when it has none): at or above it they count as too busy. */
+  line: number;
   /** Average utilisation over the runs, 0 to 1 and a bit above with overtime. */
   average: number;
   /** A bad month: the 90th percentile over the runs. */
@@ -67,6 +72,7 @@ export function personRows(model: EngineModel, result: SimulationResult, fteById
             name: p.name,
             role: p.roles.map((rid) => model.roles[rid]?.name).filter(Boolean).join(", "),
             fte: fteById.get(id) ?? null,
+            line: model.roles[p.roles[0] ?? ""]?.line ?? BUSY_LIMIT,
             average: band.util.mean,
             p90: band.util.p90,
             clientWork: band.ongoing.mean + band.servicing.mean,
@@ -85,7 +91,7 @@ export interface TeamSummary {
   people: number;
   /** Total full-time equivalents of the people who have one on record; null when none do. */
   fte: number | null;
-  /** People whose bad month (P90) is above the busy limit. */
+  /** People whose bad month (P90) is above their own busy line. */
   busyInBadMonth: number;
 }
 
@@ -94,7 +100,7 @@ export function teamSummary(rows: readonly PersonBusy[]): TeamSummary {
   return {
     people: rows.length,
     fte: withFte.length ? withFte.reduce((a, r) => a + r.fte!, 0) : null,
-    busyInBadMonth: rows.filter((r) => r.p90 > BUSY_LIMIT).length,
+    busyInBadMonth: rows.filter((r) => r.p90 > r.line).length,
   };
 }
 

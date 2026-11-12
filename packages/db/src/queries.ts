@@ -10,6 +10,7 @@ import type { CitingRow } from "./evidence";
 import { uiStatus, type StoredIssueStatus } from "./issue-status";
 import { hideAiIssueKey } from "./person-labels";
 import { partitionSteps } from "./retired";
+import { loadAnalysisRules } from "./analysis-rules";
 import { companyBundle } from "./company-run";
 import type { RunRow } from "./runs";
 import type { ScenarioPatch } from "@transpera-flow/engine";
@@ -331,7 +332,7 @@ export async function loadProcessBundle(
   const ws = workspace.id;
   // People, roles held, skills, leave and assignments: the stored rows for editors, labels and no pay for members.
   const teamLoad = loadTeam(db, ws);
-  const [revision, roles, steps, edges, team, services, leadSources, seasonality, demand, roster, clientGroups, churnDrivers, servicing, settingsProvenance, capacity] =
+  const [revision, roles, steps, edges, team, services, leadSources, seasonality, demand, roster, clientGroups, churnDrivers, servicing, settingsProvenance, capacity, analysis] =
     await Promise.all([
       db.selectFrom("process_revisions").select(["id", "workspace_id", "process_id", "number", "status"]).where("id", "=", revisionId).executeTakeFirstOrThrow(),
       db.selectFrom("roles").selectAll().where("workspace_id", "=", ws).execute(),
@@ -350,6 +351,8 @@ export async function loadProcessBundle(
       process.is_company ? { servicingLinks: [], otherProcesses: [] } : loadServicingContext(db, ws, process, revisionId),
       db.selectFrom("workspaces").select("provenance").where("id", "=", ws).executeTakeFirst(),
       loadCapacityInputs(db, ws),
+      // The analysis assumptions Settings edits (finding 32 of docs/customisability-audit.md): every page rates the run with them.
+      loadAnalysisRules(db, ws).catch(() => ({ settings: {}, version: null })),
     ]);
   const wsProvenance = settingsProvenance?.provenance;
 
@@ -368,6 +371,8 @@ export async function loadProcessBundle(
     process,
     revision: revision as ProcessRevisionRow,
     roles,
+    // Left out when nothing is stored, so the bundle is as it was.
+    ...(Object.keys(analysis.settings).length ? { analysisRules: analysis.settings } : {}),
     steps: inUse,
     retired,
     edges: edges as unknown as EdgeRow[],

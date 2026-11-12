@@ -6,9 +6,9 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState } from "react";
-import { speedsNormalisedFor, type ProcessBundle, type Viewer } from "@transpera-flow/db";
+import { atRiskMarginOf, speedsNormalisedFor, type ProcessBundle, type Viewer } from "@transpera-flow/db";
 import { ABSENCE_MAX_PEOPLE, RATING_LABELS, clientHealthSummary, resolveMoney, toRatingConfig, type ClientHealthSummary, type Rating } from "@transpera-flow/engine";
-import { ANALYSIS_DEFAULTS } from "@/lib/analysis/defaults";
+import { analysisRulesOf } from "@/lib/analysis/defaults";
 import { Help } from "@/components/help";
 import { HorizonPicker } from "@/components/horizon-picker";
 import { useEngineModel } from "@/lib/sim/use-engine-model";
@@ -19,7 +19,6 @@ import { benchmarkOf, positionAgainst, type Benchmark } from "@/lib/client-group
 import { formatDateRange, formatNumber, formatPercent } from "@/lib/format";
 import { horizonWeeks, isHorizonMonths } from "@/lib/horizon";
 import {
-  BUSY_LIMIT,
   absenceCoverage,
   absenceRows,
   FACTOR_HELP,
@@ -109,7 +108,7 @@ export function PeoplePage({
   if (sim.status === "done" && !baselineDone) setBaselineDone(true);
   // Someone who sees everyone tests everyone; a member or viewer tests only their own person, and an unlinked one tests no one (B2 Q3).
   const testWho = useMemo(() => (viewer.seesEveryone ? undefined : viewer.ownPersonId ? [viewer.ownPersonId] : null), [viewer]);
-  const absenceWeeks = resolveMoney(ANALYSIS_DEFAULTS).absenceWeeks;
+  const absenceWeeks = resolveMoney(analysisRulesOf(bundle)).absenceWeeks;
   const absence = useAbsenceTest(baseModel && baselineDone && testWho !== null ? baseModel : null, run?.result.seed ?? 1, absenceWeeks, testWho ?? undefined);
   // While a newer run goes, the numbers on screen are the previous run's, so they are read with the model that run was made from
   // (a longer horizon would otherwise count more leave against the old utilisation).
@@ -124,7 +123,7 @@ export function PeoplePage({
   const detailOf = useMemo(() => (id: string) => (ranModel && run ? personDetail(ranModel, run.result, bundle, id, today) : null), [ranModel, run, bundle, today]);
   const away = useMemo(() => {
     if (!baseModel || !absence) return null;
-    const config = toRatingConfig(ANALYSIS_DEFAULTS, baseModel.hoursPerWeek);
+    const config = toRatingConfig(analysisRulesOf(bundle), baseModel.hoursPerWeek);
     // A member sees only their own result, and no count of who else wasn't tested.
     const { tooShort, untested } = absenceCoverage(baseModel, absence, testWho ?? undefined);
     return {
@@ -132,7 +131,7 @@ export function PeoplePage({
       tooShort,
       untested: viewer.seesEveryone ? untested : 0,
     };
-  }, [baseModel, absence, viewer, testWho]);
+  }, [baseModel, absence, viewer, testWho, bundle]);
 
   const picker = (
     <div className="flex justify-end">
@@ -266,8 +265,8 @@ function TeamCard({ team }: { team: ReturnType<typeof teamSummary> }) {
         <BigNumber value={String(team.people)} unit={`${team.people === 1 ? "person" : "people"}${team.fte !== null ? ` · ${formatNumber(team.fte, 1)} FTE` : ""}`} />
         <p className="text-xs text-muted-foreground">
           {team.busyInBadMonth === 0
-            ? `Nobody is above ${formatPercent(BUSY_LIMIT)} busy in a bad month`
-            : `${team.busyInBadMonth} ${team.busyInBadMonth === 1 ? "person" : "people"} above ${formatPercent(BUSY_LIMIT)} busy in a bad month`}
+            ? `Nobody is above their utilisation threshold in a bad month`
+            : `${team.busyInBadMonth} ${team.busyInBadMonth === 1 ? "person" : "people"} above their utilisation threshold in a bad month`}
         </p>
       </CardContent>
     </Card>
@@ -345,6 +344,8 @@ function HowBusy({
   setupHref: string | null;
 }) {
   const onlyOwn = !viewer.seesEveryone;
+  // Within the workspace's at-risk margin under their threshold is amber, as on the Capacity page.
+  const margin = atRiskMarginOf(bundle.workspace.settings as unknown as Record<string, unknown>);
   // One person's detail is open at a time.
   const [openId, setOpenId] = useState<string | null>(null);
   return (
@@ -353,7 +354,7 @@ function HowBusy({
         <h2 className="font-heading text-base font-medium">How busy</h2>
         <Help
           label="How busy"
-          description="The share of each person's working week that the simulation fills, on average. P90 is a bad month: it is that busy or worse one month in ten. Above 85% is too busy."
+          description="The share of each person's working week that the simulation fills, on average. P90 is a bad month: it is that busy or worse one month in ten. At or above their role's utilisation threshold is too busy; within the at-risk margin under it is a warning. These figures are over the length picked above, with new clients and clients leaving, so they can be higher than the Capacity page's, which is today's clients only."
           example="Maya at 82% average and 97% P90 is fine most months but cannot cope with a bad one."
         />
       </div>
@@ -446,7 +447,7 @@ function HowBusy({
                       <TableCell className="hidden min-w-40 sm:table-cell">
                         <span className="block h-2 overflow-hidden rounded-full bg-panel-2" role="img" aria-label={`${formatPercent(p.average)} busy on average, ${formatPercent(p.p90)} in a bad month`}>
                           <i
-                            className={`block h-full ${p.average >= BUSY_LIMIT ? "bg-crit" : p.average >= 0.75 ? "bg-warn" : "bg-good"}`}
+                            className={`block h-full ${p.average >= p.line ? "bg-crit" : p.average >= p.line - margin - 1e-9 ? "bg-warn" : "bg-good"}`}
                             style={{ width: pctWidth(p.average) }}
                           />
                         </span>

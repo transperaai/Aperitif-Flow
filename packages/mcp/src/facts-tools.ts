@@ -59,10 +59,11 @@ export async function liveFacts(
   assumptions: string[],
 ): Promise<{ loaded: Awaited<ReturnType<typeof loadLiveModel>>; facts: DetectedIssue[]; steps: Map<string, string> }> {
   const loaded = await loadLiveModel(ctx, { workspace: ws.id, process: proc.id }, assumptions);
-  assumptions.push(`Facts come from a run of the live model at ${REPS} replications, seed ${SEED}, with the documented default cut-offs.`);
+  assumptions.push(`Facts come from a run of the live model at ${REPS} replications, seed ${SEED}, with the workspace's analysis assumptions (Settings > Simulation).`);
   const run = simulate(loaded.model, REPS, SEED);
-  const config = toRatingConfig({}, loaded.model.hoursPerWeek);
-  const money = { ...resolveMoney({}), currency: loaded.bundle.workspace.settings.currency };
+  const rules = loaded.bundle.analysisRules ?? {};
+  const config = toRatingConfig(rules, loaded.model.hoursPerWeek);
+  const money = { ...resolveMoney(rules), currency: loaded.bundle.workspace.settings.currency };
   const absence = absenceTest(loaded.model, { seed: SEED, weeks: config.absence.weeks, timeBudgetMs: ABSENCE_BUDGET_MS });
   if (!absence.complete) assumptions.push(`The absence test ran out of time and tested ${absence.people.length} people; key-person facts cover only those.`);
   const rate = (shadowPrices?: Record<string, number>) =>
@@ -84,7 +85,7 @@ export function registerFactTools(server: McpServer, ctx: ToolContext): void {
         "What the simulation measures for a process's live version, as the app shows it under \"Facts from the run\": how busy each role and person is, " +
         "queues and waits, rework, missed deadlines, key-person risk (the absence test), client health and churn drivers, and whether the success measures " +
         "are met. Facts are evidence, read-only. Each has a key, a rating, its evidence sentence and a cost per month where it has one. " +
-        `Rated with the app's documented default cut-offs. Worst first; up to ${DEFAULT_FACTS} by default (count says how many there are), sentences trimmed to ${MAX_FACT_TEXT} characters.`,
+        `Rated with the workspace's analysis assumptions (the documented defaults until changed in Settings). Worst first; up to ${DEFAULT_FACTS} by default (count says how many there are), sentences trimmed to ${MAX_FACT_TEXT} characters.`,
       inputSchema: {
         process: processArg,
         workspace: workspaceArg,
