@@ -31,7 +31,7 @@ import { ClientHealthBenchmark, GroupFields } from "@/app/w/[slug]/settings/clie
 import { ClientMore, type ClientOps, type ClientsSettingsProps } from "@/app/w/[slug]/settings/clients-settings";
 import { saveClientAssignment, saveClientField, saveClientServices } from "@/app/w/[slug]/settings/client-actions";
 import { addNamedClient, addTierAction, removeTierAction, saveClientLookedAfter, saveSetupField } from "@/app/w/[slug]/settings/setup-actions";
-import { SelectField } from "@/components/fields";
+import { NumberField, SelectField } from "@/components/fields";
 import { HelpLabel } from "@/components/help";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -366,6 +366,58 @@ function HelpLabelDot() {
 
 type ClientView = SetupClient & { departmentId: string | null; tierId: string | null; primary: string | null };
 
+/** The deliverables a client row already has a column for; the rest of the department's are under More (`ClientOwnWork`). */
+const ROW_FIELDS = new Set<TierField>(["channels", "meetings", "adhoc_chance", "adhoc_requests"]);
+
+/**
+ * A named client's own deliverables (the department's other tier columns: words, links and tech hours, or builds and creative sets) and
+ * effort factor, under More. Blank uses the tier's value, shown greyed; the engine reads them as the client's overrides.
+ */
+function ClientOwnWork({ setup, client: c, tierService }: { setup: CapacitySetup; client: ClientView; tierService: Map<string, SetupService> }) {
+  const dept = setup.departments.find((d) => d.id === c.departmentId);
+  const svc = c.primary ? tierService.get(c.primary) : undefined;
+  const fields = (dept ? tierFieldsFor(dept) : []).filter((f) => !ROW_FIELDS.has(f)) as ("words" | "links" | "tech_hours" | "builds" | "creative_sets")[];
+  const key = { id: c.id };
+  const tierValue = (f: (typeof fields)[number]) => {
+    const v = svc ? svc[f] : null;
+    return v === null || v === undefined ? undefined : `${Math.round(v * 100) / 100} (tier)`;
+  };
+  return (
+    <div className="grid gap-4 px-1 pt-3 pb-2 sm:grid-cols-2 lg:grid-cols-3" data-client-own-work={c.name}>
+      {fields.map((f) => (
+        <NumberField
+          key={f}
+          label={`${FIELD_HELP[f].label} a month`}
+          value={c[f]}
+          save={saver<number | null>("clients", key, f)}
+          optional
+          min={0}
+          max={100_000}
+          step={FIELD_HELP[f].step}
+          placeholder={tierValue(f)}
+          disabled={!setup.canEdit}
+          help={{ description: `${FIELD_HELP[f].description} This client's own number; blank uses the tier's.`, example: FIELD_HELP[f].example }}
+        />
+      ))}
+      <NumberField
+        label="Effort factor"
+        value={c.step_factor}
+        save={saver<number | null>("clients", key, "step_factor")}
+        optional
+        min={0.01}
+        max={20}
+        step={0.1}
+        placeholder="1 (normal)"
+        disabled={!setup.canEdit}
+        help={{
+          description: "How much longer every task for this client takes than for a normal client of the tier. Blank or 1: normal.",
+          example: "1.5: a demanding client whose every task takes half as long again.",
+        }}
+      />
+    </div>
+  );
+}
+
 function NamedClients({ setup, data, roster }: { setup: CapacitySetup; data: WorkspaceSettingsData; roster: Props["roster"] }) {
   const [showInactive, setShowInactive] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
@@ -448,6 +500,7 @@ function NamedClients({ setup, data, roster }: { setup: CapacitySetup; data: Wor
               {open === c.id && roster.clients.some((r) => r.id === c.id) && (
                 <TableRow>
                   <TableCell colSpan={cols} className="bg-panel-2">
+                    <ClientOwnWork setup={setup} client={c} tierService={tierService} />
                     <ClientMore client={roster.clients.find((r) => r.id === c.id)!} {...props} />
                   </TableCell>
                 </TableRow>
