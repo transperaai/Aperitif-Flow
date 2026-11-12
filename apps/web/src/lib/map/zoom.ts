@@ -59,9 +59,9 @@ export function fitViewport(
 }
 
 /** The next zoom after a click on - or +. */
-export function stepZoom(zoom: number, direction: "in" | "out"): number {
+export function stepZoom(zoom: number, direction: "in" | "out", minZoom: number = MIN_ZOOM): number {
   const next = zoom + (direction === "in" ? ZOOM_STEP : -ZOOM_STEP);
-  return Math.round(clamp(next, MIN_ZOOM, MAX_ZOOM) * 100) / 100;
+  return Math.round(clamp(next, minZoom, MAX_ZOOM) * 100) / 100;
 }
 
 /** "85%". */

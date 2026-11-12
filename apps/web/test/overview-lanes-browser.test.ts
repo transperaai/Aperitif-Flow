@@ -138,6 +138,19 @@ describe("department lanes on the Overview company map", () => {
     await page.close();
   }, 120_000);
 
+  it("opens with every process expanded, and Collapse all closes them", async () => {
+    const { page, errors } = await mount(data);
+    // Every process card is an open group from the start: the whole business shows at once, in its lanes.
+    const open = await page.locator("[data-company-map] [data-group='open']").count();
+    expect(open).toBeGreaterThanOrEqual(data.parts.length);
+    expect(await page.locator("[data-company-map] [data-group='closed']").count()).toBe(0);
+    await page.getByRole("button", { name: "Collapse all" }).click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-company-map] [data-group='open']").length === 0);
+    expect(await page.locator("[data-company-map] [data-group='closed']").count()).toBeGreaterThanOrEqual(data.parts.length);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 120_000);
+
   it("moves a card to another lane when its department is changed, and keeps the lanes in Fit", async () => {
     const seoProcess = data.parts.find((p) => data.laneInput.links.some((l) => l.process_id === p.process.id));
     expect(seoProcess).toBeTruthy();

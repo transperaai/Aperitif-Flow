@@ -1462,6 +1462,8 @@ interface CanvasProps {
   emptyAction?: ReactNode;
   /** The wheel zooms the map. Default: on an editable map only (a read-only map usually sits in a page that scrolls). */
   wheelZoom?: boolean;
+  /** The lowest zoom: what Fit and the - button go down to. Default MIN_ZOOM (30%); the company map, opened in full, goes lower. */
+  minZoom?: number;
 }
 
 export function ProcessCanvas(props: CanvasProps) {
@@ -1524,6 +1526,7 @@ function Canvas({
   refitOn,
   emptyAction,
   wheelZoom,
+  minZoom: zoomFloor = MIN_ZOOM,
   toolbarStart,
 }: CanvasProps) {
   const editable = editor !== null;
@@ -2252,7 +2255,7 @@ function Canvas({
       if (!all.length || !panel.width) return;
       // The Fit button frames every node, however small that makes them; the first framing keeps the focus and the 70% floor.
       const wanted = !everything && focus?.length ? all.filter((n) => focus.includes(n.id)) : [];
-      const minZoom = everything ? MIN_ZOOM : undefined;
+      const minZoom = everything ? zoomFloor : undefined;
       let bounds = flow.getNodesBounds(wanted.length ? wanted : all);
       // Room around what is framed, so a step or two is seen in its surroundings and not blown up to fill the panel.
       if (wanted.length) bounds = { x: bounds.x - 260, y: bounds.y - 140, width: bounds.width + 520, height: bounds.height + 280 };
@@ -2276,7 +2279,7 @@ function Canvas({
       void flow.setViewport(fitViewport(bounds, { width: panel.width, height: panelHeight }, pad, minZoom, fullscreen), animate ? { duration: 200 } : undefined);
       setTimeout(measureOverflow, animate ? 260 : 20);
     },
-    [flow, lanes, editable, showPlayback, controls, heightMode, fullscreen, measureOverflow, focus],
+    [flow, lanes, editable, showPlayback, controls, heightMode, fullscreen, measureOverflow, focus, zoomFloor],
   );
   const fitRef = useRef(fit);
   useEffect(() => {
@@ -2318,7 +2321,7 @@ function Canvas({
   }, [refitKey]);
   const zoomBy = (direction: "in" | "out") => {
     handZoomed.current = true;
-    void flow.zoomTo(stepZoom(flow.getViewport().zoom, direction), { duration: 150 });
+    void flow.zoomTo(stepZoom(flow.getViewport().zoom, direction, zoomFloor), { duration: 150 });
   };
   const fitByHand = () => {
     handZoomed.current = false;
@@ -2588,7 +2591,7 @@ function Canvas({
             // A read-only map sits in a page that scrolls: the wheel scrolls the page, and the map is dragged or zoomed with its buttons.
             zoomOnScroll={wheelZoom ?? editable}
             preventScrolling={wheelZoom ?? editable}
-            minZoom={0.3}
+            minZoom={zoomFloor}
             maxZoom={1.8}
             proOptions={PRO_OPTIONS}
           >
