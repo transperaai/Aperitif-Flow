@@ -116,6 +116,34 @@ export async function saveOvertimeCap(workspaceId: string, base: number | null, 
 }
 
 /**
+ * What an overtime hour costs, as a multiple of the normal hourly rate (customisability audit 13 and 19): 0 (unpaid) to 5; null
+ * restores the default (1, the normal rate). The database checks the same range (`workspaces_overtime_pay_factor`). Refreshes on a
+ * save: the forecast's profit reads it.
+ */
+export async function saveOvertimePayFactor(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const factor = (v: unknown) => v === null || (number(v) && (v as number) >= 0 && (v as number) <= 5);
+  if (!isId(workspaceId) || !factor(value) || !(base === null || isFiniteNumber(base))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.overtime_pay_factor", base, value);
+  if (out.status === "saved") refresh();
+  return out;
+}
+
+/**
+ * Employer on-costs (super, payroll tax, insurance) as a share of employees' pay (customisability audit 21): 0 to 1; null restores
+ * the default (none). Contractors never carry them. The database checks the same range (`workspaces_employer_on_costs`). Refreshes
+ * on a save: the forecast's profit reads it.
+ */
+export async function saveEmployerOnCosts(workspaceId: string, base: number | null, value: number | null): Promise<SaveOutcome<number | null>> {
+  const share = (v: unknown) => v === null || (number(v) && (v as number) >= 0 && (v as number) <= 1);
+  if (!isId(workspaceId) || !share(value) || !(base === null || isFiniteNumber(base))) return invalid;
+  if (!(await signedIn())) return signedOut;
+  const out = await saveField("workspaces", { id: workspaceId }, "settings.employer_on_costs", base, value);
+  if (out.status === "saved") refresh();
+  return out;
+}
+
+/**
  * Fixed costs a month (rent, tools, insurance), in the workspace currency (sandbox phase 2): a number from 0 to 100,000,000, or
  * null to remove it. The database checks the same range (`workspaces_overhead_monthly`). Refreshes on a save: the forecast reads it.
  */

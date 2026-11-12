@@ -55,6 +55,11 @@ const HELP = {
   teamTime: { label: "Team time", description: "The share of their hours kept for leading, mentoring and reviews. The rest is available for client work.", example: "Laura 35%: about 13 of her 38 hours go on leading the team." },
   salary: { label: "Salary a month", description: "What they cost each month. DLER (direct labour expense ratio) counts salaries; directors, managers and contractors are not counted.", example: "SEO Manager: 7,500 a month." },
   label: { label: "Label", description: "Contractor or offshore. Contractors aren't in DLER; offshore people are labelled in reports.", example: "Tonie: offshore." },
+  paidFor: {
+    label: "Paid for",
+    description: "What profit counts as their pay. Contracted hours: every hour of their week, leave included, as for staff. Hours worked: only the hours they actually work, up to their week, with no paid leave. Blank: hours worked for a contractor, contracted hours for everyone else.",
+    example: "A freelancer on 20 hours a week who bills only the hours they put in: hours worked.",
+  },
   servesTiers: { label: "Serves tiers", description: "The tiers this person can look after. New clients are placed with someone who serves the tier. Nothing ticked: every tier.", example: "Karl serves T1, T2 and T3; Khaselyn only T3." },
   named: { label: "Named clients", description: "Named clients this person looks after, from the Tiers & clients page. Read only.", example: "Laura: Harbourline Group, Meridian Finance." },
   roleName: { label: "Role", description: "A kind of work. A step that needs a role can be done by anyone who has it.", example: "SEO Director." },
@@ -478,6 +483,20 @@ function PersonPanel({
               { value: "offshore", label: "Offshore" },
             ]}
           />
+          {showSalary && (
+            <SelectField
+              label="Paid for"
+              value={p.paid_for ?? null}
+              save={field("people", key, "paid_for")}
+              disabled={!canEdit}
+              noneLabel={p.label === "contractor" ? "Default: hours worked" : "Default: contracted hours"}
+              help={HELP.paidFor}
+              options={[
+                { value: "contracted", label: "Contracted hours" },
+                { value: "worked", label: "Hours worked" },
+              ]}
+            />
+          )}
         </div>
       </Group>
 
