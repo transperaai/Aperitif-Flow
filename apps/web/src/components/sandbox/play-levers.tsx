@@ -65,7 +65,7 @@ export function leverChanges(p: PlayState): number {
 
 /** The Client service group's health rules, as the levers word them. */
 const HEALTH_LEVERS: Record<PlayHealthRule, { label: string; title: string }> = {
-  initial: { label: "Starting health", title: "Health a new client starts at, out of 100" },
+  initial: { label: "Starting health", title: "Health a client starts at when it has none of its own (new wins, counted clients and named clients with no health set), out of 100" },
   recover: { label: "Task on time", title: "Health a client gains for each task done on time" },
   late_penalty: { label: "Task late", title: "Health a client loses for each late task" },
   missed_penalty: { label: "Task missed", title: "Health a client loses for each missed task" },

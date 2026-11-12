@@ -3,6 +3,7 @@ import {
   DEFAULT_CHURN_LIMITS,
   DEFAULT_HEALTH_BANDS,
   DEFAULT_RATING_CUTOFFS,
+  applyPatches,
   busyCutoffs,
   busyLine,
   churnLimits,
@@ -20,6 +21,7 @@ import {
   reworkPressure,
   simulate,
   toRatingConfig,
+  withClientGroups,
   type EngineChurnDriver,
   type EngineModel,
 } from "../src";
@@ -156,5 +158,27 @@ describe("the workspace's busy line (finding 2)", () => {
     const set: EngineModel = { ...model, churnLimits: { loadThreshold: 0.7 } };
     expect(rankBottlenecks(set, result).threshold).toBe(0.7);
     expect(rankBottlenecks(set, result, { threshold: 0.9 }).threshold).toBe(0.9);
+  });
+});
+
+describe("counted clients with no starting health of their own (review: the Starting health lever)", () => {
+  const fromRules = (): EngineModel => {
+    const m = groups();
+    return { ...m, clientGroups: Object.fromEntries(Object.entries(m.clientGroups!).map(([sid, g]) => [sid, { ...g, health: 80, healthFromRules: true }])) };
+  };
+  const startHealths = (m: EngineModel) => Object.values(withClientGroups(m).clients ?? {}).map((c) => c.health);
+
+  it("start at the model's starting health, and follow a change to it", () => {
+    expect(new Set(startHealths(fromRules()))).toEqual(new Set([80]));
+    const { model } = applyPatches(fromRules(), [{ path: "health.initial", op: "set", value: 40 }]);
+    expect(new Set(startHealths(model))).toEqual(new Set([40]));
+    expect(Object.values(model.clientGroups!).every((g) => g.health === 40)).toBe(true);
+  });
+
+  it("a group with its own starting health keeps it", () => {
+    const own = groups();
+    const before = startHealths(own);
+    const { model } = applyPatches(own, [{ path: "health.initial", op: "set", value: 40 }]);
+    expect(startHealths(model)).toEqual(before);
   });
 });

@@ -389,6 +389,12 @@ export interface EngineClientGroup {
   stayFromChurn?: boolean;
   /** Average health at the start, 0-100. */
   health: number;
+  /**
+   * True when the group has no starting health of its own and starts at the model's starting health rule (`health.initial`), as a
+   * named client with no stored health does: a run that changes that rule (Sandbox X1 "Starting health") moves these clients too.
+   * `health` holds the same number for readers of the model.
+   */
+  healthFromRules?: boolean;
 }
 
 export interface EngineStep {

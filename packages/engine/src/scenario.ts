@@ -232,6 +232,8 @@ export function applyPatches(model: EngineModel, patches: readonly ScenarioPatch
         // Acts on the rules in force: the workspace's, or the estimated defaults where it has none.
         const key = HEALTH_RULE_KEYS[target.field];
         m.health = { ...m.health, [key]: next(healthRules(m)[key], 0, MAX_HEALTH_RULE) };
+        // Counted clients with no starting health of their own start at the rule, so they follow it (`healthFromRules`).
+        if (key === "initial") for (const g of Object.values(m.clientGroups ?? {})) if (g.healthFromRules) g.health = healthRules(m).initial;
         return;
       }
       case "services": {

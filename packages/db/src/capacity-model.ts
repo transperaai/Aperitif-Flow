@@ -217,6 +217,8 @@ export function engineTierClientGroups(
       // A tier with no expected tenure entered: its counted clients' stay is worked out from churn too, and follows a churn change.
       ...(!(row && !isTier) && sv.tenureFromChurn ? { stayFromChurn: true } : {}),
       health: row ? Number(row.starting_health) : initialHealth,
+      // No row: the workspace's starting health, and a run that changes that rule (Sandbox "Starting health") moves them too.
+      ...(row ? {} : { healthFromRules: true }),
     };
   }
   const counted = Object.values(groups).reduce((a, g) => a + Math.round(g.count), 0);
