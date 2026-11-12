@@ -13,11 +13,12 @@
 //   people.reserved_share                   EnginePerson.reservedShare (left out when 0)
 //   people.ramp, else settings.ramp_default EnginePerson.ramp (only a person whose start date falls after the run's start)
 //   person_tiers                            EnginePerson.tiers (tier keys; no rows: every tier)
+//   people.label 'contractor', paid_for     EnginePerson.contractor (no employer on-costs), paidFor (pay.ts in the engine)
 //   roles.unit                              EngineRole.unit.label
 //                                           EngineModel.placeNewClients = "least-busy"
 //
 // Not mapped, here (P4's, in parallel): step fields (split, tier multiplier, `toClientManager`, sources) and driver recurrences.
-// Not an engine input at all: tiers.both_count, services.price_rise_churn (P7), roles.line / rule_of_thumb, salary, labels.
+// Not an engine input at all: tiers.both_count, services.price_rise_churn (P7), roles.line / rule_of_thumb, salary, the offshore label.
 
 import type { EngineClient, EngineClientGroup, EnginePerson, EngineRole, EngineService, ClientOverrides, TierDeliverables } from "@transpera-flow/engine";
 import type { CapacityClientRow, CapacityDeliverableColumns, CapacityInputs, CapacityServiceRow, ClientGroupRow, ProcessBundle } from "./types";
@@ -148,8 +149,8 @@ export function enginePersonCapacity(
   ctx: TierContext,
   personId: string,
   options: { rampStarts: boolean; rampDefault: readonly number[] | null | undefined; serviceIds: ReadonlySet<string> },
-): Partial<Pick<EnginePerson, "reservedShare" | "ramp" | "tiers" | "portfolio">> {
-  const out: Partial<Pick<EnginePerson, "reservedShare" | "ramp" | "tiers" | "portfolio">> = {};
+): Partial<Pick<EnginePerson, "reservedShare" | "ramp" | "tiers" | "portfolio" | "contractor" | "paidFor">> {
+  const out: Partial<Pick<EnginePerson, "reservedShare" | "ramp" | "tiers" | "portfolio" | "contractor" | "paidFor">> = {};
   const row = ctx.cap.people.find((p) => p.id === personId);
   const reserved = finite(row?.reserved_share);
   if (reserved !== null && reserved > 0) out.reservedShare = reserved;
@@ -169,6 +170,9 @@ export function enginePersonCapacity(
     if (options.serviceIds.has(r.service_id) && ctx.tierServices.has(r.service_id) && Number.isFinite(r.client_count) && r.client_count > 0) portfolio[r.service_id] = r.client_count;
   }
   if (Object.keys(portfolio).length) out.portfolio = portfolio;
+  // How their pay is costed (the engine's pay.ts): a contractor carries no on-costs and, unless set otherwise, is paid for hours worked.
+  if (row?.label === "contractor") out.contractor = true;
+  if (row?.paid_for === "contracted" || row?.paid_for === "worked") out.paidFor = row.paid_for;
   return out;
 }
 

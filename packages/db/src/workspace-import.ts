@@ -84,7 +84,7 @@ export const IMPORT_COLUMNS = {
   ),
   people: cols(
     "people", "id", "name", "active", "capacity_hours_week", "cost_rate", "end_date", "fte", "notes", "start_date", "provenance", "created_at",
-    "reserved_share", "salary_monthly", "label", "ramp",
+    "reserved_share", "salary_monthly", "label", "ramp", "paid_for",
   ),
   person_tiers: cols("person_tiers", "person_id", "tier_id", "created_at"),
   person_portfolio: cols("person_portfolio", "person_id", "service_id", "client_count", "provenance", "created_at"),
@@ -143,6 +143,8 @@ const SETTING_KEYS: Record<keyof WorkspaceSettings, true> = {
   retainer: true,
   availability_floor: true,
   overtime_cap: true,
+  overtime_pay_factor: true,
+  employer_on_costs: true,
   health_recover: true,
   health_late_penalty: true,
   health_missed_penalty: true,

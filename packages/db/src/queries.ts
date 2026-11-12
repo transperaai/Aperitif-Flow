@@ -260,7 +260,7 @@ export async function loadCapacityInputs(db: Db, workspaceId: string): Promise<C
       .orderBy("id")
       .execute(),
     db.selectFrom("roles").select(["id", "kind", "unit"]).where("workspace_id", "=", workspaceId).orderBy("id").execute(),
-    db.selectFrom("people").select(["id", "reserved_share", "ramp"]).where("workspace_id", "=", workspaceId).orderBy("id").execute(),
+    db.selectFrom("people").select(["id", "reserved_share", "ramp", "label", "paid_for"]).where("workspace_id", "=", workspaceId).orderBy("id").execute(),
     db.selectFrom("person_tiers").select(["person_id", "tier_id"]).where("workspace_id", "=", workspaceId).execute(),
     db.selectFrom("person_portfolio").select(["person_id", "service_id", "client_count"]).where("workspace_id", "=", workspaceId).execute(),
   ]);
@@ -298,6 +298,8 @@ export async function loadCapacityInputs(db: Db, workspaceId: string): Promise<C
       id: p.id,
       reserved_share: Number(p.reserved_share),
       ramp: Array.isArray(p.ramp) && p.ramp.every((x) => typeof x === "number") ? (p.ramp as number[]) : null,
+      label: p.label,
+      paid_for: p.paid_for,
     })),
     personTiers,
     portfolio: portfolio.map((r) => ({ person_id: r.person_id, service_id: r.service_id, client_count: Number(r.client_count) })),

@@ -360,6 +360,10 @@ export interface People {
   label: string | null;
   name: string;
   notes: string | null;
+  /**
+   * contracted: paid for contracted hours, leave included; worked: paid for hours worked, no paid leave. Null: worked for a contractor, contracted otherwise.
+   */
+  paid_for: string | null;
   provenance: Generated<Json>;
   ramp: Json | null;
   reserved_share: Generated<Numeric>;
