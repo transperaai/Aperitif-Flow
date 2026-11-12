@@ -9,13 +9,13 @@
 import { ChevronRight, Users } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { missingForCapacity, tierDiscrepancies, type CapacitySetup, type SetupPerson, type SetupRole } from "@transpera-flow/db";
+import { DEFAULT_HIRING_DELAY_MONTHS, DEFAULT_RAMP, formatRamp, missingForCapacity, tierDiscrepancies, type CapacitySetup, type SetupPerson, type SetupRole } from "@transpera-flow/db";
 import { ClearFilters, EmptyState, FilterMenu, Toolbar, ToolbarSearch } from "@/components/page-kit";
 import { SettingsSection } from "@/app/w/[slug]/settings/section";
 import { AddRole, RoleMore } from "@/app/w/[slug]/settings/roles-settings";
 import { AddPerson, PersonMore } from "@/app/w/[slug]/settings/people-settings";
-import { saveRoleField } from "@/app/w/[slug]/settings/actions";
-import { savePersonTiers, savePortfolioCount, saveSetupField } from "@/app/w/[slug]/settings/setup-actions";
+import { saveHiringDelay, saveRoleField } from "@/app/w/[slug]/settings/actions";
+import { savePersonRamp, savePersonTiers, savePortfolioCount, saveRampDefault, saveSetupField } from "@/app/w/[slug]/settings/setup-actions";
 import { NumberField, SelectField, TextField, type FieldHelp } from "@/components/fields";
 import { Help } from "@/components/help";
 import { PhoneReadOnly } from "@/components/shell/phone-read-only";
@@ -75,8 +75,56 @@ export function PeopleAndRoles({ setup, data }: { setup: CapacitySetup; data: Wo
     <div className="flex min-w-0 flex-col gap-6" data-setup="people">
       <PeopleList setup={setup} data={data} />
       <RolesList setup={setup} data={data} />
+      <NewStarters setup={setup} data={data} />
       <SharedTeams setup={setup} />
     </div>
+  );
+}
+
+const DEFAULT_RAMP_TEXT = formatRamp(DEFAULT_RAMP);
+
+/**
+ * New starters: the workspace's months to hire (the base the market stretches for "start hiring by" on the Overview and in the Sandbox) and the
+ * ramp every new person takes unless they have their own (Sandbox hires and planned starters included).
+ */
+function NewStarters({ setup, data }: { setup: CapacitySetup; data: WorkspaceSettingsData }) {
+  const ownersOnly = data.canManage ? undefined : "Only Agency admins can change this.";
+  return (
+    <SettingsSection id="new-starters" title="New starters" description="How long hiring takes, and how quickly a new person gets up to speed.">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <NumberField
+          label="Months to hire"
+          value={setup.hiringDelayMonths ?? null}
+          save={(base, next) => saveHiringDelay(setup.workspaceId, base, next)}
+          optional
+          unit="months"
+          min={0}
+          max={24}
+          step={1}
+          placeholder={`${DEFAULT_HIRING_DELAY_MONTHS} (default)`}
+          disabled={!data.canManage}
+          hint={ownersOnly ?? "Leave blank for the default."}
+          help={{
+            description:
+              "Months from deciding to hire to the new person starting. “Start hiring by” on the Overview and in the Sandbox allows this long, stretched when the market makes hiring slower, and Sandbox scenario hires start this much later.",
+            example: "3: a team that will be full in June should start hiring in March.",
+          }}
+        />
+        <TextField
+          label="New starter ramp"
+          value={formatRamp(setup.rampDefaultStored ?? null)}
+          save={(base, next) => saveRampDefault(setup.workspaceId, base, next)}
+          optional
+          disabled={!data.canManage}
+          hint={ownersOnly ?? `Blank: ${DEFAULT_RAMP_TEXT} (the default).`}
+          help={{
+            description:
+              "How much of a full week a new person manages in each of their first months, in percent, then full speed. Used for planned starters and Sandbox hires. A person's own ramp, in their panel, replaces it.",
+            example: "50, 75: half speed in the first month, three quarters in the second, then full.",
+          }}
+        />
+      </div>
+    </SettingsSection>
   );
 }
 
@@ -541,6 +589,18 @@ function PersonPanel({
       )}
 
       <Group id="time" title="Time">
+        <TextField
+          label="Ramp"
+          value={formatRamp(p.ramp)}
+          save={(base, next) => savePersonRamp(p.id, base, next)}
+          optional
+          disabled={!canEdit}
+          hint={`Blank: the new starter ramp (${formatRamp(setup.rampDefault)}).`}
+          help={{
+            description: "How much of a full week this person manages in each month from their start date, in percent, then full speed. Blank: the workspace's new starter ramp.",
+            example: "An experienced contractor at full speed from day one: 100.",
+          }}
+        />
         {detail && <PersonMore person={detail} data={data} part="time" compact />}
       </Group>
 
