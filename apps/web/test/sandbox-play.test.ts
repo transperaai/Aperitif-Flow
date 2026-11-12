@@ -293,3 +293,48 @@ describe("the automations and augmentations a map version holds (D53)", () => {
     expect(last[0]!.startMonth).toBe(6);
   });
 });
+
+describe("costs (customisability audit 4 and 6)", () => {
+  const roleIds = setup.roles.filter((r) => r.active !== false).map((r) => r.id);
+
+  it("overheads a month: add to today's or set, from a month (C2); 0 added or nothing set is no change", () => {
+    expect(playIsDefault(play({ overheads: 0 }))).toBe(true);
+    expect(playIsDefault(play({ overheads: null, overheadsOp: "set" }))).toBe(true);
+    expect(playChanges(play({ overheads: 0 }), ctx)).toEqual([]);
+    expect(playIsDefault(play({ overheads: 2000 }))).toBe(false);
+    expect(playChanges(play({ overheads: 2000, overheadsFrom: 3 }), ctx)).toMatchObject([{ lever: "C2", target: null, op: "add", value: 2000, from: "2027-02" }]);
+    expect(playChanges(play({ overheads: 0, overheadsOp: "set", overheadsFrom: 0 }), ctx)).toMatchObject([{ lever: "C2", op: "set", value: 0, from: "2026-11" }]);
+  });
+
+  it("pay change %: a multiple of role cost from a month (C1), for one role or one change per role for everyone", () => {
+    const all = playChanges(play({ pay: 10, payFrom: 6 }), ctx);
+    expect(all.map((c) => c.target)).toEqual(roleIds);
+    for (const c of all) expect(c).toMatchObject({ lever: "C1", op: "multiply", value: 1.1, from: "2027-05" });
+    expect(playChanges(play({ pay: -5, payRole: roleIds[0]! }), ctx)).toMatchObject([{ lever: "C1", target: roleIds[0], op: "multiply", value: 0.95 }]);
+    expect(playIsDefault(play({ pay: 3 }))).toBe(false);
+  });
+
+  it("never for someone who can't see pay", () => {
+    expect(playChanges(play({ pay: 10, overheads: 2000 }), { ...ctx, setup: { ...setup, payHidden: true } })).toEqual([]);
+  });
+
+  it("run: pay from a month scales labour from that month, even for a role that costs 0 an hour, and overheads add on", () => {
+    const bundle = demoForecastBundle();
+    const demoCtx: PlayContext = { ...ctx, startDate: DEMO_FORECAST_START, setup: { ...setup, roles: bundle.roles.map((r) => ({ ...setup.roles[0]!, id: r.id, name: r.name, active: true })) } };
+    const c = playChanges(play({ pay: 10, payFrom: 3, overheads: 2000, overheadsFrom: 3 }), demoCtx);
+    expect(c.filter((x) => x.lever === "C1")).toHaveLength(bundle.roles.length);
+    const eff = c.map((change) => ({ change, scenarioId: "play", scenarioName: "Free play", inherited: false }));
+    const prepared = prepareScenario(bundle, eff, [], 12, DEMO_FORECAST_START, { pair: false });
+    expect(prepared.error).toBeNull();
+    expect(prepared.problems).toEqual([]);
+    const changed = prepared.segments[0]!.model;
+    const base = prepareScenario(bundle, [], [], 12, DEMO_FORECAST_START, { pair: false }).segments[0]!.model;
+    const a = simulate(base, 2, 1, { monthly: true }).monthly!.money!;
+    const b = simulate(changed, 2, 1, { monthly: true }).monthly!.money!;
+    expect(a.labour[5]!).toBeGreaterThan(0);
+    expect(b.labour[1]).toBeCloseTo(a.labour[1]!, 6);
+    expect(b.labour[5]! / a.labour[5]!).toBeCloseTo(1.1, 6);
+    expect(b.overheads[5]! - a.overheads[5]!).toBeCloseTo(2000, 6);
+    expect(b.overheads[1]).toBeCloseTo(a.overheads[1]!, 6);
+  });
+});

@@ -8,6 +8,9 @@
 //        Churn %                                    B3 (base churn, a multiple, whole run)
 //        Prices, change % by tier, from a month     B5 (price rise) per service of the tier
 //        Someone leaves in a month                  D2        Hire a role from a month   D1 (one FTE)
+//        Costs: overheads a month, set or add       C2 (a channel from a month; hidden, and never sent, when pay is hidden)
+//        Costs: pay change %, a role or everyone    C1 (role cost, a multiple from a month, one change per role; the engine scales a
+//                                                   person's own rate by it too)
 //        Map version of a process from a month      E6 (a solution goes live from a month; spliced, so a switch part-way through a run works). The
 //                                                   version's own step changes (automations and augmentations, D53) start in that month (`prepareScenario`).
 //   2. `applyPlay` does what the registry has no lever for, as edits to each run's model (`EngineModel`):
@@ -63,6 +66,14 @@ export interface PlayState {
   lose: { id: string; month: number }[];
   /** Map versions: process id -> a solution of that process live from a month. A process not listed runs today's map. */
   versions: Record<string, { solution: string; month: number }>;
+  /** Overheads a month from `overheadsFrom`: added to today's ("add"; 0 is no change) or in place of them ("set"; null is no change). */
+  overheads: number | null;
+  overheadsOp: "add" | "set";
+  overheadsFrom: number;
+  /** Percent change to pay from `payFrom`, for one role id or "all" roles. */
+  pay: number;
+  payRole: "all" | string;
+  payFrom: number;
 }
 
 export function defaultPlay(): PlayState {
@@ -84,15 +95,25 @@ export function defaultPlay(): PlayState {
     hires: [],
     lose: [],
     versions: {},
+    overheads: null,
+    overheadsOp: "add",
+    overheadsFrom: 0,
+    pay: 0,
+    payRole: "all",
+    payFrom: 0,
   };
 }
+
+/** Whether the overheads lever changes anything: an amount to set, or a non-zero amount to add. */
+export const overheadsMoved = (p: Pick<PlayState, "overheads" | "overheadsOp">): boolean =>
+  typeof p.overheads === "number" && Number.isFinite(p.overheads) && (p.overheadsOp === "set" || p.overheads !== 0);
 
 /** Whether no lever has been moved: the run is today's path. */
 export function playIsDefault(p: PlayState): boolean {
   const d = defaultPlay();
   return (
     p.market === d.market && !p.leads && !p.win && !p.churn && !Object.values(p.add).some((n) => n > 0) && !p.price && !p.leavers.length && !p.hires.length && !p.lose.length &&
-    !Object.keys(p.versions).length
+    !Object.keys(p.versions).length && !overheadsMoved(p) && !p.pay
   );
 }
 
@@ -100,7 +121,7 @@ export function playIsDefault(p: PlayState): boolean {
 export interface PlayContext {
   /** The ISO date the run starts on (its first month is this date's month). */
   startDate: string;
-  setup: Pick<CapacitySetup, "departments" | "tiers" | "services" | "groups" | "clients" | "portfolio" | "rampDefault">;
+  setup: Pick<CapacitySetup, "departments" | "tiers" | "services" | "groups" | "clients" | "portfolio" | "rampDefault"> & Partial<Pick<CapacitySetup, "roles" | "payHidden">>;
   /** The issue each solution is for (by solution id), put on its step changes in the engine's input (reporting only). */
   issueOf?: (solutionId: string) => string | undefined;
   /** A department's usual win mix: its tier services' share of wins, by service id (`winMix`). */
@@ -241,6 +262,17 @@ export function playChanges(play: PlayState, ctx: Pick<PlayContext, "startDate" 
   play.leavers.forEach((l, i) => out.push({ id: playChangeId("D2", i), lever: "D2", target: l.person, op: "set", value: 0, from: at(l.month) }));
   play.hires.forEach((h, i) => out.push({ id: playChangeId("D1", i), lever: "D1", target: h.role, op: "set", value: 1, from: at(h.month) }));
   Object.entries(play.versions).forEach(([, v], i) => out.push({ id: playChangeId("E6", i), lever: "E6", target: v.solution, op: "set", value: 1, from: at(v.month) }));
+  // Costs: never for someone who can't see pay (the levers are hidden from them too).
+  if (!ctx.setup.payHidden) {
+    if (overheadsMoved(play)) {
+      out.push({ id: playChangeId("C2"), lever: "C2", target: null, op: play.overheadsOp === "set" ? "set" : "add", value: round(Math.max(play.overheadsOp === "set" ? 0 : -1e8, Math.min(1e8, play.overheads!))), from: at(play.overheadsFrom) });
+    }
+    const pay = Number(play.pay) || 0;
+    if (pay) {
+      const roles = play.payRole === "all" ? (ctx.setup.roles ?? []).filter((r) => r.active !== false).map((r) => r.id) : [play.payRole];
+      roles.forEach((role, i) => out.push({ id: playChangeId("C1", i), lever: "C1", target: role, op: "multiply", value: round(Math.max(0, 1 + pay / 100)), from: at(play.payFrom) }));
+    }
+  }
   return out;
 }
 

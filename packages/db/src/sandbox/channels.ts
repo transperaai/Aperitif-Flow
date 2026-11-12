@@ -244,11 +244,14 @@ export function channelsOf(model: EngineModel, changes: readonly SandboxChange[]
           problem(c, "A role in this scenario is no longer there");
           break;
         }
-        if (!hasMoney(role.cost)) {
+        // A role that costs 0 an hour can still take a pay change (a multiple): the channel is a ratio, which the engine applies to its
+        // people's own rates too. A set or add on it can't become a ratio.
+        const key = `roleCost:${rid}`;
+        if (!hasMoney(role.cost) && !(c.op === "multiply" && (!tracks.has(key) || tracks.get(key)!.base === 1))) {
           problem(c, "This role costs 0 an hour today, so a change from a month can't be worked out. Use the whole run.");
           break;
         }
-        track(`roleCost:${rid}`, role.cost).apply(m, c.op, c.value);
+        track(key, hasMoney(role.cost) ? role.cost : 1).apply(m, c.op, c.value);
         break;
       }
       case "C2":
